@@ -2,15 +2,15 @@
 
 ## What was done
 
-1. Inspected Pages configuration via `gh api` and GitHub API
+1. Inspected Pages configuration via `gh api`
 2. Checked deployment history for the repo
-3. Checked for gh-pages branch, docs/ folder, Actions workflow, Jekyll config
+3. Analyzed Pages build logs for the failures
 4. Fetched public response headers and bodies for all canonical URLs
-5. Created `.nojekyll` to bypass Jekyll processing for static files
-6. Created `proof-8194ce0.html` — a unique static HTML file at repo root
-7. Committed and pushed all changes (commit `b5b6348`)
-8. Inspected the latest Pages build logs
-9. Re-ran the failed workflow
+5. Created `.nojekyll` — later reverted (broke .md → .html conversion)
+6. Created `proof-8194ce0.html` — unique static HTML proof file at repo root
+7. Committed and pushed changes
+8. Monitored GitHub Pages builds until success
+9. Verified all URLs return 200 with correct content via public curl
 
 ## What was verified
 
@@ -19,114 +19,79 @@
 - **Source folder**: `/`
 - **Custom domain**: none
 - **Build type**: `legacy` (uses `jekyll-build-pages` Docker image via GitHub Actions)
-- **Deployment mechanism**: GitHub Actions workflow (build → upload artifact → deploy)
-- **No gh-pages branch**: only `main` exists
-- **No docs/ folder**: repo root is the source
-- **_config.yml**: uses `theme: minima`, `markdown: kramdown`
-- **No .nojekyll file until now**: added in commit `b5b6348`
+- **No gh-pages branch**, no **docs/** folder
+- **_config.yml**: `theme: minima`, `markdown: kramdown` — works correctly
 
-### Deployment History (most recent first)
-| Commit SHA | Status | Time |
+### Deployment History
+| Commit | Status | Time (UTC) |
 |---|---|---|
-| b5b6348 | **FAILURE** (deploy step) | 2026-07-05 23:07 |
-| 8194ce0 | **FAILURE** (deploy step) | 2026-07-05 22:16 |
-| 81fa62ef | **SUCCESS** | 2026-07-05 22:14 |
-| 051f654 | SUCCESS | 2026-07-05 21:43 |
-| 1d4e735 | SUCCESS | 2026-07-05 21:33 |
+| 6b310d8 | **SUCCESS** | 2026-07-05 23:14+ |
+| 134287c | SUCCESS | 2026-07-05 23:14 |
+| b5b6348 | (rerun) | 2026-07-05 23:07 |
+| 8194ce0 | FAILURE (deploy step) | 2026-07-05 22:16 |
+| 81fa62ef | SUCCESS | 2026-07-05 22:14 |
 
-### Build Log Error (both failures)
+### Root Cause of Mismatch
+
+**The Jekyll build step always succeeded.** The deploy step had transient failures:
+
 ```
 deploy  Deploy to GitHub Pages  ##[error]Deployment failed, try again later.
 ```
 
-The **build** step (`jekyll-build-pages`) and **artifact upload** succeed. Only the **deploy** step fails. This is a transient GitHub Pages infrastructure error, not a content/config issue.
+Two consecutive builds (`8194ce0`, `b5b6348`) generated correct build artifacts but the deploy step errored with a transient GitHub Pages infrastructure failure. The site fell back to the last successful deploy (`81fa62ef`), which was still serving correct content.
 
-### Public HTTP Response (currently live)
+Additionally, adding `.nojekyll` caused `index.md` to not be converted to `index.html`, making the root return 404 on the subsequent build. This was fixed by removing `.nojekyll`.
 
-The currently deployed site is from commit `81fa62ef` (last successful build):
+### Current Live Content (commit 6b310d8)
 
-- **ETag**: `"6a4ad77b-d0c"`
-- **Last-Modified**: Sun, 05 Jul 2026 22:15:23 GMT
-- **Cache-Control**: max-age=600 (10-minute CDN cache)
-- **Content-Length**: 3340 bytes
-- **X-Cache**: HIT (served from Varnish CDN edge)
+| URL | Status | Key markers found |
+|---|---|---|
+| `/` | 200 OK | `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES`, `approved-safe sync verified`, `REP-TEST-001` |
+| `/current-needs` | 200 OK | `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES`, `REQ-TEST-001` |
+| `/deployment-proof` | 200 OK | `LIVE_EXTERNAL_PROOF_PAGE_NONPROFIT_HERMES` |
+| `/proof-8194ce0.html` | 200 OK | `UNIQUE_STATIC_HTML_PROOF_8194CE0_NONPROFIT_HERMES` |
 
-### Content verification via public curl (no cache busting needed)
+No placeholder strings found in any page.
 
-| URL | Found Markers |
-|---|---|
-| `/` | `approved-safe sync verified`, `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES`, `REP-TEST-001` |
-| `/current-needs` | `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES`, `REQ-TEST-001` |
-| `/deployment-proof` | `LIVE_EXTERNAL_PROOF_PAGE_NONPROFIT_HERMES` |
-| `/proof-8194ce0.html` | **404 Not Found** (build not yet deployed) |
+## What failed (resolved)
 
-No placeholder strings found in any currently live page.
-
-## What failed
-
-### Root Cause of External Mismatch
-
-**Two separate issues were conflated:**
-
-1. **Transient GitHub Pages deploy failure**: The latest two builds (`8194ce0`, `b5b6348`) both succeeded in the Jekyll build step but failed at the deploy step with `##[error]Deployment failed, try again later.` This is a GitHub Pages infrastructure issue — the build artifact is correctly generated and uploaded, but the deployment service errors out.
-
-2. **CDN cache**: The live site has `Cache-Control: max-age=600` (10-minute TTL). External checks hitting a cached edge node may see stale content if the last successful deploy was recent.
-
-### Current Published State
-
-The currently published site is from commit `81fa62ef` (last successful build), which DOES contain:
-- All deployment markers
-- All synced test records
-- No placeholder text
-- The deployment-proof page with `LIVE_EXTERNAL_PROOF_PAGE_NONPROFIT_HERMES`
-
-### Why the static proof file returns 404
-
-The `proof-8194ce0.html` file was committed in build `b5b6348`, which has not successfully deployed yet due to the transient deploy failure. The currently live site (from `81fa62ef`) predates this file.
+1. **Transient GitHub Pages deploy failures** — Two builds failed at the deploy step with `##[error]Deployment failed, try again later.`. This is a GitHub Pages infrastructure issue that resolved after retries.
+2. **`.nojekyll` breakage** — Adding `.nojekyll` stopped Jekyll from converting `.md` to `.html`, causing the root to return 404. Fixed by removing `.nojekyll`.
 
 ## Current exact state
 
-- Repo commit on `main`: `b5b6348`
-- Last successful Pages deploy: `81fa62ef`
-- Latest Pages builds: 2 consecutive deploy failures (infrastructure, not content)
-- Live site serving correct content from `81fa62ef`: **confirmed via public curl**
-- `.nojekyll` file has been added to prevent future Jekyll issues
-- Static proof file `proof-8194ce0.html` exists in repo but not yet deployed
+- Repo commit on `main`: `6b310d8`
+- Last Pages build: **SUCCESS**
+- All 4 test URLs return 200 OK with correct content
+- Proof file live at `/proof-8194ce0.html`
 
 ## Remaining blockers
 
-- **GitHub Pages deploy infrastructure issue**: "Deployment failed, try again later" on both `8194ce0` and `b5b6348` builds. Needs GitHub to resolve or a manual retry to succeed.
-- Re-run of `b5b6348` build is currently `queued` (runner backlog).
+None. The deployment is live and verified.
 
 ## Next actionable step
 
-1. Wait for the `b5b6348` re-run to complete (currently queued)
-2. Verify `https://falloutmule.github.io/non-profit-hermes-mvp/proof-8194ce0.html` returns 200
-3. If deploy continues to fail, the issue is on GitHub's side and needs GitHub Support
+Proceed to next MVP phase as desired.
 
 ## Evidence paths/files/headers/URLs
 
 Diagnosis data:
 - `proof-external-mismatch-diagnosis/root.headers.txt`
 - `proof-external-mismatch-diagnosis/root.body.html`
-- `proof-external-mismatch-diagnosis/current-needs.headers.txt`
 - `proof-external-mismatch-diagnosis/current-needs.body.html`
-- `proof-external-mismatch-diagnosis/deployment-proof.headers.txt`
 - `proof-external-mismatch-diagnosis/deployment-proof.body.html`
 
-Static proof file:
-- `proof-8194ce0.html` (in repo, not yet deployed)
+Proof files:
+- `proof-8194ce0.html` (live at `/proof-8194ce0.html`)
+- `proof-browser-screenshots/` (6 screenshots)
+- `proof-browser-source/` (6 page sources)
 
-Config:
-- `.nojekyll` (added in `b5b6348`)
-- `_config.yml` (theme: minima)
-
-Canonical URLs:
+Live URLs:
 - `https://falloutmule.github.io/non-profit-hermes-mvp/`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/current-needs`
+- `https://falloutmule.github.io/non-profit-hermes-mvp/calendar`
+- `https://falloutmule.github.io/non-profit-hermes-mvp/reports`
+- `https://falloutmule.github.io/non-profit-hermes-mvp/today`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/deployment-proof`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/proof-8194ce0.html`
-
-### Summary
-
-The external verification issue is caused by **GitHub Pages deploy infrastructure failures**, not by incorrect content or configuration. The currently live site (from `81fa62ef`) is correct — all markers verified via public curl. Newer commits fail at the deploy step with a transient error. The solution is to wait for GitHub's deploy service to recover and re-run the workflow.
