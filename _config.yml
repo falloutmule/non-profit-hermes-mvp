@@ -1,4 +1,5 @@
 title: Non-Profit Hermes MVP
+description: Board-facing nonprofit operations site
+theme: minima
 markdown: kramdown
-remote_theme: null
 plugins: []
