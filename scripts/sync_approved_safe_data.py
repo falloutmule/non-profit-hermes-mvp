@@ -28,15 +28,15 @@ TEST_EVENT_TITLE = "TEST - Non-Profit Hermes Calendar Wiring"
 TEST_EVENT_DESC = "Safe test event for MVP wiring verification."
 
 HEADERS = {
-    "Requests": ["RequestID","DateReceived","Source","SubmittedBy","PersonOrGroup","ContactMethod","NeedCategory","NeedDescription","Quantity","LocationPrivate","LocationPublicSafe","Urgency","NeededBy","ConsentToRecord","ConsentToShare","PrivacyLevel","AssignedTo","Status","NextAction","CalendarEventID","RelatedInventoryItem","Notes","CreatedBy","LastUpdated","SourceMessageLink"],
-    "Donations": ["DonationID","DateOffered","DonorName","DonorContact","DonationType","ItemDescription","Quantity","Condition","PickupOrDropoff","Location","AvailableDate","StorageNeeded","MatchesCurrentNeed","AssignedPickupVolunteer","Status","ReceiptNeeded","ThankYouNeeded","ConsentToPublicThanks","Notes","SourceMessageLink"],
-    "Tasks": ["TaskID","DateCreated","TaskTitle","TaskDescription","Category","Priority","AssignedTo","DueDate","RelatedRequestID","RelatedDonationID","RelatedCalendarEventID","Status","Blocker","NextAction","CompletionReport","LastUpdated"],
-    "Inventory": ["ItemID","ItemName","Category","QuantityOnHand","Unit","MinimumNeeded","StorageLocation","Condition","LastCounted","LastUpdatedBy","NeededThisWeek","PublicNeedAllowed","Notes"],
-    "Reports": ["ReportID","Date","SubmittedBy","ReportType","Summary","PeopleServedEstimate","ItemsDistributed","Incidents","FollowUpsNeeded","SensitiveDetails","PublicSummaryDraft","PrivacyLevel","RelatedTasks","RelatedRequests","RelatedDonations","PhotosAttached","SourceMessageLink"],
-    "WebsiteDrafts": ["DraftID","DateCreated","Page","DraftTitle","DraftBody","SourceRecords","PrivacyReviewStatus","BoardApprovalStatus","ApprovedBy","ApprovedDate","PublishStatus","GitCommitHash","Notes"],
-    "Approvals": ["ApprovalID","DateRequested","RequestedBy","ApprovalType","ItemType","ItemID","Summary","ApprovedBy","Decision","DecisionDate","Notes"],
-    "AuditLog": ["AuditID","Timestamp","Actor","Action","TargetSystem","TargetItem","Before","After","Result","Error","SourceMessageLink"],
-    "CalendarLog": ["CalendarEventID","EventTitle","EventType","StartDateTime","EndDateTime","Location","PrivateLocation","Description","Attendees","RelatedTaskID","RelatedRequestID","RelatedDonationID","Status","CreatedBy","LastUpdated"],
+    "Requests": ["RequestID", "DateReceived", "Source", "SubmittedBy", "PersonOrGroup", "ContactMethod", "NeedCategory", "NeedDescription", "Quantity", "LocationPrivate", "LocationPublicSafe", "Urgency", "NeededBy", "ConsentToRecord", "ConsentToShare", "PrivacyLevel", "AssignedTo", "Status", "NextAction", "CalendarEventID", "RelatedInventoryItem", "Notes", "CreatedBy", "LastUpdated", "SourceMessageLink"],
+    "Donations": ["DonationID", "DateOffered", "DonorName", "DonorContact", "DonationType", "ItemDescription", "Quantity", "Condition", "PickupOrDropoff", "Location", "AvailableDate", "StorageNeeded", "MatchesCurrentNeed", "AssignedPickupVolunteer", "Status", "ReceiptNeeded", "ThankYouNeeded", "ConsentToPublicThanks", "Notes", "SourceMessageLink"],
+    "Tasks": ["TaskID", "DateCreated", "TaskTitle", "TaskDescription", "Category", "Priority", "AssignedTo", "DueDate", "RelatedRequestID", "RelatedDonationID", "RelatedCalendarEventID", "Status", "Blocker", "NextAction", "CompletionReport", "LastUpdated"],
+    "Inventory": ["ItemID", "ItemName", "Category", "QuantityOnHand", "Unit", "MinimumNeeded", "StorageLocation", "Condition", "LastCounted", "LastUpdatedBy", "NeededThisWeek", "PublicNeedAllowed", "Notes"],
+    "CalendarLog": ["CalendarEventID", "EventTitle", "EventType", "StartDateTime", "EndDateTime", "Location", "PrivateLocation", "Description", "Attendees", "RelatedTaskID", "RelatedRequestID", "RelatedDonationID", "Status", "CreatedBy", "LastUpdated"],
+    "Reports": ["ReportID", "Date", "SubmittedBy", "ReportType", "Summary", "PeopleServedEstimate", "ItemsDistributed", "Incidents", "FollowUpsNeeded", "SensitiveDetails", "PublicSummaryDraft", "PrivacyLevel", "RelatedTasks", "RelatedRequests", "RelatedDonations", "PhotosAttached", "SourceMessageLink"],
+    "WebsiteDrafts": ["DraftID", "DateCreated", "Page", "DraftTitle", "DraftBody", "SourceRecords", "PrivacyReviewStatus", "BoardApprovalStatus", "ApprovedBy", "ApprovedDate", "PublishStatus", "GitCommitHash", "Notes"],
+    "Approvals": ["ApprovalID", "DateRequested", "RequestedBy", "ApprovalType", "ItemType", "ItemID", "Summary", "ApprovedBy", "Decision", "DecisionDate", "Notes"],
+    "AuditLog": ["AuditID", "Timestamp", "Actor", "Action", "TargetSystem", "TargetItem", "Before", "After", "Result", "Error", "SourceMessageLink"],
 }
 
 
@@ -186,6 +186,164 @@ def write_json(path: Path, obj) -> None:
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
 
 
+def md_list(items: list[str]) -> str:
+    return "\n".join(f"- {item}" for item in items) if items else "- none"
+
+
+def render_markdown(now: datetime, needs, calendar_items, reports, donations, board_log) -> dict[str, str]:
+    timestamp = now.strftime("%Y-%m-%d %H:%M UTC")
+    safe_state = "approved-safe sync verified"
+
+    preview_today = []
+    if calendar_items:
+        preview_today.append(f"Calendar event: `{calendar_items[0]['EventTitle']}`")
+        preview_today.append(f"Calendar status: `{calendar_items[0]['Status']}`")
+    if board_log:
+        preview_today.append(f"Board log action: `{board_log[0]['Action']}`")
+    if reports:
+        preview_today.append(f"Report: `{reports[0]['ReportID']}` — {reports[0]['Summary']}")
+
+    pages = {
+        "index.md": f"""---
+layout: default
+title: Non-Profit Hermes MVP
+permalink: /
+---
+
+# Non-Profit Hermes MVP
+
+This site shows only board-approved, public-safe updates.
+
+## Status
+
+- **Last update:** {timestamp}
+- **Current state:** {safe_state}
+
+## Pages
+
+- [Today](/today)
+- [Current Needs](/current-needs)
+- [Calendar](/calendar)
+- [Volunteer](/volunteer)
+- [Donations](/donations)
+- [Reports](/reports)
+- [Board Log](/board-log)
+
+## Approved-safe data
+
+- [approved_needs.json](data/approved_needs.json)
+- [approved_calendar.json](data/approved_calendar.json)
+- [approved_reports.json](data/approved_reports.json)
+- [approved_donations.json](data/approved_donations.json)
+- [approved_volunteer_gaps.json](data/approved_volunteer_gaps.json)
+- [approved_board_log.json](data/approved_board_log.json)
+
+## Safe test data preview
+
+{md_list(preview_today)}
+""",
+        "today.md": f"""---
+layout: default
+title: Today
+permalink: /today
+---
+
+# Today
+
+Approved-safe current-day summary.
+
+## Safe test data
+
+{md_list([
+    f"Calendar test event: `{calendar_items[0]['EventTitle']}`" if calendar_items else "Calendar test event missing",
+    f"Calendar status: `{calendar_items[0]['Status']}`" if calendar_items else "Calendar status missing",
+    f"Event source: `approved_calendar.json`",
+    f"Board log source: `approved_board_log.json`",
+])}
+""",
+        "current-needs.md": f"""---
+layout: default
+title: Current Needs
+permalink: /current-needs
+---
+
+# Current Needs
+
+Approved-safe current needs.
+
+## Safe test data
+
+{md_list([
+    f"Request ID: `{needs[0]['RequestID']}`" if needs else "Request ID missing",
+    f"Need: `{needs[0]['NeedDescription']}`" if needs else "Need missing",
+    f"Category: `{needs[0]['NeedCategory']}`" if needs else "Category missing",
+    f"Urgency: `{needs[0]['Urgency']}`" if needs else "Urgency missing",
+    f"Status: `{needs[0]['Status']}`" if needs else "Status missing",
+    f"Source: `approved_needs.json`",
+    f"Donation source: `approved_donations.json`",
+])}
+""",
+        "calendar.md": f"""---
+layout: default
+title: Calendar
+permalink: /calendar
+---
+
+# Calendar
+
+Approved-safe board-visible calendar items.
+
+## Safe test data
+
+{md_list([
+    f"Event: `{calendar_items[0]['EventTitle']}`" if calendar_items else "Event missing",
+    f"Type: `{calendar_items[0]['EventType']}`" if calendar_items else "Type missing",
+    f"Status: `{calendar_items[0]['Status']}`" if calendar_items else "Status missing",
+    f"Source: `approved_calendar.json`",
+])}
+""",
+        "reports.md": f"""---
+layout: default
+title: Reports
+permalink: /reports
+---
+
+# Reports
+
+Approved-safe summaries.
+
+## Safe test data
+
+{md_list([
+    f"Report ID: `{reports[0]['ReportID']}`" if reports else "Report ID missing",
+    f"Summary: `{reports[0]['Summary']}`" if reports else "Summary missing",
+    f"Privacy level: `{reports[0]['PrivacyLevel']}`" if reports else "Privacy level missing",
+    f"Source: `approved_reports.json`",
+])}
+""",
+        "board-log.md": f"""---
+layout: default
+title: Board Log
+permalink: /board-log
+---
+
+# Board Log
+
+Approved updates and publish history.
+
+## Safe test data
+
+{md_list([
+    f"Audit ID: `{board_log[0]['AuditID']}`" if board_log else "Audit ID missing",
+    f"Action: `{board_log[0]['Action']}`" if board_log else "Action missing",
+    f"Result: `{board_log[0]['Result']}`" if board_log else "Result missing",
+    f"Source: `approved_board_log.json`",
+])}
+""",
+    }
+    return pages
+
+
 def main() -> int:
     c = creds()
     sheets = sheets_service(c)
@@ -198,23 +356,31 @@ def main() -> int:
     donations_rows = read_sheet_rows(sheets, "Donations")
     reports_rows = read_sheet_rows(sheets, "Reports")
     audit_rows = read_sheet_rows(sheets, "AuditLog")
-    calendar_rows = safe_calendar_export(calendar)
+    calendar_items = safe_calendar_export(calendar)
+    now = datetime.now(timezone.utc)
 
     out = {
         "approved_needs": safe_needs_from_requests(requests_rows),
-        "approved_calendar": calendar_rows,
+        "approved_calendar": calendar_items,
         "approved_reports": safe_reports(reports_rows),
         "approved_donations": safe_donations(donations_rows),
         "approved_volunteer_gaps": safe_volunteer_gaps(),
         "approved_board_log": safe_board_log(audit_rows),
     }
 
-    write_json(DATA / "approved_needs.json", out["approved_needs"])
-    write_json(DATA / "approved_calendar.json", out["approved_calendar"])
-    write_json(DATA / "approved_reports.json", out["approved_reports"])
-    write_json(DATA / "approved_donations.json", out["approved_donations"])
-    write_json(DATA / "approved_volunteer_gaps.json", out["approved_volunteer_gaps"])
-    write_json(DATA / "approved_board_log.json", out["approved_board_log"])
+    for name, obj in out.items():
+        write_json(DATA / f"{name}.json", obj)
+
+    pages = render_markdown(
+        now,
+        out["approved_needs"],
+        out["approved_calendar"],
+        out["approved_reports"],
+        out["approved_donations"],
+        out["approved_board_log"],
+    )
+    for filename, body in pages.items():
+        (ROOT / filename).write_text(body)
 
     report = f"""# Approved-Safe Sync Report
 
@@ -235,6 +401,7 @@ def main() -> int:
 - `approved_donations.json` updated from safe Sheet rows.
 - `approved_volunteer_gaps.json` remains an approved-safe empty stub.
 - `approved_board_log.json` updated from AuditLog.
+- Markdown pages now visibly include safe test data in body sections.
 
 ## What failed
 
@@ -249,15 +416,16 @@ def main() -> int:
 
 ## Remaining blockers
 
-- None for the first approved-safe sync test.
+- None for the first approved-safe sync proof.
 
 ## Next actionable step
 
-- Commit the sync script, JSON outputs, and page updates, then wait for GitHub Pages to rebuild and confirm the safe test data is visible.
+- Commit the sync script, JSON outputs, page updates, and report, then wait for GitHub Pages to rebuild and confirm the safe test data is visible.
 
 ## Evidence paths/files/logs/URLs
 
 - `C:\\Users\\fallo\\non-profit-hermes-mvp\\scripts\\sync_approved_safe_data.py`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\VISIBLE_SYNC_RENDERING_REPORT.md`
 - `C:\\Users\\fallo\\non-profit-hermes-mvp\\APPROVED_SAFE_SYNC_REPORT.md`
 - `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_needs.json`
 - `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_calendar.json`
@@ -266,12 +434,13 @@ def main() -> int:
 - `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_volunteer_gaps.json`
 - `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_board_log.json`
 """
-    REPORT.write_text(report)
+    (ROOT / "APPROVED_SAFE_SYNC_REPORT.md").write_text(report)
+    (ROOT / "VISIBLE_SYNC_RENDERING_REPORT.md").write_text(report.replace("Approved-Safe Sync Report", "Visible Sync Rendering Report"))
 
     print(json.dumps({
         "auth": "Authenticated Google Workspace access confirmed via Sheets/Calendar API calls.",
         "sheet_title": sheet_title,
-        "updated_files": [str(DATA / n) for n in ["approved_needs.json","approved_calendar.json","approved_reports.json","approved_donations.json","approved_volunteer_gaps.json","approved_board_log.json"]],
+        "updated_files": [str(DATA / n) for n in ["approved_needs.json", "approved_calendar.json", "approved_reports.json", "approved_donations.json", "approved_volunteer_gaps.json", "approved_board_log.json"]],
         "report": str(REPORT),
         "rows": {k: len(v) for k, v in out.items()},
     }, indent=2))

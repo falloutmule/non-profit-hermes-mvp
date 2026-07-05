@@ -6,7 +6,7 @@ permalink: /board-log
 
 # Board Log
 
-Approved updates and publish history go here.
+Approved updates and publish history.
 
 ## Safe test data
 

@@ -1,4 +1,4 @@
-# Approved-Safe Sync Report
+# Visible Sync Rendering Report
 
 ## What was done
 

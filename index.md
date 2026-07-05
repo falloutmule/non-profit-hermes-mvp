@@ -10,8 +10,8 @@ This site shows only board-approved, public-safe updates.
 
 ## Status
 
-- **Last update:** approved-safe sync verified
-- **Current state:** board-safe live sync test complete
+- **Last update:** 2026-07-05 20:27 UTC
+- **Current state:** approved-safe sync verified
 
 ## Pages
 
@@ -34,7 +34,7 @@ This site shows only board-approved, public-safe updates.
 
 ## Safe test data preview
 
-- Request: `REQ-TEST-001` — Safe test request for MVP wiring verification
-- Event: `TEST - Non-Profit Hermes Calendar Wiring`
+- Calendar event: `TEST - Non-Profit Hermes Calendar Wiring`
+- Calendar status: `confirmed`
+- Board log action: `setup`
 - Report: `REP-TEST-001` — Safe test report for MVP wiring verification
-- Donation: `DON-TEST-001` — Safe test donation for MVP wiring verification
