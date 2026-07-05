@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Current Needs
+permalink: /current-needs
 ---
 
 # Current Needs

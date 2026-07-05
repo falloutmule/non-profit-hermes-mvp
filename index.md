@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Non-Profit Hermes MVP
+permalink: /
 ---
 
 # Non-Profit Hermes MVP
@@ -10,14 +11,14 @@ This site shows only board-approved, public-safe updates.
 ## Status
 
 - **Last update:** unknown
-- **Current state:** scaffolded, not yet wired to live Sheets/Calendar data
+- **Current state:** scaffolded and published
 
 ## Pages
 
-- [Today](today.md)
-- [Current Needs](current-needs.md)
-- [Calendar](calendar.md)
-- [Volunteer](volunteer.md)
-- [Donations](donations.md)
-- [Reports](reports.md)
-- [Board Log](board-log.md)
+- [Today](/today)
+- [Current Needs](/current-needs)
+- [Calendar](/calendar)
+- [Volunteer](/volunteer)
+- [Donations](/donations)
+- [Reports](/reports)
+- [Board Log](/board-log)

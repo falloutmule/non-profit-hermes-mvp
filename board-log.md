@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Board Log
+permalink: /board-log
 ---
 
 # Board Log

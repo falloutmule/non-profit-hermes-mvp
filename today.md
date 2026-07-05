@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Today
+permalink: /today
 ---
 
 # Today

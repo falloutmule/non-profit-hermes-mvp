@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Donations
+permalink: /donations
 ---
 
 # Donations

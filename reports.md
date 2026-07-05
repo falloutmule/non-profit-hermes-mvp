@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Reports
+permalink: /reports
 ---
 
 # Reports
