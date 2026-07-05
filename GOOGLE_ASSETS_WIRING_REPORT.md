@@ -3,6 +3,20 @@
 ## What was done
 
 - Verified the GitHub Pages repo still exists and the public site remains reachable.
+- Created or verified the Google Sheet `Non-Profit Hermes MVP Operations`.
+- Created or verified the Google Calendar `Non-Profit Hermes Operations`.
+- Added the required tabs and wrote the MVP schema headers.
+- Added safe test rows to:
+  - `Requests`
+  - `Donations`
+  - `Tasks`
+  - `Inventory`
+  - `Reports`
+  - `WebsiteDrafts`
+  - `Approvals`
+  - `AuditLog`
+- Added one safe test event to the calendar:
+  - `TEST - Non-Profit Hermes Calendar Wiring`
 - Added approved-safe export stubs in `data/`:
   - `approved_needs.json`
   - `approved_calendar.json`
@@ -15,34 +29,37 @@
 
 ## What was verified
 
+- Authenticated Google Workspace access for `comradeleb@gmail.com` succeeded.
+- Google Sheet ID: `1Sf68PnxsuqW2PVzHZgyh8vV90Y4UlJ-GYexQ7JlOxlE`
+- Google Calendar ID: `e1c99cc72c43a87bb340a6e867f0b56caf1da4d4f485454e2370e17daa20e32a@group.calendar.google.com`
+- Required tabs exist and each has a header row.
+- Safe test rows exist in the requested tabs.
+- Safe test calendar event exists.
 - The repository files were updated locally.
-- GitHub Pages was already returning HTTP 200 before this change and remains intended to stay board-safe.
+- GitHub Pages returned HTTP 200 for the board site during verification.
 
 ## What failed
 
-- I could not complete Google Workspace authorization for `comradeleb@gmail.com`.
-- The client secret file was accepted and saved, but the OAuth flow returned:
-  - `Error 403: access_denied`
-  - message: the app is currently being tested and only developer-approved testers can access it
-- The OAuth client is still in testing mode, and `comradeleb@gmail.com` is not currently allowed as a tester.
-- Because of that, I could not create or verify the Google Sheet or Google Calendar assets, and I could not write real Sheet rows or a Calendar event.
+- No blocking failure remains for the requested wiring.
+- The only minor issue during verification was a transient scripting error in one failed shell attempt; the actual Google workspace verification completed successfully afterward.
 
 ## Current exact state
 
 - Repo: `https://github.com/falloutmule/non-profit-hermes-mvp`
 - Public site: `https://falloutmule.github.io/non-profit-hermes-mvp/`
+- Spreadsheet: `https://docs.google.com/spreadsheets/d/1Sf68PnxsuqW2PVzHZgyh8vV90Y4UlJ-GYexQ7JlOxlE/edit`
+- Calendar: `Non-Profit Hermes Operations`
+- Calendar event: `TEST - Non-Profit Hermes Calendar Wiring`
 - Approved-safe JSON export stubs exist in `data/`.
 - No private data was added to the repo.
-- Google Sheets/Calendar wiring is blocked by Google OAuth tester access.
 
 ## Remaining blockers
 
-- `comradeleb@gmail.com` must be added as a test user in the OAuth consent screen, or the app must be published/unrestricted for this account.
-- No authenticated Google Workspace session is available yet.
+- None for this wiring task.
 
 ## Next actionable step
 
-- In Google Cloud Console, add `comradeleb@gmail.com` to the OAuth app's Test Users list, then retry the authorization flow and exchange the code for a token.
+- Start wiring live approved-safe exports from Sheets/Calendar into the existing board pages.
 
 ## Evidence paths/files/logs/URLs
 
@@ -54,4 +71,7 @@
 - `C:\Users\fallo\non-profit-hermes-mvp\data\approved_volunteer_gaps.json`
 - `C:\Users\fallo\non-profit-hermes-mvp\data\approved_board_log.json`
 - `C:\Users\fallo\AppData\Local\hermes\google_client_secret.json`
+- `C:\Users\fallo\AppData\Local\hermes\google_token.json`
+- `https://docs.google.com/spreadsheets/d/1Sf68PnxsuqW2PVzHZgyh8vV90Y4UlJ-GYexQ7JlOxlE/edit`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/`
+- `https://falloutmule.github.io/non-profit-hermes-mvp/today`
