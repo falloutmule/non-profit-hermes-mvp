@@ -2,18 +2,19 @@
 
 ## What was done
 
-- Added deployment marker `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES` to the local Markdown pages.
-- Committed and pushed the marker to `main`.
-- Checked GitHub Pages settings and latest build status.
-- Fetched the canonical public URLs into `proof-canonical-live-fetch/`.
-- Searched the saved canonical public HTML for the requested marker, synced records, and placeholder text.
+- Added deployment marker `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES` to the Markdown pages.
+- Pushed the marker to `main`.
+- Waited for GitHub Pages to finish rebuilding.
+- Re-fetched the canonical public URLs after the build completed.
+- Saved the fetched canonical public HTML to `proof-canonical-live-fetch-2/`.
+- Searched the fetched canonical HTML for the marker, synced records, and placeholder text.
 
 ## What was verified
 
 - GitHub Pages source is `main` at `/`.
-- Latest Pages build commit is `9c7506346721bcacb3f3a768e036e5bef85cbb30`.
-- Latest Pages build status is `building` at the time of inspection.
-- Canonical public fetches currently contain the synced records, including:
+- Latest Pages build status is `built`.
+- Latest Pages build commit is `1d4e73500a5ec3bcb579952518039f7d07a8df75`.
+- Canonical fetched HTML now contains:
   - `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES`
   - `approved-safe sync verified`
   - `REQ-TEST-001`
@@ -23,31 +24,31 @@
 
 ## What failed
 
-- The live canonical Pages deployment was still rebuilding during inspection, so the newly pushed marker was not yet confirmed in the fetched canonical HTML at the time the fetches were taken.
+- Nothing blocking in the final canonical fetch.
 
 ## Current exact state
 
-- Repo commit on `main`: `9c75063 feat: add live deployment marker`
+- Repo commit on `main`: `1d4e735 docs: record canonical deployment proof`
 - Pages source: `main /`
-- Pages status: `building`
+- Pages status: `built`
 - Pages URL: `https://falloutmule.github.io/non-profit-hermes-mvp/`
-- Canonical proof directory: `proof-canonical-live-fetch/`
+- Canonical proof directory: `proof-canonical-live-fetch-2/`
 
 ## Remaining blockers
 
-- Wait for the Pages build to finish, then re-fetch the canonical URLs to confirm the new deployment marker is present.
+- None for this step.
 
 ## Next actionable step
 
-- Re-run canonical fetches after the Pages build completes.
+- None required unless you want further confirmation.
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch\root.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch\current-needs.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch\calendar.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch\reports.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch\today.html`
+- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\root.html`
+- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\current-needs.html`
+- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\calendar.html`
+- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\reports.html`
+- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\today.html`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/current-needs`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/calendar`
