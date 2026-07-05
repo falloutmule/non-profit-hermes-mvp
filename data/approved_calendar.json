@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "CalendarEventID": "ovd8uifhfkmccak0f2bm65okug",
+    "EventTitle": "TEST - Non-Profit Hermes Calendar Wiring",
+    "EventType": "test",
+    "StartDateTime": "2026-07-05T19:38:25Z",
+    "EndDateTime": "2026-07-05T20:38:25Z",
+    "Description": "Safe test event for MVP wiring verification.",
+    "Status": "confirmed",
+    "CreatedBy": "Hermes"
+  }
+]

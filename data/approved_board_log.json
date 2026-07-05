@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "AuditID": "AUD-TEST-001",
+    "Timestamp": "2026-07-05T18:38:25.910476+00:00",
+    "Actor": "Hermes",
+    "Action": "setup",
+    "TargetSystem": "Google Workspace",
+    "TargetItem": "Sheets+Calendar wiring",
+    "Result": "success"
+  }
+]

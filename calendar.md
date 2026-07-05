@@ -6,8 +6,11 @@ permalink: /calendar
 
 # Calendar
 
-Approved-safe board-visible calendar items go here.
+Approved-safe board-visible calendar items.
 
-## Data
+## Safe test data
 
-- [approved_calendar.json](data/approved_calendar.json)
+- Event: `TEST - Non-Profit Hermes Calendar Wiring`
+- Type: `test`
+- Status: `confirmed`
+- Source: `approved_calendar.json`

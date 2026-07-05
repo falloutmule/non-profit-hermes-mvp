@@ -6,9 +6,14 @@ permalink: /current-needs
 
 # Current Needs
 
-Approved-safe current needs go here.
+Approved-safe current needs.
 
-## Data
+## Safe test data
 
-- [approved_needs.json](data/approved_needs.json)
-- [approved_donations.json](data/approved_donations.json)
+- Request ID: `REQ-TEST-001`
+- Need: `Safe test request for MVP wiring verification`
+- Category: `other`
+- Urgency: `low`
+- Status: `new`
+- Source: `approved_needs.json`
+- Donation source: `approved_donations.json`

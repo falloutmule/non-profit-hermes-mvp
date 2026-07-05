@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "ReportID": "REP-TEST-001",
+    "Date": "2026-07-05",
+    "ReportType": "other",
+    "Summary": "Safe test report for MVP wiring verification",
+    "PeopleServedEstimate": "0",
+    "ItemsDistributed": "0",
+    "PrivacyLevel": "board-visible",
+    "PublicSummaryDraft": "Safe test report draft"
+  }
+]

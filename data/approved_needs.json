@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "RequestID": "REQ-TEST-001",
+    "DateReceived": "2026-07-05",
+    "NeedCategory": "other",
+    "NeedDescription": "Safe test request for MVP wiring verification",
+    "Quantity": "1",
+    "Urgency": "low",
+    "NeededBy": "2026-07-05",
+    "PrivacyLevel": "board-visible",
+    "Status": "new",
+    "NextAction": "review"
+  }
+]

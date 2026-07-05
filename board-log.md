@@ -8,6 +8,9 @@ permalink: /board-log
 
 Approved updates and publish history go here.
 
-## Data
+## Safe test data
 
-- [approved_board_log.json](data/approved_board_log.json)
+- Audit ID: `AUD-TEST-001`
+- Action: `setup`
+- Result: `success`
+- Source: `approved_board_log.json`

@@ -6,8 +6,11 @@ permalink: /reports
 
 # Reports
 
-Approved-safe summaries go here.
+Approved-safe summaries.
 
-## Data
+## Safe test data
 
-- [approved_reports.json](data/approved_reports.json)
+- Report ID: `REP-TEST-001`
+- Summary: `Safe test report for MVP wiring verification`
+- Privacy level: `board-visible`
+- Source: `approved_reports.json`

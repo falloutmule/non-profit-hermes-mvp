@@ -6,9 +6,11 @@ permalink: /today
 
 # Today
 
-Approved-safe current-day summary goes here.
+Approved-safe current-day summary.
 
-## Data
+## Safe test data
 
-- [approved_calendar.json](data/approved_calendar.json)
-- [approved_board_log.json](data/approved_board_log.json)
+- Calendar test event: `TEST - Non-Profit Hermes Calendar Wiring`
+- Calendar status: `confirmed`
+- Event source: `approved_calendar.json`
+- Board log source: `approved_board_log.json`
