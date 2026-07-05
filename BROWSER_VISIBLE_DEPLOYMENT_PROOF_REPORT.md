@@ -9,6 +9,7 @@
    - `https://falloutmule.github.io/non-profit-hermes-mvp/calendar`
    - `https://falloutmule.github.io/non-profit-hermes-mvp/reports`
    - `https://falloutmule.github.io/non-profit-hermes-mvp/today`
+   - `https://falloutmule.github.io/non-profit-hermes-mvp/deployment-proof`
 3. Captured browser screenshots for each page via `browser_vision` tool
 4. Captured full page source (outerHTML) for each page via `browser_console`
 5. Saved screenshots to `proof-browser-screenshots/`:
@@ -17,14 +18,17 @@
    - `calendar.png`
    - `reports.png`
    - `today.png`
+   - `deployment-proof.png`
 6. Saved page source to `proof-browser-source/`:
    - `root.html`
    - `current-needs.html`
    - `calendar.html`
    - `reports.html`
    - `today.html`
+   - `deployment-proof.html`
 7. Created `deployment-proof.md` containing `LIVE_EXTERNAL_PROOF_PAGE_NONPROFIT_HERMES`
-8. Wrote this report
+8. Verified the live `deployment-proof` page at the canonical URL
+9. Wrote this report
 
 ## What was verified
 
@@ -33,6 +37,7 @@ All canonical public URLs were accessed via a real browser and visually inspecte
 | String | Found in |
 |---|---|
 | `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES` | root, current-needs, calendar, reports, today |
+| `LIVE_EXTERNAL_PROOF_PAGE_NONPROFIT_HERMES` | deployment-proof |
 | `approved-safe sync verified` | root |
 | `REQ-TEST-001` | current-needs |
 | `TEST - Non-Profit Hermes Calendar Wiring` | calendar, today |
@@ -51,14 +56,14 @@ The following placeholder strings were searched for and NOT found in any saved b
 
 ## What failed
 
-No failures. All 5 canonical public URLs served the correct synced/approved-safe content with the deployment marker visible in browser inspection.
+No failures. All 6 canonical public URLs served the correct synced/approved-safe content with the deployment markers visible in browser inspection.
 
 ## Current exact state
 
-- Repo commit on `main`: newest commit includes proof-browser-screenshots/, proof-browser-source/, deployment-proof.md, and this report
+- Repo commit on `main`: `81fa62e docs: add browser-visible deployment proof with screenshots, page source, and deployment proof page`
 - GitHub Pages source: `main /`
 - GitHub Pages site: `https://falloutmule.github.io/non-profit-hermes-mvp/`
-- All canonical URLs are serving synced test data with the deployment marker
+- All canonical URLs are serving synced test data with deployment markers
 
 ## Remaining blockers
 
@@ -76,6 +81,7 @@ Screenshots (in repo):
 - `proof-browser-screenshots/calendar.png`
 - `proof-browser-screenshots/reports.png`
 - `proof-browser-screenshots/today.png`
+- `proof-browser-screenshots/deployment-proof.png`
 
 Browser page source (in repo):
 - `proof-browser-source/root.html`
@@ -83,6 +89,7 @@ Browser page source (in repo):
 - `proof-browser-source/calendar.html`
 - `proof-browser-source/reports.html`
 - `proof-browser-source/today.html`
+- `proof-browser-source/deployment-proof.html`
 
 Proof page:
 - `deployment-proof.md` (contains `LIVE_EXTERNAL_PROOF_PAGE_NONPROFIT_HERMES`)
@@ -93,3 +100,4 @@ Canonical public URLs:
 - `https://falloutmule.github.io/non-profit-hermes-mvp/calendar`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/reports`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/today`
+- `https://falloutmule.github.io/non-profit-hermes-mvp/deployment-proof`
