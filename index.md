@@ -34,6 +34,7 @@ This site shows only board-approved, public-safe updates.
 
 ## Safe test data preview
 
+- Deployment marker: `LIVE_DEPLOY_MARKER_5E15FB3_NONPROFIT_HERMES`
 - Calendar event: `TEST - Non-Profit Hermes Calendar Wiring`
 - Calendar status: `confirmed`
 - Board log action: `setup`
