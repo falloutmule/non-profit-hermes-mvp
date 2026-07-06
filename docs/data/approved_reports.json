@@ -8,5 +8,15 @@
     "ItemsDistributed": "0",
     "PrivacyLevel": "board-visible",
     "PublicSummaryDraft": "Safe test report draft"
+  },
+  {
+    "ReportID": "REP-WRITE-TEST-001",
+    "Date": "2026-07-06T02:45:08+00:00",
+    "ReportType": "test",
+    "Summary": "Safe fake test report for write capability verification",
+    "PeopleServedEstimate": "",
+    "ItemsDistributed": "",
+    "PrivacyLevel": "board-visible",
+    "PublicSummaryDraft": "Safe fake test report for write capability verification"
   }
 ]
