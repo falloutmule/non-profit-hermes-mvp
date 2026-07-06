@@ -28,5 +28,15 @@
     "Status": "new",
     "ReceiptNeeded": "",
     "ThankYouNeeded": ""
+  },
+  {
+    "DonationID": "DON-TG-TEST-001",
+    "DateOffered": "2026-07-06T11:57:44+00:00",
+    "DonationType": "clothing",
+    "ItemDescription": "Safe fake Telegram donation of coats",
+    "Quantity": "3",
+    "Status": "new",
+    "ReceiptNeeded": "",
+    "ThankYouNeeded": ""
   }
 ]

@@ -34,5 +34,17 @@
     "PrivacyLevel": "board-visible",
     "Status": "new",
     "NextAction": "Review by Hermes"
+  },
+  {
+    "RequestID": "REQ-TG-TEST-001",
+    "DateReceived": "2026-07-06T11:57:42+00:00",
+    "NeedCategory": "clothing",
+    "NeedDescription": "Safe fake Telegram need for blankets",
+    "Quantity": "2",
+    "Urgency": "low",
+    "NeededBy": "2099-01-01",
+    "PrivacyLevel": "board-visible",
+    "Status": "new",
+    "NextAction": "review"
   }
 ]

@@ -28,5 +28,15 @@
     "ItemsDistributed": "",
     "PrivacyLevel": "board-visible",
     "PublicSummaryDraft": "Safe fake test report for write capability verification"
+  },
+  {
+    "ReportID": "REP-TG-TEST-001",
+    "Date": "2026-07-06T11:57:44+00:00",
+    "ReportType": "test",
+    "Summary": "Safe fake Telegram report summary",
+    "PeopleServedEstimate": "",
+    "ItemsDistributed": "",
+    "PrivacyLevel": "board-visible",
+    "PublicSummaryDraft": "Safe fake Telegram report summary"
   }
 ]
