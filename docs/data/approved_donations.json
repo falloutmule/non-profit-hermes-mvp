@@ -18,5 +18,15 @@
     "Status": "new",
     "ReceiptNeeded": "",
     "ThankYouNeeded": ""
+  },
+  {
+    "DonationID": "DON-WRITE-TEST-001",
+    "DateOffered": "2026-07-06T10:19:53+00:00",
+    "DonationType": "clothing",
+    "ItemDescription": "Safe fake test donation for write capability verification",
+    "Quantity": "5",
+    "Status": "new",
+    "ReceiptNeeded": "",
+    "ThankYouNeeded": ""
   }
 ]

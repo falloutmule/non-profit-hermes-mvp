@@ -22,5 +22,17 @@
     "PrivacyLevel": "board-visible",
     "Status": "new",
     "NextAction": "Review by Hermes"
+  },
+  {
+    "RequestID": "REQ-WRITE-TEST-001",
+    "DateReceived": "2026-07-06T10:19:52+00:00",
+    "NeedCategory": "clothing",
+    "NeedDescription": "Safe fake test request for write capability verification",
+    "Quantity": "1",
+    "Urgency": "low",
+    "NeededBy": "2026-07-07",
+    "PrivacyLevel": "board-visible",
+    "Status": "new",
+    "NextAction": "Review by Hermes"
   }
 ]

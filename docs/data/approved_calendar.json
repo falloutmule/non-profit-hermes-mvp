@@ -8,5 +8,25 @@
     "Description": "Safe test event for MVP wiring verification.",
     "Status": "confirmed",
     "CreatedBy": "Hermes"
+  },
+  {
+    "CalendarEventID": "snui91ek9dqs7fhi7ruirmiuo0",
+    "EventTitle": "CAL-WRITE-TEST-001 — Safe write test event",
+    "EventType": "write-test",
+    "StartDateTime": "2026-07-06T04:45:05Z",
+    "EndDateTime": "2026-07-06T05:45:05Z",
+    "Description": "Safe fake test calendar event for write capability verification. Created by Non-Profit Hermes test-write.",
+    "Status": "confirmed",
+    "CreatedBy": "Hermes"
+  },
+  {
+    "CalendarEventID": "9n5fjtt1c2jo82po3cosurvvds",
+    "EventTitle": "CAL-WRITE-TEST-001 — Safe write test event",
+    "EventType": "write-test",
+    "StartDateTime": "2026-07-06T12:19:52Z",
+    "EndDateTime": "2026-07-06T13:19:52Z",
+    "Description": "Safe fake test calendar event for write capability verification. Created by Non-Profit Hermes test-write.",
+    "Status": "confirmed",
+    "CreatedBy": "Hermes"
   }
 ]

@@ -205,15 +205,21 @@ def safe_calendar_export(calendar_svc) -> list[dict[str, str]]:
     for e in events:
         if e.get("status") == "cancelled":
             continue
-        if e.get("summary") != TEST_EVENT_TITLE:
-            continue
+        # Determine event type from title
+        summary = e.get("summary", "")
+        if summary == TEST_EVENT_TITLE:
+            event_type = "test"
+        elif summary.startswith("CAL-WRITE-TEST-"):
+            event_type = "write-test"
+        else:
+            event_type = "operational"
         out.append({
             "CalendarEventID": e.get("id", ""),
-            "EventTitle": e.get("summary", ""),
-            "EventType": "test",
+            "EventTitle": summary,
+            "EventType": event_type,
             "StartDateTime": e.get("start", {}).get("dateTime", e.get("start", {}).get("date", "")),
             "EndDateTime": e.get("end", {}).get("dateTime", e.get("end", {}).get("date", "")),
-            "Description": TEST_EVENT_DESC,
+            "Description": e.get("description", ""),
             "Status": e.get("status", ""),
             "CreatedBy": "Hermes",
         })
