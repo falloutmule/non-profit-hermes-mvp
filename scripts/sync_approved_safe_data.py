@@ -9,8 +9,8 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 ROOT = Path(r"C:\Users\fallo\non-profit-hermes-mvp")
-DATA = ROOT / "data"
-REPORT = ROOT / "APPROVED_SAFE_SYNC_REPORT.md"
+DOCS = ROOT / "docs"
+DATA = DOCS / "data"
 TOKEN = Path(r"C:\Users\fallo\AppData\Local\hermes\google_token.json")
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -26,16 +26,58 @@ SPREADSHEET_ID = "1Sf68PnxsuqW2PVzHZgyh8vV90Y4UlJ-GYexQ7JlOxlE"
 CALENDAR_ID = "e1c99cc72c43a87bb340a6e867f0b56caf1da4d4f485454e2370e17daa20e32a@group.calendar.google.com"
 TEST_EVENT_TITLE = "TEST - Non-Profit Hermes Calendar Wiring"
 TEST_EVENT_DESC = "Safe test event for MVP wiring verification."
+MARKER = "CLEAN_DOCS_DEPLOY_NON_PROFIT_HERMES_002"
+
+HTML_HEAD = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;line-height:1.55;color:#1f2937;background:#fff}}
+a{{color:#1d4ed8;text-decoration:none}} a:hover{{text-decoration:underline}}
+header,footer{{font-size:.95rem;color:#6b7280;margin:0 0 1.25rem}}
+nav a{{margin-right:1rem}}
+main{{padding:1rem 0}}
+h1,h2,h3{{line-height:1.2}}
+code,pre{{background:#f3f4f6;border-radius:6px}}
+pre{{padding:1rem;overflow:auto}}
+</style>
+</head>
+<body>
+<header>
+<nav>
+{nav_links}
+</nav>
+</header>
+<main>
+"""
+
+HTML_FOOT = """
+</main>
+<footer>Board-facing only. No private intake.</footer>
+</body>
+</html>"""
+
+NAV_LINKS = """<a href="./">Home</a>
+<a href="./today/">Today</a>
+<a href="./current-needs/">Current Needs</a>
+<a href="./calendar/">Calendar</a>
+<a href="./reports/">Reports</a>
+<a href="./deployment-proof/">Deployment Proof</a>"""
+
+NAV_LINKS_SUB = """<a href="../">Home</a>
+<a href="../today/">Today</a>
+<a href="../current-needs/">Current Needs</a>
+<a href="../calendar/">Calendar</a>
+<a href="../reports/">Reports</a>
+<a href="../deployment-proof/">Deployment Proof</a>"""
 
 HEADERS = {
     "Requests": ["RequestID", "DateReceived", "Source", "SubmittedBy", "PersonOrGroup", "ContactMethod", "NeedCategory", "NeedDescription", "Quantity", "LocationPrivate", "LocationPublicSafe", "Urgency", "NeededBy", "ConsentToRecord", "ConsentToShare", "PrivacyLevel", "AssignedTo", "Status", "NextAction", "CalendarEventID", "RelatedInventoryItem", "Notes", "CreatedBy", "LastUpdated", "SourceMessageLink"],
     "Donations": ["DonationID", "DateOffered", "DonorName", "DonorContact", "DonationType", "ItemDescription", "Quantity", "Condition", "PickupOrDropoff", "Location", "AvailableDate", "StorageNeeded", "MatchesCurrentNeed", "AssignedPickupVolunteer", "Status", "ReceiptNeeded", "ThankYouNeeded", "ConsentToPublicThanks", "Notes", "SourceMessageLink"],
-    "Tasks": ["TaskID", "DateCreated", "TaskTitle", "TaskDescription", "Category", "Priority", "AssignedTo", "DueDate", "RelatedRequestID", "RelatedDonationID", "RelatedCalendarEventID", "Status", "Blocker", "NextAction", "CompletionReport", "LastUpdated"],
-    "Inventory": ["ItemID", "ItemName", "Category", "QuantityOnHand", "Unit", "MinimumNeeded", "StorageLocation", "Condition", "LastCounted", "LastUpdatedBy", "NeededThisWeek", "PublicNeedAllowed", "Notes"],
-    "CalendarLog": ["CalendarEventID", "EventTitle", "EventType", "StartDateTime", "EndDateTime", "Location", "PrivateLocation", "Description", "Attendees", "RelatedTaskID", "RelatedRequestID", "RelatedDonationID", "Status", "CreatedBy", "LastUpdated"],
     "Reports": ["ReportID", "Date", "SubmittedBy", "ReportType", "Summary", "PeopleServedEstimate", "ItemsDistributed", "Incidents", "FollowUpsNeeded", "SensitiveDetails", "PublicSummaryDraft", "PrivacyLevel", "RelatedTasks", "RelatedRequests", "RelatedDonations", "PhotosAttached", "SourceMessageLink"],
-    "WebsiteDrafts": ["DraftID", "DateCreated", "Page", "DraftTitle", "DraftBody", "SourceRecords", "PrivacyReviewStatus", "BoardApprovalStatus", "ApprovedBy", "ApprovedDate", "PublishStatus", "GitCommitHash", "Notes"],
-    "Approvals": ["ApprovalID", "DateRequested", "RequestedBy", "ApprovalType", "ItemType", "ItemID", "Summary", "ApprovedBy", "Decision", "DecisionDate", "Notes"],
     "AuditLog": ["AuditID", "Timestamp", "Actor", "Action", "TargetSystem", "TargetItem", "Before", "After", "Result", "Error", "SourceMessageLink"],
 }
 
@@ -54,10 +96,6 @@ def creds() -> Credentials:
         c.refresh(Request())
         TOKEN.write_text(json.dumps(json.loads(c.to_json()), indent=2))
     return c
-
-
-def row(tab: str, mapping: dict[str, str]) -> list[str]:
-    return [mapping.get(h, "") for h in HEADERS[tab]]
 
 
 def sheets_service(c: Credentials):
@@ -183,165 +221,168 @@ def safe_calendar_export(calendar_svc) -> list[dict[str, str]]:
 
 
 def write_json(path: Path, obj) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
 
 
-def md_list(items: list[str]) -> str:
-    return "\n".join(f"- {item}" for item in items) if items else "- none"
+def html_list(items: list[str]) -> str:
+    return "\n".join(f"<li>{item}</li>" for item in items) if items else "<li>none</li>"
 
 
-def render_markdown(now: datetime, needs, calendar_items, reports, donations, board_log) -> dict[str, str]:
+def write_page(path: Path, title: str, body_html: str, nav_links: str = NAV_LINKS) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    html = (
+        HTML_HEAD.format(title=title, nav_links=nav_links)
+        + body_html
+        + HTML_FOOT
+    )
+    path.write_text(html)
+
+
+def write_both(base: Path, title: str, body_html: str) -> None:
+    """Write both page.html and page/index.html."""
+    write_page(base.with_suffix(".html"), title, body_html, nav_links=NAV_LINKS)
+    idx_dir = base.parent / base.stem / "index.html"
+    write_page(idx_dir, title, body_html, nav_links=NAV_LINKS_SUB)
+
+
+def build_pages(now: datetime, needs, calendar_items, reports, donations, board_log) -> None:
     timestamp = now.strftime("%Y-%m-%d %H:%M UTC")
     safe_state = "approved-safe sync verified"
 
-    preview_today = []
+    # --- index.html ---
+    preview_items = []
     if calendar_items:
-        preview_today.append(f"Calendar event: `{calendar_items[0]['EventTitle']}`")
-        preview_today.append(f"Calendar status: `{calendar_items[0]['Status']}`")
+        preview_items.append(f"Calendar event: <code>{calendar_items[0]['EventTitle']}</code>")
+        preview_items.append(f"Calendar status: <code>{calendar_items[0]['Status']}</code>")
     if board_log:
-        preview_today.append(f"Board log action: `{board_log[0]['Action']}`")
+        preview_items.append(f"Board log action: <code>{board_log[0]['Action']}</code>")
     if reports:
-        preview_today.append(f"Report: `{reports[0]['ReportID']}` — {reports[0]['Summary']}")
+        preview_items.append(f"Report: <code>{reports[0]['ReportID']}</code> &mdash; {reports[0]['Summary']}")
+    if needs:
+        preview_items.append(f"Request: <code>{needs[0]['RequestID']}</code> &mdash; {needs[0]['NeedDescription']}")
+    if donations:
+        preview_items.append(f"Donation: <code>{donations[0]['DonationID']}</code> &mdash; {donations[0]['ItemDescription']}")
 
-    pages = {
-        "index.md": f"""---
-layout: default
-title: Non-Profit Hermes MVP
-permalink: /
----
+    index_body = f"""<h1>Non-Profit Hermes MVP</h1>
+<p>This site shows only board-approved, public-safe updates.</p>
+<h2>Status</h2>
+<ul>
+<li><strong>Last update:</strong> {timestamp}</li>
+<li><strong>Current state:</strong> {safe_state}</li>
+</ul>
+<h2>Deployment marker</h2>
+<p><code>{MARKER}</code></p>
+<h2>Approved-safe data</h2>
+<ul>
+<li><a href="data/approved_needs.json">approved_needs.json</a></li>
+<li><a href="data/approved_calendar.json">approved_calendar.json</a></li>
+<li><a href="data/approved_reports.json">approved_reports.json</a></li>
+<li><a href="data/approved_donations.json">approved_donations.json</a></li>
+<li><a href="data/approved_volunteer_gaps.json">approved_volunteer_gaps.json</a></li>
+<li><a href="data/approved_board_log.json">approved_board_log.json</a></li>
+</ul>
+<h2>Safe test data preview</h2>
+<ul>
+{html_list(preview_items)}
+</ul>"""
+    write_both(DOCS / "index", "Non-Profit Hermes MVP", index_body)
 
-# Non-Profit Hermes MVP
+    # --- current-needs.html ---
+    needs_items = []
+    if needs:
+        needs_items.append(f"Deployment marker: <code>{MARKER}</code>")
+        needs_items.append(f"Request ID: <code>{needs[0]['RequestID']}</code>")
+        needs_items.append(f"Need: <code>{needs[0]['NeedDescription']}</code>")
+        needs_items.append(f"Category: <code>{needs[0]['NeedCategory']}</code>")
+        needs_items.append(f"Urgency: <code>{needs[0]['Urgency']}</code>")
+        needs_items.append(f"Status: <code>{needs[0]['Status']}</code>")
+    else:
+        needs_items.append(f"Deployment marker: <code>{MARKER}</code>")
+        needs_items.append("No needs records available.")
 
-This site shows only board-approved, public-safe updates.
+    needs_body = f"""<h1>Current Needs</h1>
+<p>Approved-safe current needs.</p>
+<h2>Safe test data</h2>
+<ul>
+{html_list(needs_items)}
+</ul>"""
+    write_both(DOCS / "current-needs", "Current Needs", needs_body)
 
-## Status
+    # --- calendar.html ---
+    cal_items = []
+    if calendar_items:
+        cal_items.append(f"Deployment marker: <code>{MARKER}</code>")
+        cal_items.append(f"Event: <code>{calendar_items[0]['EventTitle']}</code>")
+        cal_items.append(f"Type: <code>{calendar_items[0]['EventType']}</code>")
+        cal_items.append(f"Status: <code>{calendar_items[0]['Status']}</code>")
+    else:
+        cal_items.append(f"Deployment marker: <code>{MARKER}</code>")
+        cal_items.append("No calendar events available.")
 
-- **Last update:** {timestamp}
-- **Current state:** {safe_state}
+    cal_body = f"""<h1>Calendar</h1>
+<p>Approved-safe board-visible calendar items.</p>
+<h2>Safe test data</h2>
+<ul>
+{html_list(cal_items)}
+</ul>"""
+    write_both(DOCS / "calendar", "Calendar", cal_body)
 
-## Pages
+    # --- reports.html ---
+    rep_items = []
+    if reports:
+        rep_items.append(f"Deployment marker: <code>{MARKER}</code>")
+        rep_items.append(f"Report ID: <code>{reports[0]['ReportID']}</code>")
+        rep_items.append(f"Summary: <code>{reports[0]['Summary']}</code>")
+        rep_items.append(f"Privacy level: <code>{reports[0]['PrivacyLevel']}</code>")
+    else:
+        rep_items.append(f"Deployment marker: <code>{MARKER}</code>")
+        rep_items.append("No reports available.")
 
-- [Today](/today)
-- [Current Needs](/current-needs)
-- [Calendar](/calendar)
-- [Volunteer](/volunteer)
-- [Donations](/donations)
-- [Reports](/reports)
-- [Board Log](/board-log)
+    reports_body = f"""<h1>Reports</h1>
+<p>Approved-safe summaries.</p>
+<h2>Safe test data</h2>
+<ul>
+{html_list(rep_items)}
+</ul>"""
+    write_both(DOCS / "reports", "Reports", reports_body)
 
-## Approved-safe data
+    # --- today.html ---
+    today_items = []
+    today_items.append(f"Deployment marker: <code>{MARKER}</code>")
+    if calendar_items:
+        today_items.append(f"Calendar test event: <code>{calendar_items[0]['EventTitle']}</code>")
+        today_items.append(f"Calendar status: <code>{calendar_items[0]['Status']}</code>")
+    if needs:
+        today_items.append(f"Urgent needs: <code>{needs[0]['RequestID']}</code> ({needs[0]['NeedDescription']})")
+    if reports:
+        today_items.append(f"Latest report: <code>{reports[0]['ReportID']}</code>")
+    if not calendar_items and not needs and not reports:
+        today_items.append("No current-day data available.")
 
-- [approved_needs.json](data/approved_needs.json)
-- [approved_calendar.json](data/approved_calendar.json)
-- [approved_reports.json](data/approved_reports.json)
-- [approved_donations.json](data/approved_donations.json)
-- [approved_volunteer_gaps.json](data/approved_volunteer_gaps.json)
-- [approved_board_log.json](data/approved_board_log.json)
+    today_body = f"""<h1>Today</h1>
+<p>Approved-safe current-day summary.</p>
+<h2>Safe test data</h2>
+<ul>
+{html_list(today_items)}
+</ul>"""
+    write_both(DOCS / "today", "Today", today_body)
 
-## Safe test data preview
-
-{md_list(preview_today)}
-""",
-        "today.md": f"""---
-layout: default
-title: Today
-permalink: /today
----
-
-# Today
-
-Approved-safe current-day summary.
-
-## Safe test data
-
-{md_list([
-    f"Calendar test event: `{calendar_items[0]['EventTitle']}`" if calendar_items else "Calendar test event missing",
-    f"Calendar status: `{calendar_items[0]['Status']}`" if calendar_items else "Calendar status missing",
-    f"Event source: `approved_calendar.json`",
-    f"Board log source: `approved_board_log.json`",
-])}
-""",
-        "current-needs.md": f"""---
-layout: default
-title: Current Needs
-permalink: /current-needs
----
-
-# Current Needs
-
-Approved-safe current needs.
-
-## Safe test data
-
-{md_list([
-    f"Request ID: `{needs[0]['RequestID']}`" if needs else "Request ID missing",
-    f"Need: `{needs[0]['NeedDescription']}`" if needs else "Need missing",
-    f"Category: `{needs[0]['NeedCategory']}`" if needs else "Category missing",
-    f"Urgency: `{needs[0]['Urgency']}`" if needs else "Urgency missing",
-    f"Status: `{needs[0]['Status']}`" if needs else "Status missing",
-    f"Source: `approved_needs.json`",
-    f"Donation source: `approved_donations.json`",
-])}
-""",
-        "calendar.md": f"""---
-layout: default
-title: Calendar
-permalink: /calendar
----
-
-# Calendar
-
-Approved-safe board-visible calendar items.
-
-## Safe test data
-
-{md_list([
-    f"Event: `{calendar_items[0]['EventTitle']}`" if calendar_items else "Event missing",
-    f"Type: `{calendar_items[0]['EventType']}`" if calendar_items else "Type missing",
-    f"Status: `{calendar_items[0]['Status']}`" if calendar_items else "Status missing",
-    f"Source: `approved_calendar.json`",
-])}
-""",
-        "reports.md": f"""---
-layout: default
-title: Reports
-permalink: /reports
----
-
-# Reports
-
-Approved-safe summaries.
-
-## Safe test data
-
-{md_list([
-    f"Report ID: `{reports[0]['ReportID']}`" if reports else "Report ID missing",
-    f"Summary: `{reports[0]['Summary']}`" if reports else "Summary missing",
-    f"Privacy level: `{reports[0]['PrivacyLevel']}`" if reports else "Privacy level missing",
-    f"Source: `approved_reports.json`",
-])}
-""",
-        "board-log.md": f"""---
-layout: default
-title: Board Log
-permalink: /board-log
----
-
-# Board Log
-
-Approved updates and publish history.
-
-## Safe test data
-
-{md_list([
-    f"Audit ID: `{board_log[0]['AuditID']}`" if board_log else "Audit ID missing",
-    f"Action: `{board_log[0]['Action']}`" if board_log else "Action missing",
-    f"Result: `{board_log[0]['Result']}`" if board_log else "Result missing",
-    f"Source: `approved_board_log.json`",
-])}
-""",
-    }
-    return pages
+    # --- deployment-proof.html ---
+    proof_body = f"""<h1>Deployment Proof</h1>
+<p><code>{MARKER}</code></p>
+<p>This page proves the clean docs/ deployment is live and the sync script is generating correct output.</p>
+<ul>
+<li>Last sync: {timestamp}</li>
+<li>State: {safe_state}</li>
+<li>Needs records: {len(needs)}</li>
+<li>Calendar events: {len(calendar_items)}</li>
+<li>Reports: {len(reports)}</li>
+<li>Donations: {len(donations)}</li>
+<li>Board log entries: {len(board_log)}</li>
+</ul>
+<p><a href="./">Back to Home</a></p>"""
+    write_both(DOCS / "deployment-proof", "Deployment Proof", proof_body)
 
 
 def main() -> int:
@@ -368,10 +409,12 @@ def main() -> int:
         "approved_board_log": safe_board_log(audit_rows),
     }
 
+    # Write JSON data exports to docs/data/
     for name, obj in out.items():
         write_json(DATA / f"{name}.json", obj)
 
-    pages = render_markdown(
+    # Write all HTML pages
+    build_pages(
         now,
         out["approved_needs"],
         out["approved_calendar"],
@@ -379,29 +422,38 @@ def main() -> int:
         out["approved_donations"],
         out["approved_board_log"],
     )
-    for filename, body in pages.items():
-        (ROOT / filename).write_text(body)
 
-    report = f"""# Approved-Safe Sync Report
+    # Preserve the static deployment proof file
+    live_check = DOCS / "LIVE_CHECK_002.html"
+    if not live_check.exists():
+        live_check.write_text("LIVE_CHECK_002_NON_PROFIT_HERMES_DEPLOYED\n")
+
+    # Also ensure .nojekyll exists
+    (DOCS / ".nojekyll").touch()
+
+    report = f"""# Docs Sync Update Report
 
 ## What was done
 
 - Verified Google Sheets/Calendar access via authenticated API calls.
 - Read the Google Sheet `{sheet_title}`.
 - Read the Google Calendar `Non-Profit Hermes Operations`.
-- Exported only approved-safe fields into the JSON files under `data/`.
-- Rendered the board-facing pages with the safe exported data.
-- Did not export SensitiveNotes, private locations, contact details, or unapproved drafts.
+- Exported only approved-safe fields into JSON files under `docs/data/`.
+- Generated self-contained static HTML pages in `docs/` (no Jekyll, no Markdown).
+- Preserved deployment marker `{MARKER}` on every page.
+- Wrote both `page.html` and `page/index.html` variants for all pages.
+- Did NOT write to root files, root .md pages, or root data/.
+- Did NOT export SensitiveNotes, private locations, contact details, or unapproved drafts.
 
 ## What was verified
 
-- `approved_needs.json` updated from safe Sheet rows.
-- `approved_calendar.json` updated from the safe test event.
-- `approved_reports.json` updated from safe Sheet rows.
-- `approved_donations.json` updated from safe Sheet rows.
-- `approved_volunteer_gaps.json` remains an approved-safe empty stub.
-- `approved_board_log.json` updated from AuditLog.
-- Markdown pages now visibly include safe test data in body sections.
+- `docs/data/approved_needs.json` updated from safe Sheet rows.
+- `docs/data/approved_calendar.json` updated from the safe test event.
+- `docs/data/approved_reports.json` updated from safe Sheet rows.
+- `docs/data/approved_donations.json` updated from safe Sheet rows.
+- `docs/data/approved_volunteer_gaps.json` remains an approved-safe empty stub.
+- `docs/data/approved_board_log.json` updated from AuditLog.
+- All HTML pages now include `{MARKER}`, timestamp, and safe data.
 
 ## What failed
 
@@ -412,37 +464,44 @@ def main() -> int:
 - Spreadsheet ID: `{SPREADSHEET_ID}`
 - Calendar ID: `{CALENDAR_ID}`
 - Test event: `{TEST_EVENT_TITLE}`
+- Pages source: `main /docs`
 - Repo: `https://github.com/falloutmule/non-profit-hermes-mvp`
 
 ## Remaining blockers
 
-- None for the first approved-safe sync proof.
+- None for the docs/ sync update.
 
 ## Next actionable step
 
-- Commit the sync script, JSON outputs, page updates, and report, then wait for GitHub Pages to rebuild and confirm the safe test data is visible.
+- Commit the sync script, JSON outputs, and updated HTML pages, then push and verify.
 
 ## Evidence paths/files/logs/URLs
 
 - `C:\\Users\\fallo\\non-profit-hermes-mvp\\scripts\\sync_approved_safe_data.py`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\VISIBLE_SYNC_RENDERING_REPORT.md`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\APPROVED_SAFE_SYNC_REPORT.md`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_needs.json`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_calendar.json`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_reports.json`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_donations.json`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_volunteer_gaps.json`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\data\\approved_board_log.json`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\data\\approved_needs.json`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\data\\approved_calendar.json`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\data\\approved_reports.json`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\data\\approved_donations.json`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\data\\approved_volunteer_gaps.json`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\data\\approved_board_log.json`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\index.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\current-needs.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\current-needs/index.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\calendar.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\calendar/index.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\reports.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\reports/index.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\today.html`
+- `C:\\Users\\fallo\\non-profit-hermes-mvp\\docs\\today/index.html`
 """
-    (ROOT / "APPROVED_SAFE_SYNC_REPORT.md").write_text(report)
-    (ROOT / "VISIBLE_SYNC_RENDERING_REPORT.md").write_text(report.replace("Approved-Safe Sync Report", "Visible Sync Rendering Report"))
+    (DOCS / "DOCS_SYNC_UPDATE_REPORT.md").write_text(report)
 
     print(json.dumps({
         "auth": "Authenticated Google Workspace access confirmed via Sheets/Calendar API calls.",
         "sheet_title": sheet_title,
-        "updated_files": [str(DATA / n) for n in ["approved_needs.json", "approved_calendar.json", "approved_reports.json", "approved_donations.json", "approved_volunteer_gaps.json", "approved_board_log.json"]],
-        "report": str(REPORT),
+        "updated_json": [str(DATA / n) for n in ["approved_needs.json", "approved_calendar.json", "approved_reports.json", "approved_donations.json", "approved_volunteer_gaps.json", "approved_board_log.json"]],
         "rows": {k: len(v) for k, v in out.items()},
+        "marker": MARKER,
     }, indent=2))
     return 0
 

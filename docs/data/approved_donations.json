@@ -1,0 +1,12 @@
+[
+  {
+    "DonationID": "DON-TEST-001",
+    "DateOffered": "2026-07-05",
+    "DonationType": "other",
+    "ItemDescription": "Safe test donation for MVP wiring verification",
+    "Quantity": "1",
+    "Status": "new",
+    "ReceiptNeeded": "no",
+    "ThankYouNeeded": "no"
+  }
+]
