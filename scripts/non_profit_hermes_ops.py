@@ -115,6 +115,41 @@ def gen_id(prefix: str = "NPH") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
 
 
+def _row_exists(svc, tab: str, id_col: str, id_value: str) -> bool:
+    """Check if a row with the given ID already exists in the tab."""
+    try:
+        rows = svc.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"{tab}!A1:Z500"
+        ).execute().get("values", [])
+        if not rows:
+            return False
+        header = [h.strip() for h in rows[0]]
+        if id_col not in header:
+            return False
+        col_idx = header.index(id_col)
+        return any(len(r) > col_idx and r[col_idx].strip() == str(id_value) for r in rows[1:])
+    except Exception:
+        return False
+
+
+def _calendar_event_exists(svc_cal, title: str) -> str | None:
+    """Search calendar for an event with the given title. Returns event ID if found."""
+    try:
+        events = svc_cal.events().list(
+            calendarId=CALENDAR_ID,
+            q=title,
+            singleEvents=True,
+            maxResults=10,
+        ).execute().get("items", [])
+        for e in events:
+            if e.get("summary") == title:
+                return e.get("id")
+        return None
+    except Exception:
+        return None
+
+
 # ── Auth / Services ─────────────────────────────────────────────────────────
 
 def get_creds() -> Credentials:
@@ -209,8 +244,12 @@ def add_request(
     created_by: str = "Hermes",
     source_link: str = "",
 ) -> dict:
-    """Add a request row to the Requests tab."""
+    """Add a request row to the Requests tab. Idempotent on RequestID."""
     rid = request_id or gen_id("REQ")
+    if _row_exists(svc, "Requests", "RequestID", rid):
+        write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Requests/{rid}",
+                         after=f"Request {rid} already exists; duplicate skipped")
+        return {"tab": "Requests", "id": rid, "status": "already_exists"}
     now_ts = ts()
     row = make_row("Requests", {
         "RequestID": rid,
@@ -235,7 +274,7 @@ def add_request(
     result = append_row(svc, "Requests", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Requests/{rid}",
                      after=f"Request {rid} created: {need_description}")
-    return {"tab": "Requests", "id": rid, "api_result": result}
+    return {"tab": "Requests", "id": rid, "status": "created", "api_result": result}
 
 
 def add_donation(
@@ -254,8 +293,12 @@ def add_donation(
     status: str = "new",
     source_link: str = "",
 ) -> dict:
-    """Add a donation row to the Donations tab."""
+    """Add a donation row to the Donations tab. Idempotent on DonationID."""
     did = donation_id or gen_id("DON")
+    if _row_exists(svc, "Donations", "DonationID", did):
+        write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Donations/{did}",
+                         after=f"Donation {did} already exists; duplicate skipped")
+        return {"tab": "Donations", "id": did, "status": "already_exists"}
     now_ts = ts()
     row = make_row("Donations", {
         "DonationID": did,
@@ -275,7 +318,7 @@ def add_donation(
     result = append_row(svc, "Donations", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Donations/{did}",
                      after=f"Donation {did} created: {item_description}")
-    return {"tab": "Donations", "id": did, "api_result": result}
+    return {"tab": "Donations", "id": did, "status": "created", "api_result": result}
 
 
 def add_report(
@@ -289,8 +332,12 @@ def add_report(
     sensitive_details: str = "",
     source_link: str = "",
 ) -> dict:
-    """Add a report row to the Reports tab."""
+    """Add a report row to the Reports tab. Idempotent on ReportID."""
     rid = report_id or gen_id("REP")
+    if _row_exists(svc, "Reports", "ReportID", rid):
+        write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Reports/{rid}",
+                         after=f"Report {rid} already exists; duplicate skipped")
+        return {"tab": "Reports", "id": rid, "status": "already_exists"}
     now_ts = ts()
     row = make_row("Reports", {
         "ReportID": rid,
@@ -306,8 +353,7 @@ def add_report(
     result = append_row(svc, "Reports", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Reports/{rid}",
                      after=f"Report {rid} created: {summary}")
-    return {"tab": "Reports", "id": rid, "api_result": result}
-
+    return {"tab": "Reports", "id": rid, "status": "created", "api_result": result}
 
 def add_task(
     svc,
@@ -322,8 +368,12 @@ def add_task(
     status: str = "new",
     source_link: str = "",
 ) -> dict:
-    """Add a task row to the Tasks tab."""
+    """Add a task row to the Tasks tab. Idempotent on TaskID."""
     tid = task_id or gen_id("TASK")
+    if _row_exists(svc, "Tasks", "TaskID", tid):
+        write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Tasks/{tid}",
+                         after=f"Task {tid} already exists; duplicate skipped")
+        return {"tab": "Tasks", "id": tid, "status": "already_exists"}
     now_ts = ts()
     row = make_row("Tasks", {
         "TaskID": tid,
@@ -341,7 +391,7 @@ def add_task(
     result = append_row(svc, "Tasks", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Tasks/{tid}",
                      after=f"Task {tid} created: {task_title}")
-    return {"tab": "Tasks", "id": tid, "api_result": result}
+    return {"tab": "Tasks", "id": tid, "status": "created", "api_result": result}
 
 
 def update_inventory(
@@ -357,8 +407,12 @@ def update_inventory(
     condition: str = "",
     notes: str = "",
 ) -> dict:
-    """Add/update an inventory row in the Inventory tab."""
+    """Add/update an inventory row in the Inventory tab. Idempotent on ItemID."""
     iid = item_id or gen_id("INV")
+    if _row_exists(svc, "Inventory", "ItemID", iid):
+        write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Inventory/{iid}",
+                         after=f"Inventory {iid} already exists; duplicate skipped")
+        return {"tab": "Inventory", "id": iid, "status": "already_exists"}
     now_ts = ts()
     row = make_row("Inventory", {
         "ItemID": iid,
@@ -376,7 +430,7 @@ def update_inventory(
     result = append_row(svc, "Inventory", row)
     write_audit_log(svc, "Hermes", "update", "Google Sheets", f"Inventory/{iid}",
                      after=f"Inventory {iid} updated: {item_name} qty={quantity_on_hand}")
-    return {"tab": "Inventory", "id": iid, "api_result": result}
+    return {"tab": "Inventory", "id": iid, "status": "created", "api_result": result}
 
 
 def create_calendar_event(
@@ -394,10 +448,18 @@ def create_calendar_event(
     related_request_id: str = "",
     related_donation_id: str = "",
 ) -> dict:
-    """Create a real Google Calendar event and log it in CalendarLog."""
+    """Create a real Google Calendar event and log it in CalendarLog. Idempotent on event title."""
     start = start_time or now_utc()
     end = end_time or (start + timedelta(hours=1))
     title = event_title or f"Event {gen_id('EVT')}"
+
+    # Check for existing event with same title
+    existing_id = _calendar_event_exists(svc_cal, title)
+    if existing_id:
+        write_audit_log(svc_sheets, "Hermes", "duplicate_skipped", "Google Calendar",
+                         f"Calendar/{existing_id}",
+                         after=f"Calendar event '{title}' already exists (ID: {existing_id}); duplicate skipped")
+        return {"tab": "CalendarLog", "calendar_id": existing_id, "status": "already_exists"}
 
     # Create the calendar event
     event_body = {
@@ -436,7 +498,7 @@ def create_calendar_event(
                      f"Calendar/{cal_event_id}",
                      after=f"Calendar event '{title}' created (ID: {cal_event_id})")
 
-    return {"tab": "CalendarLog", "calendar_id": cal_event_id, "api_result": created}
+    return {"tab": "CalendarLog", "calendar_id": cal_event_id, "status": "created", "api_result": created}
 
 
 # ── CLI test mode ───────────────────────────────────────────────────────────

@@ -73,6 +73,7 @@ class RouterResult:
     privacy_level: str = "board-visible"
     sensitive_hold: bool = False
     summary: str = ""
+    backend_status: str = ""  # "created" | "already_exists" | "held" | "needs_more_info"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +87,7 @@ class RouterResult:
             "privacy_level": self.privacy_level,
             "sensitive_hold": self.sensitive_hold,
             "summary": self.summary,
+            "backend_status": self.backend_status,
         }
 
 
@@ -233,7 +235,7 @@ def route_need(svc, _svc_cal, fields: dict[str, str], free_text: str, source_lin
         created_by="Hermes Telegram Router",
         source_link=source_link,
     )
-    return RouterResult(True, "/need", "written", "Request row written through backend.", record_id=result["id"], privacy_level=privacy_level)
+    return RouterResult(True, "/need", result.get("status", "written"), "Request row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
 
 
 def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
@@ -256,7 +258,7 @@ def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source
         status=fields.get("status", "new"),
         source_link=source_link,
     )
-    return RouterResult(True, "/donation", "written", "Donation row written through backend.", record_id=result["id"], privacy_level=privacy_level)
+    return RouterResult(True, "/donation", result.get("status", "written"), "Donation row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
 
 
 def route_report(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
@@ -274,7 +276,7 @@ def route_report(svc, _svc_cal, fields: dict[str, str], free_text: str, source_l
         sensitive_details="",
         source_link=source_link,
     )
-    return RouterResult(True, "/report", "written", "Report row written through backend.", record_id=result["id"], privacy_level=privacy_level)
+    return RouterResult(True, "/report", result.get("status", "written"), "Report row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
 
 
 def route_task(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
@@ -294,7 +296,7 @@ def route_task(svc, _svc_cal, fields: dict[str, str], free_text: str, source_lin
         status=fields.get("status", "new"),
         source_link=source_link,
     )
-    return RouterResult(True, "/task", "written", "Task row written through backend.", record_id=result["id"], privacy_level=privacy_level)
+    return RouterResult(True, "/task", result.get("status", "written"), "Task row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
 
 
 def route_inventory(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
@@ -314,7 +316,7 @@ def route_inventory(svc, _svc_cal, fields: dict[str, str], free_text: str, sourc
         condition=fields.get("condition", UNKNOWN),
         notes="Telegram simulated intake; safe fake data only",
     )
-    return RouterResult(True, "/inventory", "written", "Inventory row written through backend.", record_id=result["id"], privacy_level=privacy_level)
+    return RouterResult(True, "/inventory", result.get("status", "written"), "Inventory row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
 
 
 def route_event(svc, svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
@@ -342,7 +344,7 @@ def route_event(svc, svc_cal, fields: dict[str, str], free_text: str, source_lin
         related_request_id=fields.get("request", ""),
         related_donation_id=fields.get("donation", ""),
     )
-    return RouterResult(True, "/event", "written", "Calendar event created through backend.", record_id=fields["id"], calendar_event_id=result["calendar_id"], privacy_level=privacy_level)
+    return RouterResult(True, "/event", result.get("status", "written"), "Calendar event created through backend.", record_id=fields["id"], calendar_event_id=result.get("calendar_id", ""), privacy_level=privacy_level, backend_status=result.get("status", "created"))
 
 
 def run_sync() -> dict[str, Any]:
@@ -365,6 +367,31 @@ def read_json(name: str) -> list[dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _dedupe_by_key(items: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """Return items with unique values for the given key, keeping first occurrence."""
+    seen = set()
+    out = []
+    for item in items:
+        val = item.get(key, "")
+        if val and val not in seen:
+            seen.add(val)
+            out.append(item)
+    return out
+
+
+def _dedupe_calendar_by_title(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate calendar items by title, keeping first occurrence.
+    Does not delete source rows; only affects /daily display.
+    """
+    seen = set()
+    out = []
+    for item in items:
+        title = (item.get("EventTitle") or "").strip()
+        if title and title not in seen:
+            seen.add(title)
+            out.append(item)
+    return out
+
 def run_daily_summary() -> str:
     sync_result = run_sync()
     needs = read_json("approved_needs.json")
@@ -372,6 +399,13 @@ def run_daily_summary() -> str:
     reports = read_json("approved_reports.json")
     calendar = read_json("approved_calendar.json")
     board_log = read_json("approved_board_log.json")
+
+    # Deduplicate by primary keys
+    needs = _dedupe_by_key(needs, "RequestID")
+    donations = _dedupe_by_key(donations, "DonationID")
+    reports = _dedupe_by_key(reports, "ReportID")
+    calendar = _dedupe_by_key(calendar, "CalendarEventID")
+    calendar = _dedupe_calendar_by_title(calendar)
 
     today = now_utc().strftime("%Y-%m-%d")
     lines = [
@@ -419,7 +453,9 @@ def run_daily_summary() -> str:
             lines.append(f"- {a.get('Action', UNKNOWN)} {a.get('TargetItem', UNKNOWN)}")
     else:
         lines.append("- No recent successful audit entries found.")
+    lines += ["", "Website:", "- Board home: https://falloutmule.github.io/non-profit-hermes-mvp/", "- Today: https://falloutmule.github.io/non-profit-hermes-mvp/today.html", "- Current needs: https://falloutmule.github.io/non-profit-hermes-mvp/current-needs.html", "- Calendar: https://falloutmule.github.io/non-profit-hermes-mvp/calendar.html", "- Reports: https://falloutmule.github.io/non-profit-hermes-mvp/reports.html"]
     lines += ["", "Sync state:", f"- Marker: {sync_result.get('marker', UNKNOWN)}", f"- Rows: {sync_result.get('rows', {})}"]
+    lines += ["", "daily_plugin_version: website-links-dedup-002"]
     return "\n".join(lines)
 
 
