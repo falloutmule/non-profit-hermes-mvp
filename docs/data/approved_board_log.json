@@ -223,5 +223,185 @@
     "TargetSystem": "Telegram intake router",
     "TargetItem": "/need",
     "Result": "needs_more_info"
+  },
+  {
+    "AuditID": "AUDIT-B8260BA9",
+    "Timestamp": "2026-07-07T09:12:27+00:00",
+    "Actor": "Hermes",
+    "Action": "create",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-002",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-D049921E",
+    "Timestamp": "2026-07-07T11:31:10+00:00",
+    "Actor": "Hermes",
+    "Action": "update",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-002",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-FCCD23AD",
+    "Timestamp": "2026-07-07T12:09:07+00:00",
+    "Actor": "Hermes Telegram Router",
+    "Action": "needs-more-info",
+    "TargetSystem": "Telegram intake router",
+    "TargetItem": "/need",
+    "Result": "needs_more_info"
+  },
+  {
+    "AuditID": "AUDIT-52D6B915",
+    "Timestamp": "2026-07-07T12:09:26+00:00",
+    "Actor": "Hermes",
+    "Action": "create",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-003",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-4D8CEDD8",
+    "Timestamp": "2026-07-07T12:26:47+00:00",
+    "Actor": "Hermes",
+    "Action": "update",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-003",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-E6C86636",
+    "Timestamp": "2026-07-07T12:27:52+00:00",
+    "Actor": "Hermes",
+    "Action": "update",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-003",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-4F1FB4F2",
+    "Timestamp": "2026-07-07T12:50:51+00:00",
+    "Actor": "Hermes",
+    "Action": "create",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-005",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-4EF0E049",
+    "Timestamp": "2026-07-07T12:50:52+00:00",
+    "Actor": "Hermes",
+    "Action": "update",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-005",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-7A6349FB",
+    "Timestamp": "2026-07-07T12:52:14+00:00",
+    "Actor": "Hermes",
+    "Action": "duplicate_skipped",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-TG-TEST-001",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-26084429",
+    "Timestamp": "2026-07-07T12:52:15+00:00",
+    "Actor": "Hermes",
+    "Action": "duplicate_skipped",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Donations/DON-TG-TEST-001",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-1AA24B06",
+    "Timestamp": "2026-07-07T12:52:15+00:00",
+    "Actor": "Hermes",
+    "Action": "duplicate_skipped",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Reports/REP-TG-TEST-001",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-CD2ADC93",
+    "Timestamp": "2026-07-07T12:52:16+00:00",
+    "Actor": "Hermes",
+    "Action": "duplicate_skipped",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Tasks/TASK-TG-TEST-001",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-6CF2E491",
+    "Timestamp": "2026-07-07T12:52:16+00:00",
+    "Actor": "Hermes",
+    "Action": "duplicate_skipped",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Inventory/INV-TG-TEST-001",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-830F6C12",
+    "Timestamp": "2026-07-07T12:52:17+00:00",
+    "Actor": "Hermes",
+    "Action": "duplicate_skipped",
+    "TargetSystem": "Google Calendar",
+    "TargetItem": "Calendar/5g0ch02a1imu8e7g9v0f5oljrs",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-59B31346",
+    "Timestamp": "2026-07-07T12:52:19+00:00",
+    "Actor": "Hermes Telegram Router",
+    "Action": "hold",
+    "TargetSystem": "Telegram intake router",
+    "TargetItem": "/need",
+    "Result": "held"
+  },
+  {
+    "AuditID": "AUDIT-D517149F",
+    "Timestamp": "2026-07-07T12:52:19+00:00",
+    "Actor": "Hermes Telegram Router",
+    "Action": "needs-more-info",
+    "TargetSystem": "Telegram intake router",
+    "TargetItem": "/need",
+    "Result": "needs_more_info"
+  },
+  {
+    "AuditID": "AUDIT-B61A6A4E",
+    "Timestamp": "2026-07-07T12:52:20+00:00",
+    "Actor": "Hermes",
+    "Action": "create",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-006",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-AB689AD4",
+    "Timestamp": "2026-07-07T12:52:21+00:00",
+    "Actor": "Hermes",
+    "Action": "update",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-20260707-006",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-B19237A9",
+    "Timestamp": "2026-07-07T14:36:39+00:00",
+    "Actor": "Hermes",
+    "Action": "create",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Donations/DON-47D11AAA",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-1A48B13A",
+    "Timestamp": "2026-07-07T14:36:40+00:00",
+    "Actor": "Hermes",
+    "Action": "update",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Donations/DON-47D11AAA",
+    "Result": "success"
   }
 ]

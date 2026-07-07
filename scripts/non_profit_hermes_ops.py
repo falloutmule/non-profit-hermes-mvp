@@ -224,6 +224,24 @@ def write_audit_log(
 
 # ── Primary operations ─────────────────────────────────────────────────────
 
+def _find_row_by_id(svc, tab: str, id_col: str, id_value: str) -> tuple[int, list[str], list[str]] | None:
+    """Return (row_number, header, row_values) for the matching ID, or None."""
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"{tab}!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if id_col not in header:
+        return None
+    col_idx = header.index(id_col)
+    for idx, row in enumerate(rows[1:], start=2):
+        if len(row) > col_idx and row[col_idx].strip() == str(id_value):
+            return idx, header, row
+    return None
+
+
 def add_request(
     svc,
     *,
@@ -281,6 +299,84 @@ def add_request(
     return {"tab": "Requests", "id": rid, "status": "created", "api_result": result}
 
 
+def update_request(
+    svc,
+    *,
+    request_id: str,
+    source: str | None = None,
+    submitted_by: str | None = None,
+    person_or_group: str | None = None,
+    contact_method: str | None = None,
+    need_category: str | None = None,
+    need_description: str | None = None,
+    quantity: str | None = None,
+    location_private: str | None = None,
+    location_public_safe: str | None = None,
+    urgency: str | None = None,
+    needed_by: str | None = None,
+    privacy_level: str | None = None,
+    status: str | None = None,
+    next_action: str | None = None,
+    notes: str | None = None,
+    created_by: str | None = None,
+    source_link: str | None = None,
+) -> dict:
+    """Update an existing request row by RequestID."""
+    found = _find_row_by_id(svc, "Requests", "RequestID", request_id)
+    if not found:
+        write_audit_log(svc, "Hermes", "update_missing", "Google Sheets", f"Requests/{request_id}",
+                         after="Request not found", result="not_found")
+        return {"tab": "Requests", "id": request_id, "status": "not_found"}
+
+    row_num, header, row = found
+    current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    before = json.dumps({k: current.get(k, "") for k in [
+        "NeedDescription", "Urgency", "NeededBy", "LocationPrivate", "LocationPublicSafe",
+        "PrivacyLevel", "Status", "NextAction", "Notes", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    updates = {
+        "Source": source,
+        "SubmittedBy": submitted_by,
+        "PersonOrGroup": person_or_group,
+        "ContactMethod": contact_method,
+        "NeedCategory": need_category,
+        "NeedDescription": need_description,
+        "Quantity": quantity,
+        "LocationPrivate": location_private,
+        "LocationPublicSafe": location_public_safe,
+        "Urgency": urgency,
+        "NeededBy": needed_by,
+        "PrivacyLevel": privacy_level,
+        "Status": status,
+        "NextAction": next_action,
+        "Notes": notes,
+        "CreatedBy": created_by,
+        "SourceMessageLink": source_link,
+    }
+    for key, value in updates.items():
+        if value is not None:
+            current[key] = value
+    current["LastUpdated"] = ts()
+    after = json.dumps({k: current.get(k, "") for k in [
+        "NeedDescription", "Urgency", "NeededBy", "LocationPrivate", "LocationPublicSafe",
+        "PrivacyLevel", "Status", "NextAction", "Notes", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    values = [current.get(h, "") for h in header]
+    range_end = col(len(header))
+    svc.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"Requests!A{row_num}:{range_end}{row_num}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [values]},
+    ).execute()
+
+    write_audit_log(svc, "Hermes", "update", "Google Sheets", f"Requests/{request_id}",
+                     before=before, after=after)
+    return {"tab": "Requests", "id": request_id, "status": "updated"}
+
+
 def add_donation(
     svc,
     *,
@@ -295,6 +391,10 @@ def add_donation(
     location: str = "",
     available_date: str = "",
     status: str = "new",
+    receipt_needed: str = "",
+    thank_you_needed: str = "",
+    consent_to_public_thanks: str = "",
+    notes: str = "",
     source_link: str = "",
 ) -> dict:
     """Add a donation row to the Donations tab. Idempotent on DonationID."""
@@ -316,13 +416,96 @@ def add_donation(
         "PickupOrDropoff": pickup_or_dropoff,
         "Location": location,
         "AvailableDate": available_date,
+        "StorageNeeded": "",
+        "MatchesCurrentNeed": "",
+        "AssignedPickupVolunteer": "",
         "Status": status,
+        "ReceiptNeeded": receipt_needed,
+        "ThankYouNeeded": thank_you_needed,
+        "ConsentToPublicThanks": consent_to_public_thanks,
+        "Notes": notes,
         "SourceMessageLink": source_link,
     })
     result = append_row(svc, "Donations", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Donations/{did}",
                      after=f"Donation {did} created: {item_description}")
     return {"tab": "Donations", "id": did, "status": "created", "api_result": result}
+
+
+def update_donation(
+    svc,
+    *,
+    donation_id: str,
+    donor_name: str | None = None,
+    donor_contact: str | None = None,
+    donation_type: str | None = None,
+    item_description: str | None = None,
+    quantity: str | None = None,
+    condition: str | None = None,
+    pickup_or_dropoff: str | None = None,
+    location: str | None = None,
+    available_date: str | None = None,
+    status: str | None = None,
+    receipt_needed: str | None = None,
+    thank_you_needed: str | None = None,
+    consent_to_public_thanks: str | None = None,
+    notes: str | None = None,
+    source_link: str | None = None,
+) -> dict:
+    """Update an existing donation row by DonationID."""
+    found = _find_row_by_id(svc, "Donations", "DonationID", donation_id)
+    if not found:
+        write_audit_log(svc, "Hermes", "update_missing", "Google Sheets", f"Donations/{donation_id}",
+                         after="Donation not found", result="not_found")
+        return {"tab": "Donations", "id": donation_id, "status": "not_found"}
+
+    row_num, header, row = found
+    current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    before = json.dumps({k: current.get(k, "") for k in [
+        "DonationType", "ItemDescription", "Quantity", "Condition", "PickupOrDropoff",
+        "Location", "AvailableDate", "Status", "ReceiptNeeded", "ThankYouNeeded",
+        "ConsentToPublicThanks", "Notes", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    updates = {
+        "DonorName": donor_name,
+        "DonorContact": donor_contact,
+        "DonationType": donation_type,
+        "ItemDescription": item_description,
+        "Quantity": quantity,
+        "Condition": condition,
+        "PickupOrDropoff": pickup_or_dropoff,
+        "Location": location,
+        "AvailableDate": available_date,
+        "Status": status,
+        "ReceiptNeeded": receipt_needed,
+        "ThankYouNeeded": thank_you_needed,
+        "ConsentToPublicThanks": consent_to_public_thanks,
+        "Notes": notes,
+        "SourceMessageLink": source_link,
+    }
+    for key, value in updates.items():
+        if value is not None:
+            current[key] = value
+    current["LastUpdated"] = ts()
+    after = json.dumps({k: current.get(k, "") for k in [
+        "DonationType", "ItemDescription", "Quantity", "Condition", "PickupOrDropoff",
+        "Location", "AvailableDate", "Status", "ReceiptNeeded", "ThankYouNeeded",
+        "ConsentToPublicThanks", "Notes", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    values = [current.get(h, "") for h in header]
+    range_end = col(len(header))
+    svc.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"Donations!A{row_num}:{range_end}{row_num}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [values]},
+    ).execute()
+
+    write_audit_log(svc, "Hermes", "update", "Google Sheets", f"Donations/{donation_id}",
+                     before=before, after=after)
+    return {"tab": "Donations", "id": donation_id, "status": "updated"}
 
 
 def add_report(

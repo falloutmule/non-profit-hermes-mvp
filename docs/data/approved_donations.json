@@ -38,5 +38,15 @@
     "Status": "new",
     "ReceiptNeeded": "",
     "ThankYouNeeded": ""
+  },
+  {
+    "DonationID": "DON-47D11AAA",
+    "DateOffered": "2026-07-07T14:36:39+00:00",
+    "DonationType": "unknown",
+    "ItemDescription": "3 coats and 2 blankets",
+    "Quantity": "unknown",
+    "Status": "ready",
+    "ReceiptNeeded": "no",
+    "ThankYouNeeded": "unknown"
   }
 ]
