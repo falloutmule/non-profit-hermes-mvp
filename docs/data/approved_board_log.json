@@ -187,5 +187,41 @@
     "TargetSystem": "Telegram intake router",
     "TargetItem": "/need",
     "Result": "needs_more_info"
+  },
+  {
+    "AuditID": "AUDIT-772673C7",
+    "Timestamp": "2026-07-07T01:17:50+00:00",
+    "Actor": "Hermes",
+    "Action": "create",
+    "TargetSystem": "Google Sheets",
+    "TargetItem": "Requests/REQ-LIVE-NEED-TEST-001",
+    "Result": "success"
+  },
+  {
+    "AuditID": "AUDIT-0BA81339",
+    "Timestamp": "2026-07-07T02:48:27+00:00",
+    "Actor": "Hermes Telegram Router",
+    "Action": "needs-more-info",
+    "TargetSystem": "Telegram intake router",
+    "TargetItem": "/need",
+    "Result": "needs_more_info"
+  },
+  {
+    "AuditID": "AUDIT-4C7BA70D",
+    "Timestamp": "2026-07-07T02:49:04+00:00",
+    "Actor": "Hermes Telegram Router",
+    "Action": "needs-more-info",
+    "TargetSystem": "Telegram intake router",
+    "TargetItem": "/need",
+    "Result": "needs_more_info"
+  },
+  {
+    "AuditID": "AUDIT-4B33EC10",
+    "Timestamp": "2026-07-07T02:52:57+00:00",
+    "Actor": "Hermes Telegram Router",
+    "Action": "needs-more-info",
+    "TargetSystem": "Telegram intake router",
+    "TargetItem": "/need",
+    "Result": "needs_more_info"
   }
 ]

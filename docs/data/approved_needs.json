@@ -46,5 +46,17 @@
     "PrivacyLevel": "board-visible",
     "Status": "new",
     "NextAction": "review"
+  },
+  {
+    "RequestID": "REQ-LIVE-NEED-TEST-001",
+    "DateReceived": "2026-07-07T01:17:49+00:00",
+    "NeedCategory": "unknown",
+    "NeedDescription": "Safe live Telegram need test for socks",
+    "Quantity": "unknown",
+    "Urgency": "normal",
+    "NeededBy": "unknown",
+    "PrivacyLevel": "board-visible",
+    "Status": "new",
+    "NextAction": "review"
   }
 ]

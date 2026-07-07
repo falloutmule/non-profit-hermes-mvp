@@ -107,6 +107,15 @@ def _result_to_text(result: "RouterResult") -> str:
         return result.message
     if result.ok and result.backend_status == "already_exists":
         return f"Request {result.record_id} already exists; duplicate skipped (no new row written)."
+    if result.ok and result.status in {"needs-info", "draft"}:
+        missing = ", ".join(result.missing_fields or []) or "none"
+        return (
+            f"Draft request created: {result.record_id}\n"
+            f"Privacy: {result.privacy_level}\n"
+            f"Status: {result.status}\n"
+            f"Missing: {missing}\n"
+            f"Next action: review"
+        )
     if result.ok:
         return (
             f"Request created: {result.record_id}\n"
@@ -151,6 +160,46 @@ def classify_privacy(text: str) -> tuple[str, bool, list[str]]:
 
 def missing_required(fields: dict[str, str], required: list[str]) -> list[str]:
     return [name for name in required if not fields.get(name)]
+
+
+def normalize_need_description(text: str) -> str:
+    """Normalize sloppy /need free text into a readable request description."""
+    desc = (text or "").strip()
+    desc = re.sub(r"\s*,\s*", " and ", desc)
+    desc = re.sub(r"\b(\d+)\s+person\b", r"\1-person", desc, flags=re.IGNORECASE)
+    desc = re.sub(r"\s+", " ", desc).strip()
+    return desc
+
+
+def generate_live_request_id(svc) -> str:
+    """Generate REQ-LIVE-YYYYMMDD-### from existing Requests rows."""
+    today = now_utc().strftime("%Y%m%d")
+    prefix = f"REQ-LIVE-{today}-"
+    try:
+        rows = svc.spreadsheets().values().get(
+            spreadsheetId=ops.SPREADSHEET_ID,
+            range="Requests!A1:A1000",
+        ).execute().get("values", [])
+    except Exception:
+        rows = []
+    max_seq = 0
+    for row in rows[1:]:
+        if not row:
+            continue
+        rid = str(row[0]).strip()
+        if rid.startswith(prefix):
+            try:
+                max_seq = max(max_seq, int(rid.rsplit("-", 1)[-1]))
+            except ValueError:
+                pass
+    return f"{prefix}{max_seq + 1:03d}"
+
+
+def explicit_privacy_level(fields: dict[str, str]) -> str | None:
+    raw = (fields.get("privacy_level") or fields.get("privacy") or "").strip().lower()
+    if raw in {"board-visible", "public-safe", "board-visible-test", "private-review", "private-hold"}:
+        return raw
+    return None
 
 
 def services():
@@ -238,30 +287,53 @@ def handle_message(text: str, *, source_link: str = "telegram-simulated:test") -
 
 
 def route_need(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
-    missing = missing_required(fields, ["id", "description"])
-    if missing:
-        audit_missing(svc, "/need", missing, source_link)
-        return RouterResult(False, "/need", "needs_more_info", "Need more info: " + ", ".join(missing), missing_fields=missing)
+    description = normalize_need_description(fields.get("description", "") or free_text)
+    if not description:
+        audit_missing(svc, "/need", ["description"], source_link)
+        return RouterResult(False, "/need", "needs_more_info", "Need more info: description", missing_fields=["description"])
+
+    request_id = fields.get("id") or generate_live_request_id(svc)
+    explicit_privacy = explicit_privacy_level(fields)
+    final_privacy = explicit_privacy or "private-review"
+    location = fields.get("location", UNKNOWN)
+    missing_followup = [
+        name for name in ["urgency", "needed_by", "location", "privacy_level"]
+        if not fields.get(name)
+    ]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+    next_action = fields.get("next_action", "review")
+
     result = ops.add_request(
         svc,
-        request_id=fields["id"],
-        source="Telegram simulated intake",
-        submitted_by=fields.get("submitted_by", "Telegram user (safe fake)"),
+        request_id=request_id,
+        source="Telegram live intake" if source_link.startswith("telegram:live") else "Telegram simulated intake",
+        submitted_by=fields.get("submitted_by", "Telegram user"),
         person_or_group=fields.get("person_or_group", UNKNOWN),
         contact_method=UNKNOWN,
         need_category=fields.get("category", UNKNOWN),
-        need_description=fields["description"] or free_text or UNKNOWN,
+        need_description=description,
         quantity=fields.get("quantity", UNKNOWN),
+        location_public_safe=location if final_privacy in {"board-visible", "public-safe", "board-visible-test"} else UNKNOWN,
         urgency=fields.get("urgency", UNKNOWN),
         needed_by=fields.get("needed_by", UNKNOWN),
-        privacy_level=privacy_level,
-        status=fields.get("status", "new"),
-        next_action=fields.get("next_action", "review"),
-        notes="Telegram simulated intake; safe fake data only",
+        privacy_level=final_privacy,
+        status=status,
+        next_action=next_action,
+        notes="Sloppy Telegram /need intake; missing fields marked unknown; human review required" if missing_followup else "Telegram /need intake",
         created_by="Hermes Telegram Router",
         source_link=source_link,
     )
-    return RouterResult(True, "/need", result.get("status", "written"), "Request row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/need",
+        reply_status,
+        "Request row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level=final_privacy,
+        backend_status=result.get("status", "created"),
+    )
 
 
 def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
@@ -473,7 +545,14 @@ def run_daily_summary() -> str:
         lines.append("- No follow-ups listed.")
     lines += ["", "Sensitive items requiring human review:", "- Not exported to docs/. Check private systems only if needed."]
     lines += ["", "Completed items since last brief:"]
-    recent_success = [a for a in board_log if a.get("Result") == "success"][-5:]
+    visible_request_ids = {n.get("RequestID") for n in needs if n.get("RequestID")}
+    recent_success = []
+    for a in [x for x in board_log if x.get("Result") == "success"]:
+        target = str(a.get("TargetItem", ""))
+        if target.startswith("Requests/") and target.split("/", 1)[1] not in visible_request_ids:
+            continue
+        recent_success.append(a)
+    recent_success = recent_success[-5:]
     if recent_success:
         for a in recent_success:
             lines.append(f"- {a.get('Action', UNKNOWN)} {a.get('TargetItem', UNKNOWN)}")

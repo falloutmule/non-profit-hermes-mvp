@@ -113,10 +113,14 @@ def read_sheet_rows(svc, tab: str) -> list[list[str]]:
 
 def safe_needs_from_requests(rows: list[list[str]]) -> list[dict[str, str]]:
     out = []
+    allowed_privacy = {"board-visible", "public-safe", "board-visible-test"}
     for r in rows[1:]:
         if not r:
             continue
         data = dict(zip(HEADERS["Requests"], r))
+        privacy = data.get("PrivacyLevel", "").strip().lower()
+        if privacy not in allowed_privacy:
+            continue
         out.append({
             "RequestID": data.get("RequestID", ""),
             "DateReceived": data.get("DateReceived", ""),
@@ -174,12 +178,16 @@ def safe_volunteer_gaps() -> list[dict[str, str]]:
     return []
 
 
-def safe_board_log(rows: list[list[str]]) -> list[dict[str, str]]:
+def safe_board_log(rows: list[list[str]], visible_request_ids: set[str] | None = None) -> list[dict[str, str]]:
     out = []
+    visible_request_ids = visible_request_ids or set()
     for r in rows[1:]:
         if not r:
             continue
         data = dict(zip(HEADERS["AuditLog"], r))
+        target = data.get("TargetItem", "")
+        if target.startswith("Requests/") and target.split("/", 1)[1] not in visible_request_ids:
+            continue
         out.append({
             "AuditID": data.get("AuditID", ""),
             "Timestamp": data.get("Timestamp", ""),
@@ -408,13 +416,15 @@ def main() -> int:
     calendar_items = safe_calendar_export(calendar)
     now = datetime.now(timezone.utc)
 
+    approved_needs = safe_needs_from_requests(requests_rows)
+    visible_request_ids = {n.get("RequestID", "") for n in approved_needs if n.get("RequestID")}
     out = {
-        "approved_needs": safe_needs_from_requests(requests_rows),
+        "approved_needs": approved_needs,
         "approved_calendar": calendar_items,
         "approved_reports": safe_reports(reports_rows),
         "approved_donations": safe_donations(donations_rows),
         "approved_volunteer_gaps": safe_volunteer_gaps(),
-        "approved_board_log": safe_board_log(audit_rows),
+        "approved_board_log": safe_board_log(audit_rows, visible_request_ids),
     }
 
     # Write JSON data exports to docs/data/
