@@ -91,6 +91,32 @@ class RouterResult:
         }
 
 
+def _result_to_text(result: "RouterResult") -> str:
+    """Render a RouterResult as a board-safe Telegram reply."""
+    if result.summary:
+        # /daily returns the full summary; pass it through unchanged.
+        return result.summary
+    if not result.ok and result.status == "needs_more_info":
+        return (
+            f"Need more info to create this request.\n"
+            f"Missing: {', '.join(result.missing_fields)}\n\n"
+            f"Example:\n"
+            f"/need id=REQ-EXAMPLE-001 description=\"Short safe need\" urgency=normal needed_by=unknown location=\"public-safe area\" privacy_level=board-visible next_action=review"
+        )
+    if not result.ok and result.sensitive_hold:
+        return result.message
+    if result.ok and result.backend_status == "already_exists":
+        return f"Request {result.record_id} already exists; duplicate skipped (no new row written)."
+    if result.ok:
+        return (
+            f"Request created: {result.record_id}\n"
+            f"Privacy: {result.privacy_level}\n"
+            f"Status: {result.backend_status}\n"
+            f"Run /daily to see board summary, or visit the Current Needs page."
+        )
+    return result.message
+
+
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 

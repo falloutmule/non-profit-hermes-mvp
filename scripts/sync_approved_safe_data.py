@@ -296,16 +296,18 @@ def build_pages(now: datetime, needs, calendar_items, reports, donations, board_
 
     # --- current-needs.html ---
     needs_items = []
-    if needs:
+    board_needs = [n for n in needs if str(n.get("PrivacyLevel", "")).lower() in {"board-visible", ""}]
+    if board_needs:
         needs_items.append(f"Deployment marker: <code>{MARKER}</code>")
-        needs_items.append(f"Request ID: <code>{needs[0]['RequestID']}</code>")
-        needs_items.append(f"Need: <code>{needs[0]['NeedDescription']}</code>")
-        needs_items.append(f"Category: <code>{needs[0]['NeedCategory']}</code>")
-        needs_items.append(f"Urgency: <code>{needs[0]['Urgency']}</code>")
-        needs_items.append(f"Status: <code>{needs[0]['Status']}</code>")
+        needs_items.append(f"Board-visible needs: <code>{len(board_needs)}</code>")
+        for n in board_needs:
+            needs_items.append(
+                f"Need <code>{n.get('RequestID', 'unknown')}</code>: {n.get('NeedDescription', 'unknown')} "
+                f"(category: {n.get('NeedCategory', 'unknown')}, urgency: {n.get('Urgency', 'unknown')}, status: {n.get('Status', 'unknown')})"
+            )
     else:
         needs_items.append(f"Deployment marker: <code>{MARKER}</code>")
-        needs_items.append("No needs records available.")
+        needs_items.append("No board-visible needs records available.")
 
     needs_body = f"""<h1>Current Needs</h1>
 <p>Approved-safe current needs.</p>
