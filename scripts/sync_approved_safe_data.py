@@ -161,6 +161,18 @@ def safe_reports(rows: list[list[str]]) -> list[dict[str, str]]:
         if not r:
             continue
         data = dict(zip(HEADERS["Reports"], r))
+        privacy = (data.get("PrivacyLevel") or "").strip().lower()
+        # Only export board-visible / public-safe reports
+        if privacy not in {"board-visible", "public-safe", "board-visible-test"}:
+            continue
+        # Skip drafts and needs-info
+        status = (data.get("Status") or "").strip().lower()
+        if status in {"needs-info", "draft"}:
+            continue
+        # Skip if public_summary_allowed explicitly set to no
+        psa = (data.get("public_summary_allowed") or "").strip().lower()
+        if psa in {"no", "false", "0"}:
+            continue
         out.append({
             "ReportID": data.get("ReportID", ""),
             "Date": data.get("Date", ""),
@@ -178,15 +190,18 @@ def safe_volunteer_gaps() -> list[dict[str, str]]:
     return []
 
 
-def safe_board_log(rows: list[list[str]], visible_request_ids: set[str] | None = None) -> list[dict[str, str]]:
+def safe_board_log(rows: list[list[str]], visible_request_ids: set[str] | None = None, visible_report_ids: set[str] | None = None) -> list[dict[str, str]]:
     out = []
     visible_request_ids = visible_request_ids or set()
+    visible_report_ids = visible_report_ids or set()
     for r in rows[1:]:
         if not r:
             continue
         data = dict(zip(HEADERS["AuditLog"], r))
         target = data.get("TargetItem", "")
         if target.startswith("Requests/") and target.split("/", 1)[1] not in visible_request_ids:
+            continue
+        if target.startswith("Reports/") and target.split("/", 1)[1] not in visible_report_ids:
             continue
         out.append({
             "AuditID": data.get("AuditID", ""),
@@ -417,14 +432,16 @@ def main() -> int:
     now = datetime.now(timezone.utc)
 
     approved_needs = safe_needs_from_requests(requests_rows)
+    approved_reports = safe_reports(reports_rows)
     visible_request_ids = {n.get("RequestID", "") for n in approved_needs if n.get("RequestID")}
+    visible_report_ids = {r.get("ReportID", "") for r in approved_reports if r.get("ReportID")}
     out = {
         "approved_needs": approved_needs,
         "approved_calendar": calendar_items,
-        "approved_reports": safe_reports(reports_rows),
+        "approved_reports": approved_reports,
         "approved_donations": safe_donations(donations_rows),
         "approved_volunteer_gaps": safe_volunteer_gaps(),
-        "approved_board_log": safe_board_log(audit_rows, visible_request_ids),
+        "approved_board_log": safe_board_log(audit_rows, visible_request_ids, visible_report_ids),
     }
 
     # Write JSON data exports to docs/data/

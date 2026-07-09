@@ -94,18 +94,37 @@ class RouterResult:
         }
 
 
+def _example_for_command(command: str) -> str:
+    """Return a safe example for the given command's missing-fields reply."""
+    examples = {
+        "/need": '/need id=REQ-EXAMPLE-001 description="Short safe need" urgency=normal needed_by=unknown location="public-safe area" privacy_level=board-visible next_action=review',
+        "/donation": '/donation id=DON-EXAMPLE-001 item="Safe test donation" type=clothing quantity=1 condition=new pickup_or_dropoff=dropoff location="safe area" receipt_needed=no consent_to_public_thanks=yes next_action=review',
+        "/report": '/report type=pantry summary="Pantry gave out socks and toilet paper" date=today people_served_estimate=unknown items_distributed="socks, toilet paper" followups_needed=none privacy_level=board-visible public_summary_allowed=yes next_action=review',
+        "/task": '/task id=TASK-EXAMPLE-001 title="Safe test task" description="Verify task write" category=test priority=low due=2099-01-01',
+        "/inventory": '/inventory id=INV-EXAMPLE-001 item="Safe test item" category=other quantity=10 unit=items minimum=5',
+        "/event": '/event id=CAL-EXAMPLE-001 title="Safe test event" start=2099-01-01T09:00:00 end=2099-01-01T10:00:00',
+    }
+    return examples.get(
+        command,
+        f'{command} id=EXAMPLE-001 description="Safe example"',
+    )
+
+
 def _result_to_text(result: "RouterResult") -> str:
     """Render a RouterResult as a board-safe Telegram reply."""
     if result.summary:
         # /daily returns the full summary; pass it through unchanged.
         return result.summary
     if not result.ok and result.status == "needs_more_info":
-        return (
-            f"Need more info to create this request.\n"
-            f"Missing: {', '.join(result.missing_fields)}\n\n"
-            f"Example:\n"
-            f"/need id=REQ-EXAMPLE-001 description=\"Short safe need\" urgency=normal needed_by=unknown location=\"public-safe area\" privacy_level=board-visible next_action=review"
-        )
+            missing = ", ".join(result.missing_fields)
+            cmd = result.command.lstrip("/")
+            label = cmd.title() if cmd else "Record"
+            example = _example_for_command(result.command)
+            return (
+                f"Need more info to create this {label}.\n"
+                f"Missing: {missing}\n\n"
+                f"Example:\n{example}"
+            )
     if not result.ok and result.sensitive_hold:
         return result.message
     if result.ok and result.backend_status == "already_exists":
