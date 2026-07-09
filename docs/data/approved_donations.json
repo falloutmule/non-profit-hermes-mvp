@@ -48,5 +48,15 @@
     "Status": "ready",
     "ReceiptNeeded": "no",
     "ThankYouNeeded": "unknown"
+  },
+  {
+    "DonationID": "DON-266EF7A6",
+    "DateOffered": "2026-07-07T20:49:23+00:00",
+    "DonationType": "unknown",
+    "ItemDescription": "paper towels and hand warmers",
+    "Quantity": "unknown",
+    "Status": "ready",
+    "ReceiptNeeded": "unknown",
+    "ThankYouNeeded": "unknown"
   }
 ]

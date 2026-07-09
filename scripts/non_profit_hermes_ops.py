@@ -56,7 +56,7 @@ HEADERS: dict[str, list[str]] = {
         "PickupOrDropoff", "Location", "AvailableDate", "StorageNeeded",
         "MatchesCurrentNeed", "AssignedPickupVolunteer", "Status",
         "ReceiptNeeded", "ThankYouNeeded", "ConsentToPublicThanks",
-        "Notes", "SourceMessageLink",
+        "NextAction", "Notes", "SourceMessageLink",
     ],
     "Reports": [
         "ReportID", "Date", "SubmittedBy", "ReportType", "Summary",
@@ -394,6 +394,7 @@ def add_donation(
     receipt_needed: str = "",
     thank_you_needed: str = "",
     consent_to_public_thanks: str = "",
+    next_action: str = "",
     notes: str = "",
     source_link: str = "",
 ) -> dict:
@@ -423,6 +424,7 @@ def add_donation(
         "ReceiptNeeded": receipt_needed,
         "ThankYouNeeded": thank_you_needed,
         "ConsentToPublicThanks": consent_to_public_thanks,
+        "NextAction": next_action,
         "Notes": notes,
         "SourceMessageLink": source_link,
     })
@@ -430,6 +432,7 @@ def add_donation(
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Donations/{did}",
                      after=f"Donation {did} created: {item_description}")
     return {"tab": "Donations", "id": did, "status": "created", "api_result": result}
+
 
 
 def update_donation(
@@ -449,6 +452,7 @@ def update_donation(
     receipt_needed: str | None = None,
     thank_you_needed: str | None = None,
     consent_to_public_thanks: str | None = None,
+    next_action: str | None = None,
     notes: str | None = None,
     source_link: str | None = None,
 ) -> dict:
@@ -464,7 +468,7 @@ def update_donation(
     before = json.dumps({k: current.get(k, "") for k in [
         "DonationType", "ItemDescription", "Quantity", "Condition", "PickupOrDropoff",
         "Location", "AvailableDate", "Status", "ReceiptNeeded", "ThankYouNeeded",
-        "ConsentToPublicThanks", "Notes", "LastUpdated", "SourceMessageLink",
+        "ConsentToPublicThanks", "NextAction", "Notes", "LastUpdated", "SourceMessageLink",
     ]}, ensure_ascii=False)
 
     updates = {
@@ -481,6 +485,7 @@ def update_donation(
         "ReceiptNeeded": receipt_needed,
         "ThankYouNeeded": thank_you_needed,
         "ConsentToPublicThanks": consent_to_public_thanks,
+        "NextAction": next_action,
         "Notes": notes,
         "SourceMessageLink": source_link,
     }
@@ -491,7 +496,7 @@ def update_donation(
     after = json.dumps({k: current.get(k, "") for k in [
         "DonationType", "ItemDescription", "Quantity", "Condition", "PickupOrDropoff",
         "Location", "AvailableDate", "Status", "ReceiptNeeded", "ThankYouNeeded",
-        "ConsentToPublicThanks", "Notes", "LastUpdated", "SourceMessageLink",
+        "ConsentToPublicThanks", "NextAction", "Notes", "LastUpdated", "SourceMessageLink",
     ]}, ensure_ascii=False)
 
     values = [current.get(h, "") for h in header]

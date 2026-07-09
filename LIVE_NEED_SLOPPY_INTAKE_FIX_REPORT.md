@@ -1,183 +1,103 @@
 # Live Need Sloppy Intake Fix Report
 
-**Status**: code complete; live gateway reload still required  
 **Date**: 2026-07-07  
+**Status**: updated; live `/need` follow-up tracking fixed and verified
 
 ## Goal
-Make `/need` accept sloppy natural input without requiring `id=` or `description=`.
+Make `/need` follow-up handling attach the next plain message in the same Telegram chat/session to the exact active draft automatically, unless the user explicitly names another `RequestID`.
 
-Test input:
-```text
-/need 2 person tent, gas card
-```
+## What Was Done
 
-Expected normalized description:
-```text
-2-person tent and gas card
-```
+1. **Added per-chat active draft tracking**
+   - Implemented local active-draft state at:
+     - `C:\Users\fallo\AppData\Local\hermes\state\telegram_active_need_drafts.json`
+   - `/need` now stores `active_need_request_id` for the chat/session scope when it creates a `needs-info` draft.
+   - When the draft becomes `ready`, the active pointer is cleared.
 
-## What Was Changed
+3. **Changed follow-up routing**
+   - Plain text follow-up messages are checked against the active draft first.
+   - If the follow-up names another `RequestID`, that explicit target wins.
+   - If multiple open drafts exist and no active pointer resolves the target, the router asks which `RequestID` to use.
+   - The router no longer searches old sessions before checking the active draft.
 
-1. **Sloppy free-text support**
-   - Updated `scripts/telegram_intake_router.py` so `/need` uses free text after the command as the description when `description=` is absent.
-   - Added `normalize_need_description()`:
-     - converts comma-separated text to `and`
-     - converts `2 person` to `2-person`
+4. **Added a conversation-style test**
+   - Added a test sequence in `scripts/telegram_intake_router.py`:
+     - `/need 6 rolls of toilet paper`
+     - `urgency=normal needed_by=unknown location="public-safe test area" privacy_level=board-visible status=ready`
+   - The test passed locally and confirmed the follow-up attached to the newly created draft without repeating the `RequestID`.
 
-2. **Auto-generated RequestID**
-   - Added `generate_live_request_id()`.
-   - Format: `REQ-LIVE-YYYYMMDD-###`.
-   - Verified generated ID: `REQ-LIVE-20260707-001`.
+5. **Verified with live Telegram source routing**
 
-3. **No id= requirement**
-   - `/need` no longer requires `id=`.
-   - `id=` remains accepted if user provides it.
+   - Created `REQ-LIVE-20260707-005` via `/need 6 rolls of toilet paper`.
+   - Sent the follow-up line without a `RequestID`.
+   - The follow-up attached to the active draft automatically and updated the same row.
 
-4. **Draft / needs-info behavior**
-   - If urgency, needed_by, location, or privacy_level are missing, the command creates a draft request instead of failing.
-   - Defaults for sloppy `/need`:
-     - `urgency = unknown`
-     - `needed_by = unknown`
-     - `location = unknown`
-     - `privacy_level = private-review`
-     - `next_action = review`
-     - `status = needs-info`
+5. **Synced approved-safe docs**
+   - Ran `python scripts/sync_approved_safe_data.py` after the live update.
+   - Regenerated approved-safe JSON and current-needs pages.
 
-5. **Privacy/export filtering**
-   - Updated `scripts/sync_approved_safe_data.py` so `approved_needs.json` exports only `board-visible`, `public-safe`, or `board-visible-test` Requests.
-   - Updated `approved_board_log.json` export to suppress Request AuditLog entries unless the RequestID is in approved-safe needs.
-   - Updated `/daily` completed-items section to suppress Request audit entries unless the RequestID is in board-visible exported needs.
+## What Was Verified in Live Telegram
 
-6. **Backend location fields**
-   - Updated `scripts/non_profit_hermes_ops.py:add_request()` to write `LocationPrivate` and `LocationPublicSafe` when supplied.
+### Draft creation
+The live `/need` call created:
 
-## What Was Verified
+- `REQ-LIVE-20260707-005`
+- Initial status: `needs-info`
+- Active pointer stored for the live chat/session scope
 
-### Sloppy parser/direct live-handler path
-Input:
-```text
-/need 2 person tent, gas card
-```
+### Follow-up attach
+The plain follow-up message:
 
-Observed:
-```text
-ok: True
-status: needs-info
-record_id: REQ-LIVE-20260707-001
-privacy: private-review
-backend_status: created
-missing: ['urgency', 'needed_by', 'location', 'privacy_level']
-```
+- `urgency=normal needed_by=unknown location="public-safe test area" privacy_level=board-visible status=ready`
 
-Telegram-safe reply text:
-```text
-Draft request created: REQ-LIVE-20260707-001
-Privacy: private-review
-Status: needs-info
-Missing: urgency, needed_by, location, privacy_level
-Next action: review
-```
+was attached to `REQ-LIVE-20260707-005` automatically, with no `RequestID` repeated.
 
-### Request row
-Verified one Requests row:
-```json
-{
-  "RequestID": "REQ-LIVE-20260707-001",
-  "NeedDescription": "2-person tent and gas card",
-  "Urgency": "unknown",
-  "NeededBy": "unknown",
-  "LocationPublicSafe": "unknown",
-  "PrivacyLevel": "private-review",
-  "Status": "needs-info",
-  "NextAction": "review",
-  "Notes": "Sloppy Telegram /need intake; missing fields marked unknown; human review required"
-}
-```
+### Final row state
+Verified row fields for `REQ-LIVE-20260707-005`:
 
-### AuditLog
-Verified one AuditLog row:
-```json
-{
-  "Action": "create",
-  "TargetItem": "Requests/REQ-LIVE-20260707-001",
-  "Result": "success",
-  "After": "Request REQ-LIVE-20260707-001 created: 2-person tent and gas card"
-}
-```
+- `NeedDescription`: `6 rolls of toilet paper`
+- `Urgency`: `normal`
+- `NeededBy`: `unknown`
+- `LocationPublicSafe`: `public-safe test area`
+- `PrivacyLevel`: `board-visible`
+- `Status`: `ready`
+- `NextAction`: `review`
 
-### Sync
-Ran:
-```text
-python scripts/sync_approved_safe_data.py
-```
+### Active pointer cleanup
+Verified the active-draft state file is now empty after the request reached `ready`.
 
-Observed:
-```json
-{
-  "approved_needs": 5,
-  "approved_calendar": 3,
-  "approved_reports": 4,
-  "approved_donations": 4,
-  "approved_volunteer_gaps": 0,
-  "approved_board_log": 25,
-  "marker": "CLEAN_DOCS_DEPLOY_NON_PROFIT_HERMES_002"
-}
-```
+### Docs / daily
+Verified after sync:
 
-### Public/docs privacy
-Verified `docs/` does **not** contain:
-- `REQ-LIVE-20260707-001`
-- `2-person tent and gas card`
-- `private-review`
-- `SensitiveNotes`
-- `LocationPrivate`
-
-Only the standing docs report text mentions that SensitiveNotes/private fields are not exported.
-
-### /daily privacy
-Verified `/daily` summary generated by `run_daily_summary()` does **not** contain:
-- `REQ-LIVE-20260707-001`
-- `2-person tent and gas card`
-
-Verified `/daily` still contains:
-- `CLEAN_DOCS_DEPLOY_NON_PROFIT_HERMES_002`
-- `daily_plugin_version: website-links-dedup-002`
-
-## What Was Verified In Live Telegram
-- Not verified in live Telegram after this code change because gateway restart is blocked from inside the running gateway session.
-- The `/need` plugin is already enabled; the updated router code will be used after an external gateway restart/reload.
+- `docs/current-needs.html` includes `REQ-LIVE-20260707-005`
+- `docs/current-needs/index.html` includes `REQ-LIVE-20260707-005`
+- `docs/data/approved_needs.json` includes `REQ-LIVE-20260707-005`
+- `/daily` shows `REQ-LIVE-20260707-005` exactly once
 
 ## What Failed
-- `hermes gateway restart` failed from inside the gateway process:
-```text
-Blocked: cannot restart or stop the gateway from inside the gateway process. The gateway would kill this command before it could complete (SIGTERM propagates to child processes). Run `hermes gateway restart` from a separate shell outside the running gateway.
-```
+
+- None blocking for this fix.
 
 ## Current Exact State
-- Code supports sloppy `/need` input.
-- `/need 2 person tent, gas card` creates a draft/private-review request in the backend path.
-- Auto-generated RequestID works with format `REQ-LIVE-YYYYMMDD-###`.
-- Public docs and `/daily` suppress private-review Requests.
-- Historical AuditLog in Sheets is intact; no rows deleted.
-- `approved_board_log.json` export now filters private Request audit entries out of public docs.
+
+- `/need` now keeps a per-chat active draft pointer.
+- Plain follow-up text uses that pointer first.
+- Explicit `RequestID` still overrides the pointer.
+- The active pointer clears when the request becomes `ready`.
+- `REQ-LIVE-20260707-005` is board-visible and present in current-needs docs.
 
 ## Remaining Blockers
-- External gateway restart/reload is required before live Telegram `/need` uses the updated router code.
+
+- None for the `/need` follow-up fix itself.
 
 ## Next Actionable Step
-From an external shell, run:
-```bash
-hermes gateway restart
-```
-Then in Telegram test:
-```text
-/need 2 person tent, gas card
-```
-Expected reply:
-```text
-Draft request created: REQ-LIVE-YYYYMMDD-###
-Privacy: private-review
-Status: needs-info
-Missing: urgency, needed_by, location, privacy_level
-Next action: review
-```
+
+- If desired, apply the same per-chat active-target pattern to `/donation` follow-ups next.
+
+## Evidence Paths
+
+- `C:\Users\fallo\non-profit-hermes-mvp\scripts\telegram_intake_router.py`
+- `C:\Users\fallo\non-profit-hermes-mvp\scripts\non_profit_hermes_ops.py`
+- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_needs.json`
+- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs.html`
+- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs\index.html`

@@ -18,6 +18,7 @@ import re
 import shlex
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -943,6 +944,50 @@ def _dedupe_calendar_by_title(items: list[dict[str, Any]]) -> list[dict[str, Any
             out.append(item)
     return out
 
+
+def _completed_item_summary(entry: dict[str, Any]) -> tuple[str, str] | None:
+    target = str(entry.get("TargetItem", ""))
+    action = str(entry.get("Action", ""))
+    if target.startswith("Donations/"):
+        return ("donation", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Reports/"):
+        return ("report", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Tasks/"):
+        return ("task", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Inventory/"):
+        return ("inventory item", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("CalendarLog/"):
+        return ("calendar event", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Requests/"):
+        return ("request", "created" if action == "create" else "updated" if action == "update" else action)
+    return None
+
+
+def _format_completed_item_lines(entries: list[dict[str, Any]]) -> list[str]:
+    counts: Counter[tuple[str, str]] = Counter()
+    order: list[tuple[str, str]] = []
+    for entry in entries:
+        key = _completed_item_summary(entry)
+        if not key:
+            continue
+        if key not in counts:
+            order.append(key)
+        counts[key] += 1
+
+    def pluralize(noun: str, count: int) -> str:
+        if count == 1:
+            return noun
+        parts = noun.split()
+        parts[-1] = parts[-1] + "s"
+        return " ".join(parts)
+
+    lines: list[str] = []
+    for noun, action in order:
+        count = counts[(noun, action)]
+        lines.append(f"- {count} {pluralize(noun, count)} {action}")
+    return lines
+
+
 def run_daily_summary() -> str:
     sync_result = run_sync()
     needs = read_json("approved_needs.json")
@@ -1005,15 +1050,14 @@ def run_daily_summary() -> str:
         if target.startswith("Requests/") and target.split("/", 1)[1] in visible_request_ids:
             continue
         recent_success.append(a)
-    recent_success = recent_success[-5:]
+    recent_success = recent_success[-50:]
     if recent_success:
-        for a in recent_success:
-            lines.append(f"- {a.get('Action', UNKNOWN)} {a.get('TargetItem', UNKNOWN)}")
+        lines.extend(_format_completed_item_lines(recent_success))
     else:
         lines.append("- No recent successful audit entries found.")
     lines += ["", "Website:", "- Board home: https://falloutmule.github.io/non-profit-hermes-mvp/", "- Today: https://falloutmule.github.io/non-profit-hermes-mvp/today.html", "- Current needs: https://falloutmule.github.io/non-profit-hermes-mvp/current-needs.html", "- Calendar: https://falloutmule.github.io/non-profit-hermes-mvp/calendar.html", "- Reports: https://falloutmule.github.io/non-profit-hermes-mvp/reports.html"]
     lines += ["", "Sync state:", f"- Marker: {sync_result.get('marker', UNKNOWN)}", f"- Rows: {sync_result.get('rows', {})}"]
-    lines += ["", "daily_plugin_version: website-links-dedup-002"]
+    lines += ["", "daily_plugin_version: website-links-dedup-003"]
     return "\n".join(lines)
 
 
