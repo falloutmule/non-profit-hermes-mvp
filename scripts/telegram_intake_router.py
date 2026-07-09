@@ -112,19 +112,21 @@ def _result_to_text(result: "RouterResult") -> str:
         return f"Request {result.record_id} already exists; duplicate skipped (no new row written)."
     if result.ok and result.status in {"needs-info", "draft"}:
         missing = ", ".join(result.missing_fields or []) or "none"
+        label = result.command.lstrip("/").title() if result.command else "Record"
         return (
-            f"Draft request created: {result.record_id}\n"
+            f"Draft {label} created: {result.record_id}\n"
             f"Privacy: {result.privacy_level}\n"
             f"Status: {result.status}\n"
             f"Missing: {missing}\n"
             f"Next action: review"
         )
     if result.ok:
+        label = result.command.lstrip("/").title() if result.command else "Record"
         return (
-            f"Request created: {result.record_id}\n"
+            f"{label} created: {result.record_id}\n"
             f"Privacy: {result.privacy_level}\n"
             f"Status: {result.backend_status}\n"
-            f"Run /daily to see board summary, or visit the Current Needs page."
+            f"Run /daily to see board summary, or visit the appropriate page."
         )
     return result.message
 
@@ -305,6 +307,103 @@ def clear_active_donation_id(source_link: str, donation_id: str | None = None) -
         state.pop(scope, None)
     save_active_need_state(state)
 
+
+
+def get_active_report_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_report_id", "")
+
+
+def set_active_report_id(source_link: str, report_id: str) -> None:
+    if not report_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_report_id"] = report_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_report_id(source_link: str, report_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_report_id", "")
+    if report_id and current and current != report_id:
+        return
+    entry.pop("active_report_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def report_row_by_id(svc, report_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Reports!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "ReportID" not in header:
+        return None
+    ridx = header.index("ReportID")
+    for row in rows[1:]:
+        if len(row) > ridx and row[ridx].strip() == report_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_report_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Reports!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("Date", "")) or now_utc(), item.get("ReportID", "")))
+    return out
+
+
+def resolve_report_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("reportid") or fields.get("report_id") or fields.get("id")
+    if requested_id:
+        row = report_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"ReportID {requested_id} not found"]
+
+    active_id = get_active_report_id(source_link)
+    if active_id:
+        row = report_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft"}:
+            return row, []
+        clear_active_report_id(source_link, active_id)
+
+    drafts = open_report_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info report draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active report drafts: " + ", ".join(d.get("ReportID", "") for d in drafts if d.get("ReportID"))]
+    return drafts[0], []
 
 
 def donation_row_by_id(svc, donation_id: str) -> dict[str, str] | None:
@@ -503,6 +602,9 @@ def handle_message(text: str, *, source_link: str = "telegram-simulated:test") -
     stripped = (text or "").strip()
     if stripped and not stripped.startswith("/"):
         svc, svc_cal = services()
+        followup_result = route_report_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
         followup_result = route_donation_followup(svc, stripped, source_link)
         if followup_result is not None:
             return followup_result
@@ -813,22 +915,159 @@ def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source
 
 
 def route_report(
-svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
-    missing = missing_required(fields, ["id", "summary"])
-    if missing:
-        audit_missing(svc, "/report", missing, source_link)
-        return RouterResult(False, "/report", "needs_more_info", "Need more info: " + ", ".join(missing), missing_fields=missing)
+    svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str
+) -> RouterResult:
+    summary = (fields.get("summary") or fields.get("description") or free_text).strip()
+    if not summary:
+        audit_missing(svc, "/report", ["summary"], source_link)
+        return RouterResult(
+            False, "/report", "needs_more_info",
+            "Need more info: summary/description",
+            missing_fields=["summary"],
+        )
+
+    report_id = fields.get("reportid") or fields.get("report_id") or fields.get("id") or ""
+    explicit_privacy = explicit_privacy_level(fields)
+    final_privacy = explicit_privacy or "private-review"
+
+    REPORT_MISSING = [
+        "report_type",
+        "date",
+        "people_served_estimate",
+        "items_distributed",
+        "followups_needed",
+        "privacy_level",
+        "public_summary_allowed",
+        "next_action",
+    ]
+    missing_followup = [name for name in REPORT_MISSING if not fields.get(name)]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+    next_action = fields.get("next_action", "review")
+    report_type = fields.get("report_type") or fields.get("type") or UNKNOWN
+
+    # PublicSummaryDraft only populated when privacy is board-visible or public-safe
+    public_safe = final_privacy in {"board-visible", "public-safe", "board-visible-test"}
+    public_summary_draft = summary if public_safe else ""
+
     result = ops.add_report(
         svc,
-        report_id=fields["id"],
-        submitted_by=fields.get("submitted_by", "Telegram user (safe fake)"),
-        report_type=fields.get("type", "test"),
-        summary=fields["summary"] or free_text or UNKNOWN,
-        privacy_level=privacy_level,
-        sensitive_details="",
+        report_id=report_id,
+        submitted_by=fields.get("submitted_by", "Telegram user"),
+        report_type=report_type,
+        summary=summary,
+        privacy_level=final_privacy,
+        sensitive_details="",  # never auto-populate sensitive details
         source_link=source_link,
     )
-    return RouterResult(True, "/report", result.get("status", "written"), "Report row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
+    if result.get("status") == "created":
+        if status in {"needs-info", "draft"}:
+            set_active_report_id(source_link, result["id"])
+        else:
+            clear_active_report_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/report",
+        reply_status,
+        "Report row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level=final_privacy,
+        backend_status=result.get("status", "created"),
+    )
+
+
+def route_report_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the active /report draft in the same session."""
+    fields, free_text = parse_followup_text(followup_text)
+    target, problems = resolve_report_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active report drafts:"):
+            return RouterResult(
+                False, "/report", "needs_more_info",
+                "Multiple active report drafts found. Please name ReportID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/report", "needs_more_info",
+            "No open report draft found in this chat/session.",
+            missing_fields=problems or ["open needs-info report draft in this chat/session"],
+        )
+
+    updates: dict[str, str] = {}
+    if "summary" in fields or "description" in fields:
+        updates["summary"] = fields.get("summary", fields.get("description", ""))
+    if "report_type" in fields or "type" in fields:
+        updates["report_type"] = fields.get("report_type", fields.get("type", ""))
+    if "date" in fields:
+        updates["date"] = fields["date"]
+    if "people_served_estimate" in fields:
+        updates["people_served_estimate"] = fields["people_served_estimate"]
+    if "items_distributed" in fields:
+        updates["items_distributed"] = fields["items_distributed"]
+    if "followups_needed" in fields:
+        updates["followups_needed"] = fields["followups_needed"]
+    if "privacy_level" in fields:
+        updates["privacy_level"] = fields["privacy_level"]
+    if "public_summary_allowed" in fields:
+        updates["public_summary_allowed"] = fields["public_summary_allowed"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {
+        "summary", "description", "report_type", "type", "date", "people_served_estimate",
+        "items_distributed", "followups_needed", "privacy_level", "public_summary_allowed",
+        "next_action", "status", "reportid", "report_id", "id",
+    }
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    # Determine public_summary_draft based on privacy
+    new_privacy = updates.get("privacy_level", target.get("PrivacyLevel", "private-review"))
+    new_summary = updates.get("summary", target.get("Summary", ""))
+    public_safe = new_privacy in {"board-visible", "public-safe", "board-visible-test"}
+
+    result = ops.update_report(
+        svc,
+        report_id=target.get("ReportID", ""),
+        submitted_by=target.get("SubmittedBy", "Telegram user"),
+        report_type=updates.get("report_type", target.get("ReportType", UNKNOWN)),
+        summary=updates.get("summary", target.get("Summary", UNKNOWN)),
+        people_served_estimate=updates.get("people_served_estimate", target.get("PeopleServedEstimate", UNKNOWN)),
+        items_distributed=updates.get("items_distributed", target.get("ItemsDistributed", UNKNOWN)),
+        followups_needed=updates.get("followups_needed", target.get("FollowUpsNeeded", UNKNOWN)),
+        sensitive_details=target.get("SensitiveDetails", ""),
+        public_summary_draft=new_summary if public_safe else "",
+        privacy_level=new_privacy,
+        date=updates.get("date", target.get("Date", UNKNOWN)),
+        next_action=updates.get("next_action", target.get("NextAction", "review")),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        source_link=source_link,
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status == "ready":
+        clear_active_report_id(source_link, target.get("ReportID", ""))
+    elif final_status in {"needs-info", "draft"}:
+        set_active_report_id(source_link, target.get("ReportID", ""))
+    return RouterResult(
+        True,
+        "/report",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('ReportID', UNKNOWN)}.",
+        record_id=target.get("ReportID", ""),
+        privacy_level=target.get("PrivacyLevel", "private-review"),
+        backend_status=result.get("status", "updated"),
+    )
 
 
 def route_task(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
@@ -1067,15 +1306,25 @@ def safe_test_messages() -> list[str]:
     return [
         '/need id=REQ-TG-TEST-001 category=clothing description="Safe fake Telegram need for blankets" quantity=2 urgency=low needed_by=2099-01-01 next_action=review',
         '/donation id=DON-TG-TEST-001 type=clothing item="Safe fake Telegram donation of coats" quantity=3 condition=new method=dropoff location="Safe fake public dropoff" available=2099-01-01',
-        '/report id=REP-TG-TEST-001 type=test summary="Safe fake Telegram report summary"',
+        '/report type=test summary="Safe fake Telegram report summary"',
         '/task id=TASK-TG-TEST-001 title="Safe fake Telegram task" description="Verify Telegram router task write" category=test priority=low due=2099-01-01 assigned_to=unknown',
         '/inventory id=INV-TG-TEST-001 item="Safe fake Telegram socks" category=socks quantity=42 unit=pairs minimum=10 storage="Safe fake storage shelf" condition=new',
         f'/event id=CAL-TG-TEST-001 title="Safe fake Telegram calendar event" start={start.isoformat()} end={end.isoformat()} type=telegram-test request=REQ-TG-TEST-001 task=TASK-TG-TEST-001',
         '/daily',
         '/need id=REQ-TG-HOLD-001 description="medical private-location camp test should hold"',
         '/need id=REQ-TG-MISSING-001',
+        '/report pantry gave out socks and toilet paper',
     ]
 
+
+
+def report_followup_test_sequence() -> list[tuple[str, str]]:
+    """Conversation-style test for active /report draft follow-up handling."""
+    source = "telegram-simulated:report-followup"
+    return [
+        (source, '/report pantry gave out socks and toilet paper'),
+        (source, 'report_type=pantry date=today people_served_estimate=unknown items_distributed="socks and toilet paper" followups_needed=none privacy_level=board-visible public_summary_allowed=yes status=ready next_action=review'),
+    ]
 
 
 def need_followup_test_sequence() -> list[tuple[str, str]]:
@@ -1103,7 +1352,18 @@ def run_test() -> int:
         if result.summary:
             print(result.summary)
 
-    print("\n=== Conversation follow-up test ===")
+    print("\n=== Conversation follow-up test ===\n")
+
+    print("--- Report follow-up ---")
+    for i, (source, message) in enumerate(report_followup_test_sequence(), start=1):
+        result = handle_message(message, source_link=source)
+        results.append({"input": message, "source": source, "result": result.to_dict()})
+        print(f"\n[RF{i}] {message.split()[0] if message.startswith('/') else message[:50]} → {result.status}")
+        print(result.message)
+        if result.record_id:
+            print(f"record_id: {result.record_id}")
+
+    print("\n--- Need follow-up ---")
     for i, (source, message) in enumerate(need_followup_test_sequence(), start=1):
         result = handle_message(message, source_link=source)
         results.append({"input": message, "source": source, "result": result.to_dict()})

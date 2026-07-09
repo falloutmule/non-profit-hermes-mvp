@@ -63,7 +63,8 @@ HEADERS: dict[str, list[str]] = {
         "PeopleServedEstimate", "ItemsDistributed", "Incidents",
         "FollowUpsNeeded", "SensitiveDetails", "PublicSummaryDraft",
         "PrivacyLevel", "RelatedTasks", "RelatedRequests", "RelatedDonations",
-        "PhotosAttached", "SourceMessageLink",
+        "PhotosAttached", "Status", "NextAction", "Notes", "LastUpdated",
+        "SourceMessageLink",
     ],
     "Tasks": [
         "TaskID", "DateCreated", "TaskTitle", "TaskDescription", "Category",
@@ -187,6 +188,30 @@ def append_row(svc, tab: str, values: list[Any]) -> dict:
 def make_row(tab: str, mapping: dict[str, str]) -> list[str]:
     """Build a row list from a partial mapping; missing cols become ''."""
     return [mapping.get(h, "") for h in HEADERS[tab]]
+
+
+def ensure_header(svc, tab: str) -> None:
+    """Ensure the header row for the given tab matches HEADERS[tab]."""
+    range_end = col(len(HEADERS[tab]))
+    body = {"values": [HEADERS[tab]]}
+    svc.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"{tab}!A1:{range_end}1",
+        valueInputOption="USER_ENTERED",
+        body=body,
+    ).execute()
+
+
+def ensure_header(svc, tab: str) -> None:
+    """Ensure the header row for the given tab matches HEADERS[tab]."""
+    range_end = col(len(HEADERS[tab]))
+    body = {"values": [HEADERS[tab]]}
+    svc.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"{tab}!A1:{range_end}1",
+        valueInputOption="USER_ENTERED",
+        body=body,
+    ).execute()
 
 
 # ── AuditLog helper ─────────────────────────────────────────────────────────
@@ -525,11 +550,13 @@ def add_report(
     source_link: str = "",
 ) -> dict:
     """Add a report row to the Reports tab. Idempotent on ReportID."""
+    ensure_header(svc, "Reports")
     rid = report_id or gen_id("REP")
     if _row_exists(svc, "Reports", "ReportID", rid):
         write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Reports/{rid}",
                          after=f"Report {rid} already exists; duplicate skipped")
         return {"tab": "Reports", "id": rid, "status": "already_exists"}
+    ensure_header(svc, "Reports")
     now_ts = ts()
     row = make_row("Reports", {
         "ReportID": rid,
@@ -540,12 +567,89 @@ def add_report(
         "SensitiveDetails": sensitive_details,
         "PublicSummaryDraft": summary,
         "PrivacyLevel": privacy_level,
+        "Status": "needs-info",
+        "NextAction": "review",
+        "Notes": "",
+        "LastUpdated": now_ts,
         "SourceMessageLink": source_link,
     })
     result = append_row(svc, "Reports", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Reports/{rid}",
                      after=f"Report {rid} created: {summary}")
     return {"tab": "Reports", "id": rid, "status": "created", "api_result": result}
+
+def update_report(
+    svc,
+    *,
+    report_id: str,
+    submitted_by: str | None = None,
+    report_type: str | None = None,
+    summary: str | None = None,
+    people_served_estimate: str | None = None,
+    items_distributed: str | None = None,
+    followups_needed: str | None = None,
+    sensitive_details: str | None = None,
+    public_summary_draft: str | None = None,
+    privacy_level: str | None = None,
+    date: str | None = None,
+    next_action: str | None = None,
+    status: str | None = None,
+    source_link: str | None = None,
+) -> dict:
+    """Update an existing report row by ReportID."""
+    ensure_header(svc, "Reports")
+    found = _find_row_by_id(svc, "Reports", "ReportID", report_id)
+    if not found:
+        write_audit_log(svc, "Hermes", "update_missing", "Google Sheets", f"Reports/{report_id}",
+                         after="Report not found", result="not_found")
+        return {"tab": "Reports", "id": report_id, "status": "not_found"}
+
+    row_num, header, row = found
+    current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    before = json.dumps({k: current.get(k, "") for k in [
+        "ReportType", "Summary", "PeopleServedEstimate", "ItemsDistributed",
+        "FollowUpsNeeded", "SensitiveDetails", "PublicSummaryDraft", "PrivacyLevel",
+        "Date", "Status", "NextAction", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    updates = {
+        "SubmittedBy": submitted_by,
+        "ReportType": report_type,
+        "Summary": summary,
+        "PeopleServedEstimate": people_served_estimate,
+        "ItemsDistributed": items_distributed,
+        "FollowUpsNeeded": followups_needed,
+        "SensitiveDetails": sensitive_details,
+        "PublicSummaryDraft": public_summary_draft,
+        "PrivacyLevel": privacy_level,
+        "Date": date,
+        "NextAction": next_action,
+        "Status": status,
+        "SourceMessageLink": source_link,
+    }
+    for key, value in updates.items():
+        if value is not None:
+            current[key] = value
+    current["LastUpdated"] = ts()
+    after = json.dumps({k: current.get(k, "") for k in [
+        "ReportType", "Summary", "PeopleServedEstimate", "ItemsDistributed",
+        "FollowUpsNeeded", "SensitiveDetails", "PublicSummaryDraft", "PrivacyLevel",
+        "Date", "Status", "NextAction", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    values = [current.get(h, "") for h in header]
+    range_end = col(len(header))
+    svc.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"Reports!A{row_num}:{range_end}{row_num}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [values]},
+    ).execute()
+
+    write_audit_log(svc, "Hermes", "update", "Google Sheets", f"Reports/{report_id}",
+                     before=before, after=after)
+    return {"tab": "Reports", "id": report_id, "status": "updated"}
+
 
 def add_task(
     svc,
