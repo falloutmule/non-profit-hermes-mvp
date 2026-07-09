@@ -230,8 +230,11 @@ def source_scope(source_link: str) -> str:
     if not raw:
         return ""
     parts = raw.split(":")
-    # For Telegram sources, normalize to telegram:<chat_id> so plugin and gateway scopes match
+    # For Telegram sources, normalize to telegram:<chat_id> so plugin and gateway scopes match.
+    # "telegram:live" is a legacy plugin placeholder; map it to the known chat ID.
     if len(parts) >= 2 and parts[0].lower() == "telegram":
+        if parts[1].lower() == "live":
+            return "telegram:6080816249"
         return ":".join(parts[:2])  # telegram:<chat_id>
     if len(parts) >= 4:
         return ":".join(parts[:-1])

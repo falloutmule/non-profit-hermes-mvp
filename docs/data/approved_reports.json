@@ -78,5 +78,25 @@
     "ItemsDistributed": "socks and toilet paper",
     "PrivacyLevel": "board-visible",
     "PublicSummaryDraft": "pantry gave out socks and toilet paper"
+  },
+  {
+    "ReportID": "REP-8BD6B07D",
+    "Date": "today",
+    "ReportType": "pantry",
+    "Summary": "pantry gave out gloves and snacks",
+    "PeopleServedEstimate": "unknown",
+    "ItemsDistributed": "gloves and snacks",
+    "PrivacyLevel": "board-visible",
+    "PublicSummaryDraft": "pantry gave out gloves and snacks"
+  },
+  {
+    "ReportID": "REP-7E2590C0",
+    "Date": "today",
+    "ReportType": "pantry",
+    "Summary": "gloves and snacks",
+    "PeopleServedEstimate": "unknown",
+    "ItemsDistributed": "gloves and snacks",
+    "PrivacyLevel": "board-visible",
+    "PublicSummaryDraft": "gloves and snacks"
   }
 ]
