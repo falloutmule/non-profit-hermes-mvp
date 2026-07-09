@@ -98,5 +98,15 @@
     "ItemsDistributed": "gloves and snacks",
     "PrivacyLevel": "board-visible",
     "PublicSummaryDraft": "gloves and snacks"
+  },
+  {
+    "ReportID": "REP-41A296EF",
+    "Date": "today",
+    "ReportType": "pantry",
+    "Summary": "gloves and snacks",
+    "PeopleServedEstimate": "unknown",
+    "ItemsDistributed": "gloves and snacks",
+    "PrivacyLevel": "board-visible",
+    "PublicSummaryDraft": "gloves and snacks"
   }
 ]

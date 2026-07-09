@@ -70,7 +70,8 @@ HEADERS: dict[str, list[str]] = {
         "TaskID", "DateCreated", "TaskTitle", "TaskDescription", "Category",
         "Priority", "AssignedTo", "DueDate", "RelatedRequestID",
         "RelatedDonationID", "RelatedCalendarEventID", "Status", "Blocker",
-        "NextAction", "CompletionReport", "LastUpdated",
+        "NextAction", "CompletionReport", "LastUpdated", "SourceMessageLink",
+        "Notes",
     ],
     "Inventory": [
         "ItemID", "ItemName", "Category", "QuantityOnHand", "Unit",
@@ -665,6 +666,7 @@ def add_task(
     source_link: str = "",
 ) -> dict:
     """Add a task row to the Tasks tab. Idempotent on TaskID."""
+    ensure_header(svc, "Tasks")
     tid = task_id or gen_id("TASK")
     if _row_exists(svc, "Tasks", "TaskID", tid):
         write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Tasks/{tid}",
@@ -688,6 +690,69 @@ def add_task(
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Tasks/{tid}",
                      after=f"Task {tid} created: {task_title}")
     return {"tab": "Tasks", "id": tid, "status": "created", "api_result": result}
+
+
+def update_task(
+    svc,
+    *,
+    task_id: str,
+    task_title: str | None = None,
+    task_description: str | None = None,
+    category: str | None = None,
+    priority: str | None = None,
+    assigned_to: str | None = None,
+    due_date: str | None = None,
+    status: str | None = None,
+    next_action: str | None = None,
+    source_link: str | None = None,
+) -> dict:
+    """Update an existing task row by TaskID."""
+    ensure_header(svc, "Tasks")
+    found = _find_row_by_id(svc, "Tasks", "TaskID", task_id)
+    if not found:
+        write_audit_log(svc, "Hermes", "update_missing", "Google Sheets", f"Tasks/{task_id}",
+                         after="Task not found", result="not_found")
+        return {"tab": "Tasks", "id": task_id, "status": "not_found"}
+
+    row_num, header, row = found
+    current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    before = json.dumps({k: current.get(k, "") for k in [
+        "TaskTitle", "TaskDescription", "Category", "Priority", "AssignedTo",
+        "DueDate", "Status", "NextAction", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    updates = {
+        "TaskTitle": task_title,
+        "TaskDescription": task_description,
+        "Category": category,
+        "Priority": priority,
+        "AssignedTo": assigned_to,
+        "DueDate": due_date,
+        "Status": status,
+        "NextAction": next_action,
+        "SourceMessageLink": source_link,
+    }
+    for key, value in updates.items():
+        if value is not None:
+            current[key] = value
+    current["LastUpdated"] = ts()
+    after = json.dumps({k: current.get(k, "") for k in [
+        "TaskTitle", "TaskDescription", "Category", "Priority", "AssignedTo",
+        "DueDate", "Status", "NextAction", "LastUpdated", "SourceMessageLink",
+    ]}, ensure_ascii=False)
+
+    values = [current.get(h, "") for h in header]
+    range_end = col(len(header))
+    svc.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"Tasks!A{row_num}:{range_end}{row_num}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [values]},
+    ).execute()
+
+    write_audit_log(svc, "Hermes", "update", "Google Sheets", f"Tasks/{task_id}",
+                     before=before, after=after)
+    return {"tab": "Tasks", "id": task_id, "status": "updated"}
 
 
 def update_inventory(

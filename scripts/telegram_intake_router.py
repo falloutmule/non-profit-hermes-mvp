@@ -100,7 +100,7 @@ def _example_for_command(command: str) -> str:
         "/need": '/need id=REQ-EXAMPLE-001 description="Short safe need" urgency=normal needed_by=unknown location="public-safe area" privacy_level=board-visible next_action=review',
         "/donation": '/donation id=DON-EXAMPLE-001 item="Safe test donation" type=clothing quantity=1 condition=new pickup_or_dropoff=dropoff location="safe area" receipt_needed=no consent_to_public_thanks=yes next_action=review',
         "/report": '/report type=pantry summary="Pantry gave out socks and toilet paper" date=today people_served_estimate=unknown items_distributed="socks, toilet paper" followups_needed=none privacy_level=board-visible public_summary_allowed=yes next_action=review',
-        "/task": '/task id=TASK-EXAMPLE-001 title="Safe test task" description="Verify task write" category=test priority=low due=2099-01-01',
+        "/task": '/task id=TASK-EXAMPLE-001 title="Call volunteer about socks" assigned_to=unknown due_date=unknown priority=normal next_action=review',
         "/inventory": '/inventory id=INV-EXAMPLE-001 item="Safe test item" category=other quantity=10 unit=items minimum=5',
         "/event": '/event id=CAL-EXAMPLE-001 title="Safe test event" start=2099-01-01T09:00:00 end=2099-01-01T10:00:00',
     }
@@ -431,6 +431,105 @@ def resolve_report_followup_target(svc, source_link: str, fields: dict[str, str]
     return drafts[0], []
 
 
+# ── Task active draft tracking ──────────────────────────────────────────
+
+def get_active_task_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_task_id", "")
+
+
+def set_active_task_id(source_link: str, task_id: str) -> None:
+    if not task_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_task_id"] = task_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_task_id(source_link: str, task_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_task_id", "")
+    if task_id and current and current != task_id:
+        return
+    entry.pop("active_task_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def task_row_by_id(svc, task_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Tasks!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "TaskID" not in header:
+        return None
+    tidx = header.index("TaskID")
+    for row in rows[1:]:
+        if len(row) > tidx and row[tidx].strip() == task_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_task_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Tasks!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft", "new"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("DateCreated", "")) or now_utc(), item.get("TaskID", "")))
+    return out
+
+
+def resolve_task_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("taskid") or fields.get("task_id") or fields.get("id")
+    if requested_id:
+        row = task_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"TaskID {requested_id} not found"]
+
+    active_id = get_active_task_id(source_link)
+    if active_id:
+        row = task_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft", "new"}:
+            return row, []
+        clear_active_task_id(source_link, active_id)
+
+    drafts = open_task_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info task draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active task drafts: " + ", ".join(d.get("TaskID", "") for d in drafts if d.get("TaskID"))]
+    return drafts[0], []
+
+
 def donation_row_by_id(svc, donation_id: str) -> dict[str, str] | None:
     rows = svc.spreadsheets().values().get(
         spreadsheetId=ops.SPREADSHEET_ID,
@@ -628,6 +727,9 @@ def handle_message(text: str, *, source_link: str = "telegram-simulated:test") -
     if stripped and not stripped.startswith("/"):
         svc, svc_cal = services()
         followup_result = route_report_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
+        followup_result = route_task_followup(svc, stripped, source_link)
         if followup_result is not None:
             return followup_result
         followup_result = route_donation_followup(svc, stripped, source_link)
@@ -1005,6 +1107,12 @@ def route_report(
 def route_report_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
     """Attach a plain follow-up message to the active /report draft in the same session."""
     fields, free_text = parse_followup_text(followup_text)
+    # Only intercept if report-specific fields present or active draft exists
+    report_keys = {"report_type", "type", "people_served_estimate", "items_distributed", "followups_needed", "public_summary_allowed"}
+    has_report_fields = bool(report_keys & set(fields.keys()))
+    has_active_draft = bool(get_active_report_id(source_link))
+    if not has_report_fields and not has_active_draft:
+        return None
     target, problems = resolve_report_followup_target(svc, source_link, fields)
     if not target:
         if problems and problems[0].startswith("multiple active report drafts:"):
@@ -1095,24 +1203,144 @@ def route_report_followup(svc, followup_text: str, source_link: str) -> RouterRe
     )
 
 
-def route_task(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
-    missing = missing_required(fields, ["id", "title"])
-    if missing:
-        audit_missing(svc, "/task", missing, source_link)
-        return RouterResult(False, "/task", "needs_more_info", "Need more info: " + ", ".join(missing), missing_fields=missing)
+def route_task(
+    svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str
+) -> RouterResult:
+    title = (fields.get("title") or fields.get("description") or free_text).strip()
+    if not title:
+        audit_missing(svc, "/task", ["title"], source_link)
+        return RouterResult(
+            False, "/task", "needs_more_info",
+            "Need more info: title/description",
+            missing_fields=["title"],
+        )
+
+    task_id = fields.get("taskid") or fields.get("task_id") or fields.get("id") or ""
+
+    TASK_MISSING = [
+        "assigned_to",
+        "due_date",
+        "priority",
+        "privacy_level",
+        "next_action",
+    ]
+    missing_followup = [name for name in TASK_MISSING if not fields.get(name)]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+
     result = ops.add_task(
         svc,
-        task_id=fields["id"],
-        task_title=fields["title"],
-        task_description=fields.get("description", free_text or UNKNOWN),
+        task_id=task_id,
+        task_title=title,
+        task_description=fields.get("description", free_text or title),
         category=fields.get("category", UNKNOWN),
         priority=fields.get("priority", UNKNOWN),
         assigned_to=fields.get("assigned_to", UNKNOWN),
-        due_date=fields.get("due", UNKNOWN),
-        status=fields.get("status", "new"),
+        due_date=fields.get("due_date", fields.get("due", UNKNOWN)),
+        status=status,
         source_link=source_link,
     )
-    return RouterResult(True, "/task", result.get("status", "written"), "Task row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
+    if result.get("status") == "created":
+        if status in {"needs-info", "draft", "new"}:
+            set_active_task_id(source_link, result["id"])
+        else:
+            clear_active_task_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/task",
+        reply_status,
+        "Task row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level="internal",
+        backend_status=result.get("status", "created"),
+    )
+
+
+def route_task_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the active /task draft in the same session."""
+    fields, free_text = parse_followup_text(followup_text)
+    # Only intercept if task-specific fields present or active draft exists
+    task_keys = {"assigned_to", "due_date", "due", "priority"}
+    has_task_fields = bool(task_keys & set(fields.keys()))
+    has_active_draft = bool(get_active_task_id(source_link))
+    if not has_task_fields and not has_active_draft:
+        return None
+    target, problems = resolve_task_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active task drafts:"):
+            return RouterResult(
+                False, "/task", "needs_more_info",
+                "Multiple active task drafts found. Please name TaskID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/task", "needs_more_info",
+            "No open task draft found in this chat/session.",
+            missing_fields=problems or ["open needs-info task draft in this chat/session"],
+        )
+
+    updates: dict[str, str] = {}
+    if "title" in fields or "description" in fields:
+        updates["task_description"] = fields.get("title", fields.get("description", ""))
+    if "category" in fields:
+        updates["category"] = fields["category"]
+    if "priority" in fields:
+        updates["priority"] = fields["priority"]
+    if "assigned_to" in fields:
+        updates["assigned_to"] = fields["assigned_to"]
+    if "due_date" in fields or "due" in fields:
+        updates["due_date"] = fields.get("due_date", fields.get("due", ""))
+    if "privacy_level" in fields:
+        updates["privacy_level"] = fields["privacy_level"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {
+        "title", "description", "category", "priority", "assigned_to",
+        "due_date", "due", "privacy_level", "next_action", "status",
+        "taskid", "task_id", "id",
+    }
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    result = ops.update_task(
+        svc,
+        task_id=target.get("TaskID", ""),
+        task_title=target.get("TaskTitle", UNKNOWN),
+        task_description=updates.get("task_description", target.get("TaskDescription", UNKNOWN)),
+        category=updates.get("category", target.get("Category", UNKNOWN)),
+        priority=updates.get("priority", target.get("Priority", UNKNOWN)),
+        assigned_to=updates.get("assigned_to", target.get("AssignedTo", UNKNOWN)),
+        due_date=updates.get("due_date", target.get("DueDate", UNKNOWN)),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        next_action=updates.get("next_action", target.get("NextAction", "review")),
+        source_link=source_link,
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status in {"ready", "done", "complete"}:
+        clear_active_task_id(source_link, target.get("TaskID", ""))
+    elif final_status in {"needs-info", "draft", "new"}:
+        set_active_task_id(source_link, target.get("TaskID", ""))
+    return RouterResult(
+        True,
+        "/task",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('TaskID', UNKNOWN)}.",
+        record_id=target.get("TaskID", ""),
+        privacy_level="internal",
+        backend_status=result.get("status", "updated"),
+    )
 
 
 def route_inventory(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
