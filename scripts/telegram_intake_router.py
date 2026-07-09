@@ -230,7 +230,10 @@ def source_scope(source_link: str) -> str:
     if not raw:
         return ""
     parts = raw.split(":")
-    if len(parts) >= 4 and parts[0].lower() == "telegram":
+    # For Telegram sources, normalize to telegram:<chat_id> so plugin and gateway scopes match
+    if len(parts) >= 2 and parts[0].lower() == "telegram":
+        return ":".join(parts[:2])  # telegram:<chat_id>
+    if len(parts) >= 4:
         return ":".join(parts[:-1])
     return raw
 
