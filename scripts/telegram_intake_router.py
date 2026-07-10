@@ -101,7 +101,7 @@ def _example_for_command(command: str) -> str:
         "/donation": '/donation id=DON-EXAMPLE-001 item="Safe test donation" type=clothing quantity=1 condition=new pickup_or_dropoff=dropoff location="safe area" receipt_needed=no consent_to_public_thanks=yes next_action=review',
         "/report": '/report type=pantry summary="Pantry gave out socks and toilet paper" date=today people_served_estimate=unknown items_distributed="socks, toilet paper" followups_needed=none privacy_level=board-visible public_summary_allowed=yes next_action=review',
         "/task": '/task id=TASK-EXAMPLE-001 title="Call volunteer about socks" assigned_to=unknown due_date=unknown priority=normal next_action=review',
-        "/inventory": '/inventory id=INV-EXAMPLE-001 item="Safe test item" category=other quantity=10 unit=items minimum=5',
+        "/inventory": '/inventory id=INV-EXAMPLE-001 item="socks" quantity=30 unit=pairs category=clothing minimum=20 storage=pantry condition=new next_action=review',
         "/event": '/event id=CAL-EXAMPLE-001 title="Safe test event" start=2099-01-01T09:00:00 end=2099-01-01T10:00:00',
     }
     return examples.get(
@@ -530,6 +530,103 @@ def resolve_task_followup_target(svc, source_link: str, fields: dict[str, str]) 
     return drafts[0], []
 
 
+def get_active_inventory_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_inventory_id", "")
+
+
+def set_active_inventory_id(source_link: str, item_id: str) -> None:
+    if not item_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_inventory_id"] = item_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_inventory_id(source_link: str, item_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_inventory_id", "")
+    if item_id and current and current != item_id:
+        return
+    entry.pop("active_inventory_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def inventory_row_by_id(svc, item_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Inventory!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "ItemID" not in header:
+        return None
+    iidx = header.index("ItemID")
+    for row in rows[1:]:
+        if len(row) > iidx and row[iidx].strip() == item_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_inventory_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Inventory!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft", "new"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("LastCounted", "")) or now_utc(), item.get("ItemID", "")))
+    return out
+
+
+def resolve_inventory_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("itemid") or fields.get("item_id") or fields.get("id")
+    if requested_id:
+        row = inventory_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"ItemID {requested_id} not found"]
+
+    active_id = get_active_inventory_id(source_link)
+    if active_id:
+        row = inventory_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft", "new"}:
+            return row, []
+        clear_active_inventory_id(source_link, active_id)
+
+    drafts = open_inventory_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info inventory draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active inventory drafts: " + ", ".join(d.get("ItemID", "") for d in drafts if d.get("ItemID"))]
+    return drafts[0], []
+
+
 def donation_row_by_id(svc, donation_id: str) -> dict[str, str] | None:
     rows = svc.spreadsheets().values().get(
         spreadsheetId=ops.SPREADSHEET_ID,
@@ -730,6 +827,9 @@ def handle_message(text: str, *, source_link: str = "telegram-simulated:test") -
         if followup_result is not None:
             return followup_result
         followup_result = route_task_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
+        followup_result = route_inventory_followup(svc, stripped, source_link)
         if followup_result is not None:
             return followup_result
         followup_result = route_donation_followup(svc, stripped, source_link)
@@ -1343,24 +1443,164 @@ def route_task_followup(svc, followup_text: str, source_link: str) -> RouterResu
     )
 
 
-def route_inventory(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
-    missing = missing_required(fields, ["id", "item", "quantity"])
-    if missing:
-        audit_missing(svc, "/inventory", missing, source_link)
-        return RouterResult(False, "/inventory", "needs_more_info", "Need more info: " + ", ".join(missing), missing_fields=missing)
+def route_inventory(
+    svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str
+) -> RouterResult:
+    item_name = (fields.get("item") or fields.get("item_name") or "").strip()
+    if not item_name and free_text:
+        parts = free_text.strip().split()
+        if len(parts) >= 1:
+            item_name = parts[0]
+            if len(parts) >= 2 and parts[1].isdigit():
+                fields["quantity"] = parts[1]
+                if len(parts) >= 3:
+                    fields["unit"] = parts[2]
+    if not item_name:
+        audit_missing(svc, "/inventory", ["item"], source_link)
+        return RouterResult(
+            False, "/inventory", "needs_more_info",
+            "Need more info: item name",
+            missing_fields=["item"],
+        )
+
+    item_id = fields.get("itemid") or fields.get("item_id") or fields.get("id") or ""
+    quantity = fields.get("quantity") or fields.get("quantity_on_hand") or ""
+
+    INV_MISSING = ["quantity", "unit", "category", "minimum_needed", "storage_location", "condition", "public_need_allowed", "next_action"]
+    missing_followup = [name for name in INV_MISSING if not fields.get(name)]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+
     result = ops.update_inventory(
         svc,
-        item_id=fields["id"],
-        item_name=fields["item"],
+        item_id=item_id,
+        item_name=item_name,
         category=fields.get("category", UNKNOWN),
-        quantity_on_hand=fields["quantity"],
+        quantity_on_hand=quantity,
         unit=fields.get("unit", UNKNOWN),
-        minimum_needed=fields.get("minimum", UNKNOWN),
-        storage_location=fields.get("storage", "Safe fake storage"),
+        minimum_needed=fields.get("minimum", fields.get("minimum_needed", UNKNOWN)),
+        storage_location=fields.get("storage", fields.get("storage_location", UNKNOWN)),
         condition=fields.get("condition", UNKNOWN),
-        notes="Telegram simulated intake; safe fake data only",
+        notes=fields.get("notes", ""),
+        needed_this_week=fields.get("needed_this_week", UNKNOWN),
+        public_need_allowed=fields.get("public_need_allowed", UNKNOWN),
+        status=status,
+        next_action=fields.get("next_action", "review"),
+        source_link=source_link,
     )
-    return RouterResult(True, "/inventory", result.get("status", "written"), "Inventory row written through backend.", record_id=result["id"], privacy_level=privacy_level, backend_status=result.get("status", "created"))
+    if result.get("status") in ("created", "updated"):
+        if status in {"needs-info", "draft", "new"}:
+            set_active_inventory_id(source_link, result["id"])
+        else:
+            clear_active_inventory_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/inventory",
+        reply_status,
+        "Inventory row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level="internal",
+        backend_status=result.get("status", "created"),
+    )
+
+
+def route_inventory_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the active /inventory draft."""
+    fields, free_text = parse_followup_text(followup_text)
+    inv_keys = {"item", "item_name", "quantity", "quantity_on_hand", "unit", "category", "minimum", "minimum_needed", "storage", "storage_location", "condition", "needed_this_week", "public_need_allowed"}
+    has_inv_fields = bool(inv_keys & set(fields.keys()))
+    has_active_draft = bool(get_active_inventory_id(source_link))
+    if not has_inv_fields and not has_active_draft:
+        return None
+    target, problems = resolve_inventory_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active inventory drafts:"):
+            return RouterResult(
+                False, "/inventory", "needs_more_info",
+                "Multiple active inventory drafts found. Please name ItemID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/inventory", "needs_more_info",
+            "No open inventory draft found in this chat/session.",
+            missing_fields=problems or ["open needs-info inventory draft in this chat/session"],
+        )
+
+    updates: dict[str, str] = {}
+    if "item" in fields or "item_name" in fields:
+        updates["item_name"] = fields.get("item", fields.get("item_name", ""))
+    if "quantity" in fields or "quantity_on_hand" in fields:
+        updates["quantity_on_hand"] = fields.get("quantity", fields.get("quantity_on_hand", ""))
+    if "unit" in fields:
+        updates["unit"] = fields["unit"]
+    if "category" in fields:
+        updates["category"] = fields["category"]
+    if "minimum" in fields or "minimum_needed" in fields:
+        updates["minimum_needed"] = fields.get("minimum", fields.get("minimum_needed", ""))
+    if "storage" in fields or "storage_location" in fields:
+        updates["storage_location"] = fields.get("storage", fields.get("storage_location", ""))
+    if "condition" in fields:
+        updates["condition"] = fields["condition"]
+    if "needed_this_week" in fields:
+        updates["needed_this_week"] = fields["needed_this_week"]
+    if "public_need_allowed" in fields:
+        updates["public_need_allowed"] = fields["public_need_allowed"]
+    if "notes" in fields:
+        updates["notes"] = fields["notes"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {
+        "item", "item_name", "quantity", "quantity_on_hand", "unit", "category",
+        "minimum", "minimum_needed", "storage", "storage_location", "condition",
+        "needed_this_week", "public_need_allowed", "notes", "next_action", "status",
+        "itemid", "item_id", "id",
+    }
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    result = ops.update_inventory(
+        svc,
+        item_id=target.get("ItemID", ""),
+        item_name=updates.get("item_name", target.get("ItemName", UNKNOWN)),
+        category=updates.get("category", target.get("Category", UNKNOWN)),
+        quantity_on_hand=updates.get("quantity_on_hand", target.get("QuantityOnHand", UNKNOWN)),
+        unit=updates.get("unit", target.get("Unit", UNKNOWN)),
+        minimum_needed=updates.get("minimum_needed", target.get("MinimumNeeded", UNKNOWN)),
+        storage_location=updates.get("storage_location", target.get("StorageLocation", UNKNOWN)),
+        condition=updates.get("condition", target.get("Condition", UNKNOWN)),
+        needed_this_week=updates.get("needed_this_week", target.get("NeededThisWeek", UNKNOWN)),
+        public_need_allowed=updates.get("public_need_allowed", target.get("PublicNeedAllowed", UNKNOWN)),
+        notes=updates.get("notes", target.get("Notes", "")),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        next_action=updates.get("next_action", target.get("NextAction", "review")),
+        source_link=source_link,
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status in {"ready", "done", "complete"}:
+        clear_active_inventory_id(source_link, target.get("ItemID", ""))
+    elif final_status in {"needs-info", "draft", "new"}:
+        set_active_inventory_id(source_link, target.get("ItemID", ""))
+    return RouterResult(
+        True,
+        "/inventory",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('ItemID', UNKNOWN)}.",
+        record_id=target.get("ItemID", ""),
+        privacy_level="internal",
+        backend_status=result.get("status", "updated"),
+    )
 
 
 def route_event(svc, svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:

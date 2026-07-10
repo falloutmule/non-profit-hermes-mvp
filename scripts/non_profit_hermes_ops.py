@@ -77,6 +77,7 @@ HEADERS: dict[str, list[str]] = {
         "ItemID", "ItemName", "Category", "QuantityOnHand", "Unit",
         "MinimumNeeded", "StorageLocation", "Condition", "LastCounted",
         "LastUpdatedBy", "NeededThisWeek", "PublicNeedAllowed", "Notes",
+        "Status", "NextAction", "LastUpdated", "SourceMessageLink",
     ],
     "CalendarLog": [
         "CalendarEventID", "EventTitle", "EventType", "StartDateTime",
@@ -767,13 +768,67 @@ def update_inventory(
     storage_location: str = "",
     condition: str = "",
     notes: str = "",
+    needed_this_week: str = "",
+    public_need_allowed: str = "",
+    status: str = "",
+    next_action: str = "",
+    source_link: str = "",
+    update_existing: bool = True,
 ) -> dict:
-    """Add/update an inventory row in the Inventory tab. Idempotent on ItemID."""
+    """Upsert an inventory row. Creates new if ItemID is new; updates if exists."""
+    ensure_header(svc, "Inventory")
     iid = item_id or gen_id("INV")
-    if _row_exists(svc, "Inventory", "ItemID", iid):
-        write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Inventory/{iid}",
-                         after=f"Inventory {iid} already exists; duplicate skipped")
-        return {"tab": "Inventory", "id": iid, "status": "already_exists"}
+    existing = _find_row_by_id(svc, "Inventory", "ItemID", iid)
+
+    if existing and update_existing:
+        row_num, header, row = existing
+        current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        before = json.dumps({k: current.get(k, "") for k in [
+            "ItemName", "Category", "QuantityOnHand", "Unit", "MinimumNeeded",
+            "StorageLocation", "Condition", "NeededThisWeek", "PublicNeedAllowed",
+            "Notes", "Status", "NextAction", "LastUpdated", "SourceMessageLink",
+        ]}, ensure_ascii=False)
+
+        updates = {
+            "ItemName": item_name,
+            "Category": category,
+            "QuantityOnHand": quantity_on_hand,
+            "Unit": unit,
+            "MinimumNeeded": minimum_needed,
+            "StorageLocation": storage_location,
+            "Condition": condition,
+            "NeededThisWeek": needed_this_week,
+            "PublicNeedAllowed": public_need_allowed,
+            "Notes": notes,
+            "Status": status,
+            "NextAction": next_action,
+            "SourceMessageLink": source_link,
+        }
+        for key, value in updates.items():
+            if value is not None and value != "":
+                current[key] = value
+        current["LastUpdated"] = ts()
+        current["LastUpdatedBy"] = "Hermes"
+        after = json.dumps({k: current.get(k, "") for k in [
+            "ItemName", "Category", "QuantityOnHand", "Unit", "MinimumNeeded",
+            "StorageLocation", "Condition", "NeededThisWeek", "PublicNeedAllowed",
+            "Notes", "Status", "NextAction", "LastUpdated", "SourceMessageLink",
+        ]}, ensure_ascii=False)
+
+        values = [current.get(h, "") for h in header]
+        range_end = col(len(header))
+        svc.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"Inventory!A{row_num}:{range_end}{row_num}",
+            valueInputOption="USER_ENTERED",
+            body={"values": [values]},
+        ).execute()
+
+        write_audit_log(svc, "Hermes", "update", "Google Sheets", f"Inventory/{iid}",
+                         before=before, after=after)
+        return {"tab": "Inventory", "id": iid, "status": "updated"}
+
+    # Create new row
     now_ts = ts()
     row = make_row("Inventory", {
         "ItemID": iid,
@@ -786,11 +841,17 @@ def update_inventory(
         "Condition": condition,
         "LastCounted": now_ts,
         "LastUpdatedBy": "Hermes",
+        "NeededThisWeek": needed_this_week,
+        "PublicNeedAllowed": public_need_allowed,
         "Notes": notes,
+        "Status": status or "needs-info",
+        "NextAction": next_action or "review",
+        "LastUpdated": now_ts,
+        "SourceMessageLink": source_link,
     })
     result = append_row(svc, "Inventory", row)
-    write_audit_log(svc, "Hermes", "update", "Google Sheets", f"Inventory/{iid}",
-                     after=f"Inventory {iid} updated: {item_name} qty={quantity_on_hand}")
+    write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Inventory/{iid}",
+                     after=f"Inventory {iid} created: {item_name} qty={quantity_on_hand}")
     return {"tab": "Inventory", "id": iid, "status": "created", "api_result": result}
 
 
