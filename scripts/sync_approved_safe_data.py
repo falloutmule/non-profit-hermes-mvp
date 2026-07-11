@@ -78,6 +78,7 @@ HEADERS = {
     "Requests": ["RequestID", "DateReceived", "Source", "SubmittedBy", "PersonOrGroup", "ContactMethod", "NeedCategory", "NeedDescription", "Quantity", "LocationPrivate", "LocationPublicSafe", "Urgency", "NeededBy", "ConsentToRecord", "ConsentToShare", "PrivacyLevel", "AssignedTo", "Status", "NextAction", "CalendarEventID", "RelatedInventoryItem", "Notes", "CreatedBy", "LastUpdated", "SourceMessageLink"],
     "Donations": ["DonationID", "DateOffered", "DonorName", "DonorContact", "DonationType", "ItemDescription", "Quantity", "Condition", "PickupOrDropoff", "Location", "AvailableDate", "StorageNeeded", "MatchesCurrentNeed", "AssignedPickupVolunteer", "Status", "ReceiptNeeded", "ThankYouNeeded", "ConsentToPublicThanks", "Notes", "SourceMessageLink"],
     "Reports": ["ReportID", "Date", "SubmittedBy", "ReportType", "Summary", "PeopleServedEstimate", "ItemsDistributed", "Incidents", "FollowUpsNeeded", "SensitiveDetails", "PublicSummaryDraft", "PrivacyLevel", "RelatedTasks", "RelatedRequests", "RelatedDonations", "PhotosAttached", "SourceMessageLink"],
+    "CalendarLog": ["CalendarEventID", "EventTitle", "EventType", "StartDateTime", "EndDateTime", "Location", "PrivateLocation", "Description", "Attendees", "RelatedTaskID", "RelatedRequestID", "RelatedDonationID", "Status", "CreatedBy", "LastUpdated", "EventDraftID", "PrivacyLevel", "PublicCalendarAllowed", "PublicTitle", "PublicDescription", "PublicLocation", "ApprovalStatus", "SourceMessageLink", "Notes"],
     "AuditLog": ["AuditID", "Timestamp", "Actor", "Action", "TargetSystem", "TargetItem", "Before", "After", "Result", "Error", "SourceMessageLink"],
 }
 
@@ -215,36 +216,69 @@ def safe_board_log(rows: list[list[str]], visible_request_ids: set[str] | None =
     return out
 
 
-def safe_calendar_export(calendar_svc) -> list[dict[str, str]]:
-    events = calendar_svc.events().list(
-        calendarId=CALENDAR_ID,
-        timeMin=(datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z"),
-        timeMax=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat().replace("+00:00", "Z"),
-        singleEvents=True,
-        orderBy="startTime",
-        maxResults=50,
-    ).execute().get("items", [])
+def safe_calendar_export(calendar_rows: list[list[str]], calendar_svc) -> list[dict[str, str]]:
+    """Export only explicitly approved public CalendarLog rows with live IDs.
+
+    Google Calendar is used solely to confirm that the exact logged event ID
+    exists and is not cancelled. All exported content comes from CalendarLog's
+    public-safe fields; private raw Calendar fields are never read for export.
+    """
+    events_resource = calendar_svc.events()
+    live_events = []
+    page_token = None
+    while True:
+        request = events_resource.list(
+            calendarId=CALENDAR_ID,
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=2500,
+            **({"pageToken": page_token} if page_token else {}),
+        )
+        response = request.execute()
+        live_events.extend(response.get("items", []))
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+    live_status_by_id = {
+        str(event.get("id", "")): str(event.get("status", "")).strip().lower()
+        for event in live_events
+        if event.get("id")
+    }
+    allowed_privacy = {"board-visible", "public-safe", "board-visible-test"}
+    allowed_public = {"yes", "true", "1"}
+    allowed_approval = {"approved", "created"}
+    allowed_status = {"confirmed", "ready"}
     out = []
-    for e in events:
-        if e.get("status") == "cancelled":
+    for row in calendar_rows[1:]:
+        if not row:
             continue
-        # Determine event type from title
-        summary = e.get("summary", "")
-        if summary == TEST_EVENT_TITLE:
-            event_type = "test"
-        elif summary.startswith("CAL-WRITE-TEST-"):
-            event_type = "write-test"
-        else:
-            event_type = "operational"
+        data = dict(zip(HEADERS["CalendarLog"], row))
+        event_id = data.get("CalendarEventID", "").strip()
+        privacy = data.get("PrivacyLevel", "").strip().lower()
+        public_allowed = data.get("PublicCalendarAllowed", "").strip().lower()
+        approval = data.get("ApprovalStatus", "").strip().lower()
+        status = data.get("Status", "").strip().lower()
+        public_title = data.get("PublicTitle", "").strip()
+        if (
+            not event_id
+            or privacy not in allowed_privacy
+            or public_allowed not in allowed_public
+            or approval not in allowed_approval
+            or status not in allowed_status
+            or not public_title
+            or event_id not in live_status_by_id
+            or live_status_by_id[event_id] == "cancelled"
+        ):
+            continue
         out.append({
-            "CalendarEventID": e.get("id", ""),
-            "EventTitle": summary,
-            "EventType": event_type,
-            "StartDateTime": e.get("start", {}).get("dateTime", e.get("start", {}).get("date", "")),
-            "EndDateTime": e.get("end", {}).get("dateTime", e.get("end", {}).get("date", "")),
-            "Description": e.get("description", ""),
-            "Status": e.get("status", ""),
-            "CreatedBy": "Hermes",
+            "CalendarEventID": event_id,
+            "EventTitle": public_title,
+            "EventType": data.get("EventType", ""),
+            "StartDateTime": data.get("StartDateTime", ""),
+            "EndDateTime": data.get("EndDateTime", ""),
+            "Description": data.get("PublicDescription", ""),
+            "Location": data.get("PublicLocation", ""),
+            "Status": data.get("Status", ""),
         })
     return out
 
@@ -427,8 +461,9 @@ def main() -> int:
     requests_rows = read_sheet_rows(sheets, "Requests")
     donations_rows = read_sheet_rows(sheets, "Donations")
     reports_rows = read_sheet_rows(sheets, "Reports")
+    calendar_rows = read_sheet_rows(sheets, "CalendarLog")
     audit_rows = read_sheet_rows(sheets, "AuditLog")
-    calendar_items = safe_calendar_export(calendar)
+    calendar_items = safe_calendar_export(calendar_rows, calendar)
     now = datetime.now(timezone.utc)
 
     approved_needs = safe_needs_from_requests(requests_rows)

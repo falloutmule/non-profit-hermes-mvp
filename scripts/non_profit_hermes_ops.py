@@ -83,7 +83,9 @@ HEADERS: dict[str, list[str]] = {
         "CalendarEventID", "EventTitle", "EventType", "StartDateTime",
         "EndDateTime", "Location", "PrivateLocation", "Description",
         "Attendees", "RelatedTaskID", "RelatedRequestID", "RelatedDonationID",
-        "Status", "CreatedBy", "LastUpdated",
+        "Status", "CreatedBy", "LastUpdated", "EventDraftID", "PrivacyLevel",
+        "PublicCalendarAllowed", "PublicTitle", "PublicDescription",
+        "PublicLocation", "ApprovalStatus", "SourceMessageLink", "Notes",
     ],
     "AuditLog": [
         "AuditID", "Timestamp", "Actor", "Action", "TargetSystem",
@@ -913,6 +915,7 @@ def create_calendar_event(
         "CreatedBy": "Hermes",
         "LastUpdated": ts(),
     })
+    ensure_header(svc_sheets, "CalendarLog")
     append_row(svc_sheets, "CalendarLog", cl_row)
 
     # Audit
