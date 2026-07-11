@@ -2,14 +2,21 @@
 
 **Last verified:** 2026-07-11 (CLEANUP-001)
 
+## Documentation baseline
+
+| Item | Value |
+|------|-------|
+| Documentation baseline inspected | `e5abe48d425f8f079e43d2e6be43c9a5c130551e` |
+| Baseline subject | `docs: establish canonical project status and supersession map` |
+| Current Git revision | run `git rev-parse HEAD` |
+| Current remote revision | run `git ls-remote origin refs/heads/main` |
+
 ## Current repository state
 
 | Item | Value |
 |------|-------|
 | Repository | `falloutmule/non-profit-hermes-mvp` |
 | Branch | `main` |
-| Remote HEAD | `f5c2746c0d4f62b01d2298fc130e199579b5d9d6` |
-| HEAD subject | `docs: record live event verification` |
 | Working tree | clean |
 | Visibility | public |
 | GitHub Pages source | `main /docs` (verified via `gh api .../pages`) |

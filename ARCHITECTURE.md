@@ -28,8 +28,10 @@
 │                                                               │
 │  • Draft-first intake for all commands                       │
 │  • Active-draft state tracking (per chat scope)              │
-│  • Follow-up routing (report→task→inventory→donation→need)  │
-│  • /daily summary builder (read-only display)                │
+│  • Follow-up routing (event→report→task→inventory→donation→need) │
+│  • /daily summary builder (currently calls sync, which     │
+│    writes docs/ files; does not commit/push; read-only    │
+│    no-mutation is the cleanup target)                      │
 │  • Source-scope bridge: telegram:live → telegram:<chat_id>   │
 └─────────────┬───────────────────────────────┬───────────────┘
               │ writes via                    │ reads via
@@ -63,8 +65,10 @@
             ▼ (CalendarLog promotion only, EVENT-004)
 ┌─────────────────────────────────────────────────────────────┐
 │              Google Calendar (dated commitments)              │
-│  Currently disabled for /event. Backend exists, untested     │
-│  live. EVENT-004 authorizes first live promotion.            │
+│  Currently disabled for /event. Live promotion from a      │
+│  draft is untested. Historical safe fake direct backend    │
+│  test events exist. EVENT-004 authorizes first live        │
+│  promotion from a draft.                                    │
 └─────────────────────────────────────────────────────────────┘
 
                            │ sync output
@@ -98,8 +102,8 @@ The router is the intelligence layer:
 
 - **Draft-first intake**: all write commands create a `needs-info` draft first, then accept follow-up text to complete it.
 - **Active-draft state**: per-chat pointers track which draft a follow-up should attach to. State stored in `telegram_active_need_drafts.json`.
-- **Follow-up chain**: `handle_message()` tries report → task → inventory → donation → need in order. Each handler returns `None` (pass-through) if the message lacks command-specific fields and no active draft exists.
-- **`/daily`**: builds a read-only summary from approved-safe exports. Displays calendar, needs, donations, reports, volunteer gaps, inventory shortages, website links, and completed-item counts.
+- **Follow-up chain**: `handle_message()` tries event → report → task → inventory → donation → need in order. Each handler returns `None` (pass-through) if the message lacks command-specific fields and no active draft exists.
+- **`/daily`**: currently calls the sync script, which writes `docs/` files (does not commit or push them). Read-only no-mutation behavior is the cleanup target. Displays calendar, needs, donations, reports, volunteer gaps, inventory shortages, website links, and completed-item counts.
 - **Source-scope bridge**: maps `telegram:live` → `telegram:6080816249` for legacy plugin compatibility.
 
 ### `scripts/non_profit_hermes_ops.py`
@@ -154,10 +158,11 @@ Operator runs sync_approved_safe_data.py
   → operator reviews diffs
   → operator commits and pushes
 
-/daily (read-only)
-  → reads approved-safe exports
-  → builds summary for Telegram display
-  → does NOT write docs/ (cleanup needed: currently does)
+/daily (currently mutates docs/)
+  → calls sync script internally
+  → writes docs/*.html + docs/data/*.json
+  → does NOT commit or push those files
+  → read-only no-mutation is the cleanup target
 ```
 
 ## Privacy boundaries

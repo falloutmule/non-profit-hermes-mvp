@@ -17,7 +17,7 @@ This system helps a small operations team:
 - schedule real commitments in Google Calendar (only when explicitly approved);
 - publish a filtered, board-safe snapshot to GitHub Pages.
 
-**Privacy is a hard gate.** No raw private intake is published. All public-facing content must pass approved-safe filtering and human review. See [SECURITY_AND_PRIVACY.md](SECURITY_AND_PRIVACY.md).
+**Intended privacy boundary:** raw private intake should never be published, and all public-facing content should pass approved-safe filtering and human review. However, known P0 publication gaps remain (schema divergence, missing consent/status gates, unescaped HTML, board-log ID exposure). No new public snapshot should be published until those gaps are fixed. See [SECURITY_AND_PRIVACY.md](SECURITY_AND_PRIVACY.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current gap list.
 
 ---
 
@@ -27,7 +27,7 @@ This system helps a small operations team:
 Telegram chat
     │
     ▼
-Hermus plugins (external, per-user install)
+Hermes plugins (external, per-user install)
     │  register /daily /need /donation /report /task /inventory /event
     ▼
 scripts/telegram_intake_router.py    ← draft-first intake, follow-up routing,

@@ -53,14 +53,14 @@ All write commands use draft-first intake:
 
 After creating a draft, the router lists missing fields. Send plain text follow-up with `field=value` pairs to complete the record. No need to retype the ID — the active draft pointer tracks it.
 
-When status reaches `ready`, the active pointer clears automatically.
+When status reaches `ready`, the active pointer clears automatically for most draft types. **Exception:** event drafts remain active at `ready` while `CalendarEventID` is blank (awaiting promotion). Event pointers clear after confirmed promotion, cancellation, or rejection.
 
 ### Follow-up behavior
 
 - Plain follow-up text attaches to the active draft in the same chat.
 - Explicitly naming an ID (e.g., `DON-47D11AAA`) overrides the active pointer.
 - Multiple open drafts in the same chat produce an ambiguity response.
-- The follow-up chain tries: report → task → inventory → donation → need.
+- The follow-up chain tries: event → report → task → inventory → donation → need.
 
 ## Publication workflow
 
@@ -112,7 +112,7 @@ Any live Sheet deletion or backfill must be a separate user-authorized task.
 
 - `/event` creates CalendarLog drafts only (EVT-XXXXXXXX).
 - Calendar creation is **disabled** in the live plugin.
-- No live Google Calendar event has been created by the system.
+- No live Google Calendar event has been created by the draft-first `/event` flow or EVENT-004 promotion path. Historical safe fake direct backend test events exist.
 
 ### EVENT-003 verified flow
 
