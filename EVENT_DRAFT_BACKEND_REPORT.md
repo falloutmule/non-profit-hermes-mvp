@@ -1,5 +1,15 @@
 # EVENT-002 Durable Event-Draft Backend — Implementation & Verification Report
 
+> **Amendment (2026-07-11, CLEANUP-001):** The historical builder text below was written pre-commit. Final status:
+>
+> - **Final implementation commit:** `40cdfb6f6a044b74d049114647dc5ae498c53903` (`feat: add durable approved event draft backend`)
+> - **Independent checker:** PASS.
+> - **Live Google Sheets create/update verification:** Completed (see §6 below).
+> - **Live Google Calendar promotion:** NOT performed — explicitly out of scope for EVENT-002 and remains untested live.
+> - **Current canonical status:** See [PROJECT_STATUS.md](PROJECT_STATUS.md).
+>
+> The original report text is preserved below as historical builder evidence.
+
 **Event:** EVENT-002 — durable event-draft backend (CalendarLog-based drafts + approval-gated calendar promotion)
 **Branch:** `main` @ `db953b33e1ded49f840413f6b487e59c2be9f469` (tree was clean before edits)
 **Date:** 2026-07-10

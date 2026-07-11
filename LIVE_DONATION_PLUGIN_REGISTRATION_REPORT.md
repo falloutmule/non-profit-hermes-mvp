@@ -1,5 +1,7 @@
 # Live Donation Plugin Registration Report
 
+> **Historical report (2026-07-11, CLEANUP-001):** This report documents the initial `/donation` plugin registration. The plugin is now **registered, enabled, and gateway-active**. The Telegram bot command registry includes `/donation`. There is no reload blocker remaining. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current status.
+
 **Date:** 2026-07-07
 
 ## What was changed

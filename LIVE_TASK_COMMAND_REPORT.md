@@ -1,5 +1,7 @@
 # LIVE_TASK_COMMAND_REPORT.md
 
+> **Historical report (2026-07-11, CLEANUP-001):** This report documents the initial `/task` wiring. The command is now **live and verified**. Plugin is gateway-active. Live test record `TASK-B21372F2` was verified with plain follow-up. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current status.
+
 ## Date
 2026-07-09
 

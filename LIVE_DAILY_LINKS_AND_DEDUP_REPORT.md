@@ -1,5 +1,7 @@
 # Live Daily Links and Dedup Report
 
+> **Historical report — SUPERSEDED (2026-07-11, CLEANUP-001):** This report documents `/daily` version `website-links-dedup-002`. It has been **superseded by version 003** (`website-links-dedup-003`). See [LIVE_DAILY_SUMMARY_TRIM_REPORT.md](LIVE_DAILY_SUMMARY_TRIM_REPORT.md) for the v003 implementation and [PROJECT_STATUS.md](PROJECT_STATUS.md) for current status.
+
 **Status**: complete  
 **Branch**: main  
 **Commit**: 7891b45  

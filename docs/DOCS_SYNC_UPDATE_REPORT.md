@@ -1,5 +1,13 @@
 # Docs Sync Update Report
 
+> **HISTORICAL REPORT (2026-07-11, CLEANUP-001):**
+>
+> This report described the initial docs/ sync update. The "next step" of committing the sync script has long since been completed — the sync script is committed and in active use.
+>
+> Current Pages source is `main /docs` (verified via GitHub API). The sync script generates all `docs/` output.
+>
+> See [PROJECT_STATUS.md](PROJECT_STATUS.md) for canonical status and [OPERATIONS.md](OPERATIONS.md) for the current publication workflow.
+
 ## What was done
 
 - Verified Google Sheets/Calendar access via authenticated API calls.

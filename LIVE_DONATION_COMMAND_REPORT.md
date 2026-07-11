@@ -1,5 +1,7 @@
 # Live Donation Command Report
 
+> **Historical report (2026-07-11, CLEANUP-001):** This report documents the initial `/donation` live wiring. The command is now **live and verified**. Evidence for `DON-47D11AAA` (create + follow-up update, same row) and `DON-266EF7A6` (all requested fields finalized) is preserved below. There is no reload blocker remaining. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current status.
+
 **Date**: 2026-07-07  
 **Status**: completed; live `/donation` draft intake wired and verified
 

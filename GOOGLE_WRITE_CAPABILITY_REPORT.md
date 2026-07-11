@@ -1,5 +1,13 @@
 # Google Write Capability Report
 
+> **HISTORICAL REPORT — Superseded by EVENT-001 (2026-07-11, CLEANUP-001):**
+>
+> This report describes the initial write-capability proof and the **pre-EVENT-001 calendar export policy**, which stated that all non-cancelled Calendar events are publicly exported. That policy was **replaced by EVENT-001** with CalendarLog-based approval gating. The current calendar publication policy requires a two-source join (CalendarLog approval + live Calendar ID existence check) and never exports raw Google Calendar event content.
+>
+> The test records described here (`REQ/DON/REP/TASK/INV/CAL-WRITE-TEST-001`) remain in the Sheet as historical artifacts.
+>
+> See [EVENT_CALENDAR_PRIVACY_REPORT.md](EVENT_CALENDAR_PRIVACY_REPORT.md) for the current calendar gate and [PROJECT_STATUS.md](PROJECT_STATUS.md) for canonical status.
+
 ## What was done
 
 1. Created `scripts/non_profit_hermes_ops.py` — a backend module with 7 write operations:

@@ -1,5 +1,7 @@
 # LIVE_INVENTORY_COMMAND_REPORT.md
 
+> **Historical report (2026-07-11, CLEANUP-001):** This report documents the initial `/inventory` wiring. The command is now **live and verified**. Plugin is gateway-active. Live test record `INV-4A2B0AE8` was verified. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current status.
+
 ## Date
 2026-07-09
 

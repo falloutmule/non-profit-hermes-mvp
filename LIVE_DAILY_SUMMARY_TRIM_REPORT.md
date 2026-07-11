@@ -1,7 +1,9 @@
 # Live Daily Summary Trim Report
 
+> **Historical report (2026-07-11, CLEANUP-001):** This report documents the `/daily` version 003 trim feature. The previously "pending" commit is now `9dce0fe` (`feat: /daily trim with count summaries (version 003)`). Live version 003 proof is verified. `/daily` is live at version `website-links-dedup-003`. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current status.
+
 **Date:** 2026-07-09
-**Commit:** (pending)
+**Commit:** `9dce0fe` (`feat: /daily trim with count summaries (version 003)`)
 
 ## Goal
 

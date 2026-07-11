@@ -105,10 +105,14 @@ EVENT-004 is a separate milestone and has not begun. Its remaining work is:
 
 ## Completion status and next action
 
-- EVENT-003 live verification/evidence phase: **Complete**. Local router/renderer coverage, actual offline plugin `_event` invocation, gateway-active Telegram create/follow-up, the single matching Sheets row, both audit records, and source-scoped state cleanup are verified. This report is ready for an evidence-only commit.
-- Full EVENT-003 completion remains pending the evidence-only commit, push, and clean-working-tree confirmation. This report does not claim they have occurred.
+- **EVENT-003 is complete and live verified.**
+- Implementation commit: `09e743c0084595f5e34bf820e497a4b154110929` (`feat: add draft-first Telegram event intake`)
+- Evidence commit: `f5c2746c0d4f62b01d2298fc130e199579b5d9d6` (`docs: record live event verification`)
+- Remote main and local tracking matched at completion.
+- Working tree was clean at completion.
+- Local router/renderer coverage, actual offline plugin `_event` invocation, gateway-active Telegram create/follow-up, the single matching Sheets row, both audit records, and source-scoped state cleanup are all verified.
 - Calendar boundary: **no Calendar write or promotion occurred**. Only the required read-only Calendar search was performed, and it returned 0 matching events; `CalendarEventID` is blank.
-- Next action: review this evidence update, then commit and push separately when authorized. EVENT-004 remains separate and unchanged below.
+- **EVENT-004 is separate and unstarted.** Its remaining work is listed above in the "Remaining EVENT-004 work" section.
 
 ## Evidence paths
 

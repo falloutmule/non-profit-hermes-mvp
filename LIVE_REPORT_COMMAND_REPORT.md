@@ -1,5 +1,7 @@
 # LIVE_REPORT_COMMAND_REPORT.md
 
+> **Historical report (2026-07-11, CLEANUP-001):** This report documents the initial `/report` wiring. The command is now **live and verified**. Plugin is gateway-active. Live draft/follow-up and scope-bridge were verified. The "pending" wording in the live Telegram section below is superseded — `/report` is active. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current status.
+
 ## Date
 2026-07-09
 

@@ -1,5 +1,7 @@
 # BROWSER_VISIBLE_DEPLOYMENT_PROOF_REPORT
 
+> **HISTORICAL REPORT (2026-07-11, CLEANUP-001):** This report documents an early browser-visible deployment proof. The Pages source described here may reflect an earlier configuration. Current Pages source is `main /docs` (verified via GitHub API). The active deployment proof is `docs/deployment-proof.html`. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for canonical status.
+
 ## What was done
 
 1. Created `proof-browser-screenshots/` and `proof-browser-source/` directories in the repo
