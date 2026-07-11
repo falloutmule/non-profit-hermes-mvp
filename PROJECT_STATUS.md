@@ -8,8 +8,10 @@
 |---|---|
 | Repository | `falloutmule/non-profit-hermes-mvp` |
 | Branch | `main` |
-| Current revision | `9626aaa23cb390493290edc7e92d2e048d80bab7` |
-| Commit state | Committed and pushed; `main` and `origin/main` are at `9626aaa` |
+| Implementation commit (historical) | `9626aaa23cb390493290edc7e92d2e048d80bab7` |
+| CLEANUP-002 closeout commit (historical) | `0bae419c0f7f6173beb0545c163cc9e1d0d028c1` |
+| Current Git revision | Query when needed: `git rev-parse HEAD` |
+| Current remote `main` revision | Query when needed: `git ls-remote origin refs/heads/main` |
 | Visibility | public |
 | GitHub Pages source | `main /docs` |
 

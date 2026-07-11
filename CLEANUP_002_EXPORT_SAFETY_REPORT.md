@@ -2,7 +2,9 @@
 
 ## Canonical outcome
 
-CLEANUP-002 is complete. Implementation was committed and pushed as `9626aaa23cb390493290edc7e92d2e048d80bab7` (`fix: unify schemas and harden approved-safe exports`); `main` and `origin/main` both resolve to that commit.
+CLEANUP-002 is complete. Its implementation commit is `9626aaa23cb390493290edc7e92d2e048d80bab7` (`fix: unify schemas and harden approved-safe exports`), and its closeout commit is `0bae419c0f7f6173beb0545c163cc9e1d0d028c1`.
+
+Query the current Git revision with `git rev-parse HEAD` and the current remote `main` revision with `git ls-remote origin refs/heads/main`.
 
 The implementation scope was exactly these seven files:
 
