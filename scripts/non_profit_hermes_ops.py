@@ -857,6 +857,32 @@ def update_inventory(
     return {"tab": "Inventory", "id": iid, "status": "created", "api_result": result}
 
 
+def _insert_google_calendar_event(
+    svc_cal,
+    *,
+    title: str,
+    description: str = "",
+    location: str = "",
+    start: datetime,
+    end: datetime,
+) -> dict:
+    """Insert a single event into Google Calendar; return the created event dict.
+
+    Shared by create_calendar_event (EVENT-001) and create_calendar_event_from_draft
+    (EVENT-002). Callers own CalendarLog row creation/update + audit logging, so that
+    EVENT-002 updates the SAME draft row instead of appending a second CalendarLog row.
+    """
+    event_body = {
+        "summary": title,
+        "description": description,
+        "start": {"dateTime": start.isoformat(), "timeZone": "UTC"},
+        "end": {"dateTime": end.isoformat(), "timeZone": "UTC"},
+    }
+    if location:
+        event_body["location"] = location
+    return svc_cal.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
+
+
 def create_calendar_event(
     svc_cal,
     svc_sheets,
@@ -886,16 +912,14 @@ def create_calendar_event(
         return {"tab": "CalendarLog", "calendar_id": existing_id, "status": "already_exists"}
 
     # Create the calendar event
-    event_body = {
-        "summary": title,
-        "description": description,
-        "start": {"dateTime": start.isoformat(), "timeZone": "UTC"},
-        "end": {"dateTime": end.isoformat(), "timeZone": "UTC"},
-    }
-    if location:
-        event_body["location"] = location
-
-    created = svc_cal.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
+    created = _insert_google_calendar_event(
+        svc_cal,
+        title=title,
+        description=description,
+        location=location if not private_location else "",
+        start=start,
+        end=end,
+    )
     cal_event_id = created.get("id", "")
 
     # Write to CalendarLog sheet
@@ -924,6 +948,424 @@ def create_calendar_event(
                      after=f"Calendar event '{title}' created (ID: {cal_event_id})")
 
     return {"tab": "CalendarLog", "calendar_id": cal_event_id, "status": "created", "api_result": created}
+
+
+# ── EVENT-002: durable event-draft backend ──────────────────────────────────
+#
+# Drafts live in the SAME 24-column CalendarLog schema as real events. A draft is
+# simply a CalendarLog row whose CalendarEventID is blank; promote it to a real
+# event with create_calendar_event_from_draft, which writes back into the SAME row.
+
+def _normalize_event_draft_fields(**kwargs) -> dict:
+    """Build a CalendarLog mapping from EVENT-002 draft keyword args.
+
+    Only fields that are part of the 24-column schema and have a non-None value
+    are returned. Empty string / None mean 'leave as-is or use default' and are
+    skipped here so callers can decide default-vs-preserve semantics.
+    """
+    mapping: dict[str, Any] = {}
+    field_to_header = {
+        "event_draft_id": "EventDraftID",
+        "event_title": "EventTitle",
+        "event_type": "EventType",
+        "start_time": "StartDateTime",
+        "end_time": "EndDateTime",
+        "description": "Description",
+        "location": "Location",
+        "private_location": "PrivateLocation",
+        "attendees": "Attendees",
+        "related_task_id": "RelatedTaskID",
+        "related_request_id": "RelatedRequestID",
+        "related_donation_id": "RelatedDonationID",
+        "privacy_level": "PrivacyLevel",
+        "public_calendar_allowed": "PublicCalendarAllowed",
+        "public_title": "PublicTitle",
+        "public_description": "PublicDescription",
+        "public_location": "PublicLocation",
+        "approval_status": "ApprovalStatus",
+        "status": "Status",
+        "source_link": "SourceMessageLink",
+        "notes": "Notes",
+    }
+    for kw, header in field_to_header.items():
+        value = kwargs.get(kw)
+        if value is None or value == "":
+            continue
+        mapping[header] = value
+    return mapping
+
+
+def upsert_event_draft(
+    svc,
+    *,
+    event_draft_id: str = "",
+    event_title: str = "",
+    event_type: str = "event",
+    start_time: str = "",
+    end_time: str = "",
+    description: str = "",
+    location: str = "",
+    private_location: str = "",
+    attendees: str = "",
+    related_task_id: str = "",
+    related_request_id: str = "",
+    related_donation_id: str = "",
+    privacy_level: str = "",
+    public_calendar_allowed: str = "",
+    public_title: str = "",
+    public_description: str = "",
+    public_location: str = "",
+    approval_status: str = "",
+    status: str = "",
+    source_link: str = "",
+    notes: str = "",
+) -> dict:
+    """Upsert an event draft into the CalendarLog tab.
+
+    - Generates EVT-XXXXXXXX when event_draft_id is absent.
+    - Appends a new draft row when EventDraftID is new; updates the same row when present.
+    - Never creates a second row for the same EventDraftID.
+    - Preserves existing values when an update param is empty/omitted.
+    - CalendarEventID stays blank during draft create/normal update.
+    - Default new draft: PrivacyLevel=private-review, PublicCalendarAllowed=no,
+      ApprovalStatus=needs-info, Status=needs-info, CreatedBy=Hermes.
+    - Updates LastUpdated on every write.
+    - Returns {'status': 'created'} or {'status': 'updated'}.
+    - Writes AuditLog create/update with TargetItem CalendarLog/<EVT>.
+    """
+    ensure_header(svc, "CalendarLog")
+    draft_id = event_draft_id or gen_id("EVT")
+
+    existing = _find_row_by_id(svc, "CalendarLog", "EventDraftID", draft_id)
+    now_ts = ts()
+
+    if existing:
+        row_num, header, row = existing
+        current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+
+        before = json.dumps({
+            k: current.get(k, "")
+            for k in ["EventTitle", "EventType", "StartDateTime", "EndDateTime", "Description",
+                       "Location", "PrivateLocation", "Attendees", "PrivacyLevel",
+                       "PublicCalendarAllowed", "PublicTitle", "PublicDescription", "PublicLocation",
+                       "ApprovalStatus", "Status", "LastUpdated"]
+        }, ensure_ascii=False)
+
+        updates = _normalize_event_draft_fields(
+            event_title=event_title, event_type=event_type, start_time=start_time, end_time=end_time,
+            description=description, location=location, private_location=private_location,
+            attendees=attendees, related_task_id=related_task_id, related_request_id=related_request_id,
+            related_donation_id=related_donation_id, privacy_level=privacy_level,
+            public_calendar_allowed=public_calendar_allowed, public_title=public_title,
+            public_description=public_description, public_location=public_location,
+            approval_status=approval_status, status=status, source_link=source_link, notes=notes,
+        )
+        # Never overwrite CalendarEventID on a normal draft update; keep it blank.
+        updates.pop("CalendarEventID", None)
+        for key, value in updates.items():
+            current[key] = value
+        current["LastUpdated"] = now_ts
+
+        after = json.dumps({
+            k: current.get(k, "")
+            for k in ["EventTitle", "EventType", "StartDateTime", "EndDateTime", "Description",
+                       "Location", "PrivateLocation", "Attendees", "PrivacyLevel",
+                       "PublicCalendarAllowed", "PublicTitle", "PublicDescription", "PublicLocation",
+                       "ApprovalStatus", "Status", "LastUpdated"]
+        }, ensure_ascii=False)
+
+        values = [current.get(h, "") for h in header]
+        range_end = col(len(header))
+        svc.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"CalendarLog!A{row_num}:{range_end}{row_num}",
+            valueInputOption="USER_ENTERED",
+            body={"values": [values]},
+        ).execute()
+
+        write_audit_log(svc, "Hermes", "update", "Google Sheets", f"CalendarLog/{draft_id}",
+                         before=before, after=after)
+        return {"tab": "CalendarLog", "id": draft_id, "status": "updated"}
+
+    # New draft row.
+    now_ts = ts()
+    row = make_row("CalendarLog", {
+        "EventDraftID": draft_id,
+        "EventTitle": event_title,
+        "EventType": event_type,
+        "StartDateTime": start_time,
+        "EndDateTime": end_time,
+        "Location": location,
+        "PrivateLocation": private_location,
+        "Description": description,
+        "Attendees": attendees,
+        "RelatedTaskID": related_task_id,
+        "RelatedRequestID": related_request_id,
+        "RelatedDonationID": related_donation_id,
+        "Status": status or "needs-info",
+        "CreatedBy": "Hermes",
+        "LastUpdated": now_ts,
+        "PrivacyLevel": privacy_level or "private-review",
+        "PublicCalendarAllowed": public_calendar_allowed or "no",
+        "PublicTitle": public_title,
+        "PublicDescription": public_description,
+        "PublicLocation": public_location,
+        "ApprovalStatus": approval_status or "needs-info",
+        "SourceMessageLink": source_link,
+        "Notes": notes,
+    })
+    append_row(svc, "CalendarLog", row)
+    write_audit_log(svc, "Hermes", "create", "Google Sheets", f"CalendarLog/{draft_id}",
+                     after=f"Event draft {draft_id} created: {event_title}")
+    return {"tab": "CalendarLog", "id": draft_id, "status": "created"}
+
+
+def update_event_draft(
+    svc,
+    *,
+    event_draft_id: str,
+    event_title: str | None = None,
+    event_type: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    description: str | None = None,
+    location: str | None = None,
+    private_location: str | None = None,
+    attendees: str | None = None,
+    related_task_id: str | None = None,
+    related_request_id: str | None = None,
+    related_donation_id: str | None = None,
+    privacy_level: str | None = None,
+    public_calendar_allowed: str | None = None,
+    public_title: str | None = None,
+    public_description: str | None = None,
+    public_location: str | None = None,
+    approval_status: str | None = None,
+    status: str | None = None,
+    source_link: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Strict update of an existing event draft.
+
+    - Returns {'status': 'not_found'} for an unknown EventDraftID (no silent creation).
+    - Applies partial non-empty updates; empty/None params are preserved.
+    - Preserves CalendarEventID.
+    - Writes before/after audit.
+    - Returns {'status': 'updated'} on success.
+    """
+    ensure_header(svc, "CalendarLog")
+    found = _find_row_by_id(svc, "CalendarLog", "EventDraftID", event_draft_id)
+    if not found:
+        write_audit_log(svc, "Hermes", "update_missing", "Google Sheets", f"CalendarLog/{event_draft_id}",
+                         after="Event draft not found", result="not_found")
+        return {"tab": "CalendarLog", "id": event_draft_id, "status": "not_found"}
+
+    row_num, header, row = found
+    current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+
+    before = json.dumps({
+        k: current.get(k, "")
+        for k in ["EventTitle", "EventType", "StartDateTime", "EndDateTime", "Description",
+                   "Location", "PrivateLocation", "Attendees", "PrivacyLevel",
+                   "PublicCalendarAllowed", "PublicTitle", "PublicDescription", "PublicLocation",
+                   "ApprovalStatus", "Status", "CalendarEventID", "LastUpdated"]
+    }, ensure_ascii=False)
+
+    updates = {
+        "EventTitle": event_title,
+        "EventType": event_type,
+        "StartDateTime": start_time,
+        "EndDateTime": end_time,
+        "Description": description,
+        "Location": location,
+        "PrivateLocation": private_location,
+        "Attendees": attendees,
+        "RelatedTaskID": related_task_id,
+        "RelatedRequestID": related_request_id,
+        "RelatedDonationID": related_donation_id,
+        "PrivacyLevel": privacy_level,
+        "PublicCalendarAllowed": public_calendar_allowed,
+        "PublicTitle": public_title,
+        "PublicDescription": public_description,
+        "PublicLocation": public_location,
+        "ApprovalStatus": approval_status,
+        "Status": status,
+        "SourceMessageLink": source_link,
+        "Notes": notes,
+    }
+    for key, value in updates.items():
+        if value is not None and value != "":
+            current[key] = value
+    current["LastUpdated"] = ts()
+
+    after = json.dumps({
+        k: current.get(k, "")
+        for k in ["EventTitle", "EventType", "StartDateTime", "EndDateTime", "Description",
+                   "Location", "PrivateLocation", "Attendees", "PrivacyLevel",
+                   "PublicCalendarAllowed", "PublicTitle", "PublicDescription", "PublicLocation",
+                   "ApprovalStatus", "Status", "CalendarEventID", "LastUpdated"]
+    }, ensure_ascii=False)
+
+    values = [current.get(h, "") for h in header]
+    range_end = col(len(header))
+    svc.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"CalendarLog!A{row_num}:{range_end}{row_num}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [values]},
+    ).execute()
+
+    write_audit_log(svc, "Hermes", "update", "Google Sheets", f"CalendarLog/{event_draft_id}",
+                     before=before, after=after)
+    return {"tab": "CalendarLog", "id": event_draft_id, "status": "updated"}
+
+
+def _as_timezone_aware(start_time, end_time):
+    """Validate + normalize start/end to timezone-aware datetimes.
+
+    Accepts datetime objects (must be tz-aware) or ISO strings WITH an offset.
+    Rejects naive datetimes and naive ISO strings (e.g. '2026-07-12T09:00:00') — they
+    must not silently become UTC. Returns (start_dt, end_dt) or raises ValueError.
+
+    Uses stdlib only (no external iso8601 dependency). Python 3.11+ fromisoformat
+    parses offset/designator strings; we also accept a trailing 'Z'.
+    """
+    from datetime import datetime as _dt
+
+    def _parse(value):
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            if not isinstance(value, str) or value.strip() == "":
+                raise ValueError("empty datetime")
+            s = value.strip()
+            # Require an offset or a 'Z' designator. Naive 'T...:' without offset is rejected.
+            if "T" in s and not (s.endswith("Z") or "+" in s[10:] or "-" in s[10:]):
+                raise ValueError(f"naive datetime (no offset): {s}")
+            candidate = s
+            if candidate.endswith("Z"):
+                candidate = candidate[:-1] + "+00:00"
+            dt = _dt.fromisoformat(candidate)
+        if dt.tzinfo is None:
+            raise ValueError(f"naive datetime rejected (no tz): {value}")
+        return dt
+
+    start_dt = _parse(start_time)
+    if end_time:
+        end_dt = _parse(end_time)
+    else:
+        end_dt = start_dt + timedelta(hours=1)
+    return start_dt, end_dt
+
+
+def create_calendar_event_from_draft(
+    svc_cal,
+    svc_sheets,
+    *,
+    event_draft_id: str,
+) -> dict:
+    """Promote an APPROVED event draft to a real Google Calendar event. Fake-testable only.
+
+    Blocks unless: EventDraftID exists, CalendarEventID blank, EventTitle nonempty,
+    StartDateTime is timezone-aware / offset ISO, EndDateTime safe or defaults +1h,
+    ApprovalStatus=approved, Status=ready. Does NOT require PublicCalendarAllowed=yes.
+
+    On success:
+    - Creates ONE calendar event via private operational fields (EventTitle, Description,
+      Location). The calendar title is prefixed 'EVT-XXXXXXXX — <title>'.
+    - Never uses PublicTitle as the operational calendar title.
+    - Updates the SAME CalendarLog row with CalendarEventID, ApprovalStatus=created,
+      Status=confirmed, LastUpdated.
+    - Writes one AuditLog row (action create-calendar-event).
+    - Returns {'status': 'created', 'event_draft_id', 'calendar_id'}.
+
+    Idempotency: if CalendarEventID already populated, returns
+    {'status': 'already_created', 'calendar_id'} WITHOUT calling insert again — exactly
+    one CalendarLog row, exactly one insert on retry.
+    """
+    ensure_header(svc_sheets, "CalendarLog")
+    found = _find_row_by_id(svc_sheets, "CalendarLog", "EventDraftID", event_draft_id)
+    if not found:
+        write_audit_log(svc_sheets, "Hermes", "create_calendar_event_blocked", "Google Calendar",
+                         f"CalendarLog/{event_draft_id}", after="Draft not found", result="blocked")
+        return {"tab": "CalendarLog", "id": event_draft_id, "status": "not_found", "calendar_id": ""}
+
+    row_num, header, row = found
+    current = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+
+    # Idempotency: already created -> do not insert again.
+    existing_cal_id = current.get("CalendarEventID", "")
+    if existing_cal_id:
+        write_audit_log(svc_sheets, "Hermes", "create_calendar_event_idempotent", "Google Calendar",
+                         f"CalendarLog/{event_draft_id}",
+                         after=f"Event already created (ID: {existing_cal_id}); insert skipped")
+        return {"tab": "CalendarLog", "id": event_draft_id, "status": "already_created",
+                "calendar_id": existing_cal_id}
+
+    # Block conditions.
+    title = current.get("EventTitle", "").strip()
+    if not title:
+        write_audit_log(svc_sheets, "Hermes", "create_calendar_event_blocked", "Google Calendar",
+                         f"CalendarLog/{event_draft_id}", after="Missing EventTitle", result="blocked")
+        return {"tab": "CalendarLog", "id": event_draft_id, "status": "blocked", "calendar_id": ""}
+
+    start_raw = current.get("StartDateTime", "")
+    try:
+        start_dt, end_dt = _as_timezone_aware(start_raw, current.get("EndDateTime", ""))
+    except ValueError as exc:
+        write_audit_log(svc_sheets, "Hermes", "create_calendar_event_blocked", "Google Calendar",
+                         f"CalendarLog/{event_draft_id}",
+                         after=f"Invalid start/end datetime: {exc}", result="blocked")
+        return {"tab": "CalendarLog", "id": event_draft_id, "status": "blocked", "calendar_id": ""}
+
+    if current.get("ApprovalStatus", "").strip() != "approved":
+        write_audit_log(svc_sheets, "Hermes", "create_calendar_event_blocked", "Google Calendar",
+                         f"CalendarLog/{event_draft_id}",
+                         after=f"ApprovalStatus not approved: {current.get('ApprovalStatus', '')}",
+                         result="blocked")
+        return {"tab": "CalendarLog", "id": event_draft_id, "status": "blocked", "calendar_id": ""}
+
+    if current.get("Status", "").strip() != "ready":
+        write_audit_log(svc_sheets, "Hermes", "create_calendar_event_blocked", "Google Calendar",
+                         f"CalendarLog/{event_draft_id}",
+                         after=f"Status not ready: {current.get('Status', '')}", result="blocked")
+        return {"tab": "CalendarLog", "id": event_draft_id, "status": "blocked", "calendar_id": ""}
+
+    # Operational fields are the PRIVATE draft fields, never PublicTitle.
+    operational_title = f"{event_draft_id} — {title}"
+    description = current.get("Description", "")
+    location = current.get("Location", "") if current.get("PrivateLocation", "") else current.get("Location", "")
+    private_location = current.get("PrivateLocation", "")
+
+    created = _insert_google_calendar_event(
+        svc_cal,
+        title=operational_title,
+        description=description,
+        location=location if not private_location else "",
+        start=start_dt,
+        end=end_dt,
+    )
+    cal_event_id = created.get("id", "")
+
+    # Update the SAME CalendarLog row; no second append.
+    current["CalendarEventID"] = cal_event_id
+    current["ApprovalStatus"] = "created"
+    current["Status"] = "confirmed"
+    current["LastUpdated"] = ts()
+    values = [current.get(h, "") for h in header]
+    range_end = col(len(header))
+    svc_sheets.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"CalendarLog!A{row_num}:{range_end}{row_num}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [values]},
+    ).execute()
+
+    write_audit_log(svc_sheets, "Hermes", "create-calendar-event", "Google Calendar",
+                     f"CalendarLog/{event_draft_id}",
+                     after=f"Calendar event created from draft {event_draft_id} (ID: {cal_event_id})")
+
+    return {"tab": "CalendarLog", "id": event_draft_id, "status": "created", "calendar_id": cal_event_id}
 
 
 # ── CLI test mode ───────────────────────────────────────────────────────────
