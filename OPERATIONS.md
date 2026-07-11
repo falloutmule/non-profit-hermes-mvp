@@ -1,49 +1,35 @@
 # Operations — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-11 (CLEANUP-001)
+**Last updated:** 2026-07-11 13:48 MDT (CLEANUP-002 closeout)
 
-## Daily operations
+## Daily operations and publication boundary
 
-### `/daily` — daily brief
+`/daily` is live for operations summaries. Its coupling to generation behavior remains the outstanding P0 concern.
 
-The `/daily` command produces a read-only summary for the operations team. It includes:
+**Publication is frozen until CLEANUP-003 separates `/daily` from generation.** Do not use `/daily` as authorization to create, commit, push, or publish an approved-safe snapshot. There is no automatic approval backfill.
 
-1. Calendar events for today
-2. Open urgent requests
-3. Donation pickups/drop-offs
-4. Volunteer gaps
-5. Inventory shortages
-6. Website links
-7. Follow-ups due
-8. Sensitive items needing human review
-9. Completed items since last brief (count summaries)
+The controlled CLEANUP-002 `--dry-run` found zero approved public needs, donations, and reports in the observed live data. Four generated JSON files were inspected and restored because no public snapshot publication was authorized.
 
-**Version:** `website-links-dedup-003`
+## Explicit export inspection
 
-Calendar entries are deduplicated by title for display only. Source Sheet rows are never deleted.
+Use the explicit sync command for local generation or inspection:
 
-### `/daily` versus website publication
+```bash
+# Inspect live source data without filesystem writes
+python scripts/sync_approved_safe_data.py --dry-run
 
-**Important:** Currently `/daily` calls `run_sync()` which writes `docs/` files. This means a normal `/daily` call can dirty the Git working tree. It does **not** commit or push those files.
+# Generate a local approved-safe snapshot only when separately authorized
+python scripts/sync_approved_safe_data.py
+```
 
-The Telegram sync marker can be newer than the public website because of this.
-
-**Target design (planned cleanup):**
-
-| Action | Behavior |
-|--------|----------|
-| `/daily` | Read-only summary only; no filesystem mutation |
-| `python scripts/sync_approved_safe_data.py` | Explicit local generation |
-| `/publish` | Future: approval-gated, auditable publication |
-
-Until the design split is implemented, be aware that `/daily` modifies `docs/`. Do not assume the public site is current just because `/daily` ran.
+The dry-run reads full Sheet ranges, including rows after 100, and reports acceptance/rejection and duplicate evidence. It does not create Calendar events or write public files.
 
 ## Intake commands
 
 All write commands use draft-first intake:
 
 | Command | Creates | Default status | Default privacy |
-|---------|---------|----------------|-----------------|
+|---|---|---|---|
 | `/need <text>` | Requests row | needs-info | private-review |
 | `/donation <text>` | Donations row | needs-info | private-review |
 | `/report <text>` | Reports row | needs-info | private-review |
@@ -51,84 +37,18 @@ All write commands use draft-first intake:
 | `/inventory <text>` | Inventory row (upsert) | needs-info | internal |
 | `/event <text>` | CalendarLog draft | needs-info | private-review |
 
-After creating a draft, the router lists missing fields. Send plain text follow-up with `field=value` pairs to complete the record. No need to retype the ID — the active draft pointer tracks it.
-
-When status reaches `ready`, the active pointer clears automatically for most draft types. **Exception:** event drafts remain active at `ready` while `CalendarEventID` is blank (awaiting promotion). Event pointers clear after confirmed promotion, cancellation, or rejection.
-
-### Follow-up behavior
-
-- Plain follow-up text attaches to the active draft in the same chat.
-- Explicitly naming an ID (e.g., `DON-47D11AAA`) overrides the active pointer.
-- Multiple open drafts in the same chat produce an ambiguity response.
-- The follow-up chain tries: event → report → task → inventory → donation → need.
-
-## Publication workflow
-
-### Current (manual)
-
-1. Run `python scripts/sync_approved_safe_data.py`
-2. Review `git diff` in `docs/`
-3. Check for privacy sentinels
-4. Commit generated output
-5. Push to `main`
-6. GitHub Pages auto-builds from `main /docs`
-
-### Privacy checklist before publishing
-
-Before committing a new snapshot:
-
-- [ ] No private-review or private-hold records in approved JSON
-- [ ] No draft or needs-info status records exported
-- [ ] No donor contact information exported
-- [ ] No internal Task/Inventory IDs in board log (P0 gap)
-- [ ] No raw Calendar event details (only CalendarLog public fields)
-- [ ] Deployment marker present on all pages
-- [ ] Record counts match expected values
+Approved-safe exports are deny-by-default: requests require `ConsentToShare`, donations require `PublicListingAllowed`, and reports require `PublicSummaryAllowed` plus `PublicSummaryDraft`; all also require approved privacy and an allowed public status. Board logs are aggregate-only, and generated public HTML escapes user-controlled values.
 
 ## Google Sheets maintenance
 
-### AuditLog growth
+CLEANUP-002 resolved the former row-100 read limit, canonical-schema divergence, and export deduplication gap. Header additions were append-only and preserved existing Reports and Donations data rows.
 
-The AuditLog is append-only and grows with every operation. The generic Sheet reader currently stops at row 100, which means newer audit entries may not be read by `/daily` or the sync script. This is a known P0 issue (CLEANUP-002).
-
-### Test records
-
-The Sheet contains historical test records (e.g., `REQ-WRITE-TEST-001`, `DON-WRITE-TEST-001`, `EVT-1718BB9F`). These are clearly marked as test/fake records. Do not delete them during cleanup without explicit authorization.
-
-### Data hygiene
-
-A read-only audit script is planned (CLEANUP-007) to report:
-- duplicate primary IDs
-- rows marked TEST/fake/simulated
-- stale drafts
-- orphaned active pointers
-- public rows missing explicit approval
-
-Any live Sheet deletion or backfill must be a separate user-authorized task.
+Historical test records remain data records. Do not delete, backfill, approve, or publish them without explicit authorization.
 
 ## Event operations
 
-### Current state
+`/event` creates CalendarLog drafts only. Calendar creation remains disabled in the live plugin. EVENT-004 is **unstarted and blocked**; it has not authorized live Calendar promotion, plugin activation, gateway refresh/restart, Telegram registration, or live Telegram testing.
 
-- `/event` creates CalendarLog drafts only (EVT-XXXXXXXX).
-- Calendar creation is **disabled** in the live plugin.
-- No live Google Calendar event has been created by the draft-first `/event` flow or EVENT-004 promotion path. Historical safe fake direct backend test events exist.
+Retained EVENT-003 evidence: draft `EVT-FC5611E9` was created and updated in CalendarLog row 13 with a blank `CalendarEventID`; the required read-only Calendar search returned zero matches. This historical draft-only verification does not authorize EVENT-004.
 
-### EVENT-003 verified flow
-
-1. `/event <text>` creates a draft with `CalendarEventID` blank.
-2. Follow-up text updates the draft fields.
-3. Draft can be cancelled/rejected without any Calendar effect.
-4. The required read-only Calendar search returns 0 matches (no event created).
-
-### EVENT-004 (unstarted)
-
-EVENT-004 will authorize the first live Calendar promotion:
-1. Authorize one safe fake Calendar event.
-2. Perform controlled router promotion.
-3. Verify same-row `CalendarEventID` update.
-4. Verify idempotent retry (no duplicate event).
-5. Verify private event exclusion from public docs.
-6. Decide final confirmation/plugin gate policy.
-
-EVENT-004 is blocked until P0 cleanup items are resolved.
+No live Google Calendar event has been created by the draft-first `/event` flow.

@@ -17,7 +17,7 @@ This system helps a small operations team:
 - schedule real commitments in Google Calendar (only when explicitly approved);
 - publish a filtered, board-safe snapshot to GitHub Pages.
 
-**Intended privacy boundary:** raw private intake should never be published, and all public-facing content should pass approved-safe filtering and human review. However, known P0 publication gaps remain (schema divergence, missing consent/status gates, unescaped HTML, board-log ID exposure). No new public snapshot should be published until those gaps are fixed. See [SECURITY_AND_PRIVACY.md](SECURITY_AND_PRIVACY.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current gap list.
+**Intended privacy boundary:** raw private intake should never be published, and all public-facing content should pass approved-safe filtering and human review. CLEANUP-002 resolved the prior export-safety P0 gaps (schema divergence, missing consent/status gates, unescaped HTML, and board-log ID exposure). Publication remains frozen because `/daily` still couples summary invocation to generation behavior; this remaining P0 is scheduled for CLEANUP-003. See [SECURITY_AND_PRIVACY.md](SECURITY_AND_PRIVACY.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current gap list.
 
 ---
 
@@ -148,11 +148,11 @@ python -m py_compile scripts/*.py
 git diff --check
 ```
 
-Current suite: 35 passed, 11 subtests passed.
+Current CLEANUP-002 suite: 53 passed, 52 subtests passed.
 
-### ⚠ Test modes write live data
+### ⚠ Live-write test mode
 
-**The router `--test` flag and backend `--test-write` flag currently write to live Google services.** They are not offline-safe. Running them creates real rows in the production Google Sheet and real audit entries. Do not run them unless you intend to create test records in the live Sheet. Offline fake-based test isolation is a planned cleanup item (CLEANUP-005).
+`python -m pytest` is an offline, fake-based test suite and makes no live Google calls. **`scripts/telegram_intake_router.py --test` initializes the live Google Sheets and Calendar services**; do not run it unless live-service access is intended. **`scripts/non_profit_hermes_ops.py --test-write` is an explicit live-write operational mode.** Do not run it unless you intend to create test records in the live Sheet.
 
 ---
 

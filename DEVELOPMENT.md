@@ -1,6 +1,6 @@
 # Development — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-11 (CLEANUP-001)
+**Last updated:** 2026-07-11 13:48 MDT (CLEANUP-002 closeout)
 
 ## Prerequisites
 
@@ -10,128 +10,64 @@
 - Hermes Agent running with Telegram gateway
 - Git
 
-## Repository checkout
-
-```bash
-git clone https://github.com/falloutmule/non-profit-hermes-mvp.git
-cd non-profit-hermes-mvp
-```
-
-## Dependencies
-
-This project does not yet have a `requirements.txt` or `pyproject.toml`. Current dependencies:
-
-- `google-auth`
-- `google-api-python-client`
-- `pytest` (test only)
-
-Install manually until dependency pinning is added (CLEANUP-005):
-
-```bash
-pip install google-auth google-api-python-client pytest
-```
-
-## Running tests
+## Tests
 
 ```bash
 # Full suite
 python -m pytest -q
 
 # Compile check
-python -m py_compile scripts/*.py
+python -m py_compile scripts/*.py tests/*.py
 
 # Whitespace check
 git diff --check
 ```
 
-Current suite: **35 passed, 11 subtests passed**.
+CLEANUP-002 result: **53 passed, 52 subtests passed**.
 
-### ⚠ Test modes that write live data
+CLEANUP-002 added two export-safety test modules:
 
-**The following commands write to the live production Google Sheet:**
+- `tests/test_schema_parity.py` — canonical schema parity and append-order behavior
+- `tests/test_export_safety.py` — deny-by-default gates, full-range reads beyond row 100, deduplication, HTML escaping, board-log aggregation, and dry-run no-write behavior
+
+## Canonical schema and export generation
+
+`scripts/non_profit_hermes_schema.py` owns the canonical Sheet header definitions used by both write and export paths. New columns are appended; CLEANUP-002 added `Reports!V1 = PublicSummaryAllowed` and `Donations!V1:X1 = PrivacyLevel, PublicListingAllowed, LastUpdated` without changing existing data rows.
+
+Generate approved-safe data explicitly:
 
 ```bash
-python scripts/non_profit_hermes_ops.py --test-write    # CREATES REAL ROWS
-python scripts/telegram_intake_router.py --test          # CALLS REAL GOOGLE SERVICES
+python scripts/sync_approved_safe_data.py
 ```
 
-These are **not** offline tests. They create real records with IDs like `REQ-WRITE-TEST-001`, `DON-WRITE-TEST-001`, etc. in the production Sheet and generate real AuditLog entries.
+Inspect without filesystem writes:
 
-Only run them if you intend to create test records in the live Sheet. Offline fake-based isolation is planned for CLEANUP-005.
+```bash
+python scripts/sync_approved_safe_data.py --dry-run
+```
 
-## Test structure
+`--dry-run` reads the configured Sheet ranges and reports acceptance/rejection, duplicate, and row-count evidence without writing generated public files. The controlled CLEANUP-002 dry-run found zero approved public needs, donations, and reports in the observed live records.
 
-| File | Tests | Scope |
-|------|-------|-------|
-| `tests/test_event_router.py` | 14 | Router draft-first `/event` intake, follow-up, promotion, idempotency |
-| `tests/test_event_draft_backend.py` | 13 | Backend draft create/update, approval gate, Calendar promotion (fakes) |
-| `tests/test_event_calendar_privacy.py` | 8 | Calendar export privacy gate, sentinel tests, two-source join |
-
-All tests use in-memory fakes (`FakeSheetsStore`, `FakeCalendarService`). No test makes network calls.
+Exports use canonical IDs plus newest `LastUpdated` deduplication before deny-by-default publication gates. Requests require `ConsentToShare`; Donations require `PublicListingAllowed`; Reports require `PublicSummaryAllowed` and `PublicSummaryDraft`. Public HTML escapes user-controlled values, and board logs are aggregate-only.
 
 ## Code layout
 
-```
+```text
 scripts/
   non_profit_hermes_ops.py      ← Google Sheets/Calendar backend
+  non_profit_hermes_schema.py   ← canonical Sheet schema
   telegram_intake_router.py     ← Telegram intake router + /daily
-  sync_approved_safe_data.py    ← approved-safe sync → docs/
+  sync_approved_safe_data.py    ← approved-safe export generation
 tests/
+  test_schema_parity.py
+  test_export_safety.py
   test_event_router.py
   test_event_draft_backend.py
   test_event_calendar_privacy.py
 ```
 
-## Key patterns
+## Remaining development boundary
 
-### Draft-first intake
+CLEANUP-003 is next: separate `/daily` from generation behavior. Until then, publication is frozen; do not treat a `/daily` invocation as authorization to create or publish a public snapshot. There is no automatic approval backfill.
 
-All write commands follow this pattern:
-
-1. User types `/cmd <sloppy free text>`
-2. Router creates a draft row (status=`needs-info`)
-3. Router lists missing fields
-4. User sends plain follow-up text with field=value pairs
-5. Router attaches follow-up to active draft
-6. When status reaches `ready`, active pointer clears
-
-### Backend write discipline
-
-Every write operation:
-1. Calls `ensure_header()` to sync Sheet headers with code schema
-2. Writes the data row
-3. Calls `write_audit_log()` with actor, action, target, before/after, result
-
-### Header-expansion pitfall
-
-When a record type's `HEADERS` dict grows (new columns added), the live Google Sheet still has the old header row. The `ensure_header(svc, tab)` pattern writes `HEADERS[tab]` to row 1 before every `add_*`/`update_*` call to keep columns aligned.
-
-Without this, row readers return the old column set and fields like `Status` appear as `None` even though `make_row` wrote them.
-
-### Follow-up chain interception
-
-Each `route_<cmd>_followup()` runs in a chain: report → task → inventory → donation → need. If ANY handler returns a `RouterResult` (even for "no draft found"), the chain stops and downstream handlers never execute.
-
-The fix: before looking up drafts, check if the follow-up contains command-specific fields. If no relevant fields AND no active draft, return `None` to let the chain continue.
-
-## Known issues (cleanup backlog)
-
-See [PROJECT_STATUS.md](PROJECT_STATUS.md) § "Known P0 cleanup blockers" for the full list. Key development-facing issues:
-
-- **Schema divergence**: backend and sync header maps have diverged. Canonical shared schema module needed.
-- **Row 100 truncation**: generic Sheet reader stops at row 100.
-- **No dependency manifest**: no `requirements.txt` or `pyproject.toml`.
-- **No CI**: no automated checks on push.
-- **Hardcoded paths**: machine-specific paths in source code.
-- **`/daily` mutates docs/**: daily summary calls sync, which writes files.
-
-## Plugin development
-
-Plugins are thin shims that live outside this repository. See the [non-profit-hermes skill](https://github.com/falloutmule/non-profit-hermes-mvp) for the plugin pattern:
-
-1. Plugin registers the command
-2. Plugin calls the router with `source_link` and appropriate flags
-3. Plugin renders via `_result_to_text()`
-4. Plugin contains no direct Sheets/Calendar writes
-
-Plugin reproducibility from GitHub is planned for CLEANUP-005.
+EVENT-004 remains unstarted and blocked. It has not enabled live Calendar promotion, plugin activation, gateway refresh/restart, Telegram registration, or a live Telegram test.
