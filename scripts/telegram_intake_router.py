@@ -102,7 +102,7 @@ def _example_for_command(command: str) -> str:
         "/report": '/report type=pantry summary="Pantry gave out socks and toilet paper" date=today people_served_estimate=unknown items_distributed="socks, toilet paper" followups_needed=none privacy_level=board-visible public_summary_allowed=yes next_action=review',
         "/task": '/task id=TASK-EXAMPLE-001 title="Call volunteer about socks" assigned_to=unknown due_date=unknown priority=normal next_action=review',
         "/inventory": '/inventory id=INV-EXAMPLE-001 item="socks" quantity=30 unit=pairs category=clothing minimum=20 storage=pantry condition=new next_action=review',
-        "/event": '/event id=CAL-EXAMPLE-001 title="Safe test event" start=2099-01-01T09:00:00 end=2099-01-01T10:00:00',
+        "/event": '/event event_title="Safe test event" start=2099-01-01T09:00:00-06:00 end=2099-01-01T10:00:00-06:00 type=meeting location="safe venue"',
     }
     return examples.get(
         command,
@@ -115,6 +115,20 @@ def _result_to_text(result: "RouterResult") -> str:
     if result.summary:
         # /daily returns the full summary; pass it through unchanged.
         return result.summary
+    if result.ok and result.command == "/event" and not result.calendar_event_id:
+        missing = ", ".join(result.missing_fields or [])
+        lines = [
+            f"Draft Event created: {result.record_id}",
+            f"Privacy: {result.privacy_level}",
+            f"Status: {result.status}",
+        ]
+        if missing:
+            lines.append(f"Missing: {missing}")
+        lines.extend([
+            "Calendar: not created",
+            "Calendar creation is disabled pending EVENT-004.",
+        ])
+        return "\n".join(lines)
     if not result.ok and result.status == "needs_more_info":
             missing = ", ".join(result.missing_fields)
             cmd = result.command.lstrip("/")
@@ -819,10 +833,43 @@ def parse_dt(value: str) -> datetime | None:
     return dt
 
 
-def handle_message(text: str, *, source_link: str = "telegram-simulated:test") -> RouterResult:
+def is_naive_iso(value: str) -> bool:
+    """True when value looks like an ISO datetime WITHOUT an offset or Z (e.g.
+    '2026-07-12T09:00:00'). Such values must NOT silently become UTC (contract 7)."""
+    if not value or not isinstance(value, str):
+        return False
+    s = value.strip()
+    # A trailing Z denotes UTC offset (+00:00) — it is NOT naive.
+    if s.endswith("Z"):
+        return False
+    if "T" not in s or ":" not in s.split("T", 1)[1]:
+        return False
+    cand = s[:-1] if s.endswith("Z") else s
+    try:
+        dt = datetime.fromisoformat(cand)
+    except ValueError:
+        return False
+    return dt.tzinfo is None
+
+
+def handle_message(
+    text: str,
+    *,
+    source_link: str = "telegram-simulated:test",
+    allow_calendar_creation: bool = False,
+) -> RouterResult:
     stripped = (text or "").strip()
     if stripped and not stripped.startswith("/"):
         svc, svc_cal = services()
+        followup_result = route_event_followup(
+            svc,
+            svc_cal,
+            stripped,
+            source_link,
+            allow_calendar_creation=allow_calendar_creation,
+        )
+        if followup_result is not None:
+            return followup_result
         followup_result = route_report_followup(svc, stripped, source_link)
         if followup_result is not None:
             return followup_result
@@ -869,6 +916,16 @@ def handle_message(text: str, *, source_link: str = "telegram-simulated:test") -
         "/inventory": route_inventory,
         "/event": route_event,
     }
+    if command == "/event":
+        return route_event(
+            svc,
+            svc_cal,
+            fields,
+            free_text,
+            source_link,
+            privacy_level,
+            allow_calendar_creation=allow_calendar_creation,
+        )
     return handlers[command](svc, svc_cal, fields, free_text, source_link, privacy_level)
 
 
@@ -1603,32 +1660,460 @@ def route_inventory_followup(svc, followup_text: str, source_link: str) -> Route
     )
 
 
-def route_event(svc, svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
-    missing = missing_required(fields, ["id", "title", "start"])
-    if missing:
-        audit_missing(svc, "/event", missing, source_link)
-        return RouterResult(False, "/event", "needs_more_info", "Need more info: " + ", ".join(missing), missing_fields=missing)
-    start = parse_dt(fields["start"])
-    if not start:
-        audit_missing(svc, "/event", ["start (ISO datetime)"], source_link)
-        return RouterResult(False, "/event", "needs_more_info", "Need valid ISO datetime in start=...", missing_fields=["start"])
-    end = parse_dt(fields.get("end", "")) or (start + timedelta(hours=1))
-    title = f"{fields['id']} — {fields['title']}"
-    result = ops.create_calendar_event(
-        svc_cal,
+# ── Event active draft tracking ──────────────────────────────────────────
+# Active events use the SAME per-source state file (ACTIVE_NEED_STATE_PATH) so
+# other active_* pointers are never erased. Only the active_event_id key is touched.
+
+OPEN_EVENT_STATES = {"needs-info", "draft", "new", "ready"}
+TERMINAL_EVENT_STATES = {"confirmed", "cancelled", "rejected"}
+
+
+def get_active_event_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_event_id", "")
+
+
+def set_active_event_id(source_link: str, event_id: str) -> None:
+    if not event_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_event_id"] = event_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_event_id(source_link: str, event_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_event_id", "")
+    if event_id and current and current != event_id:
+        return
+    entry.pop("active_event_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def event_row_by_draft_id(svc, draft_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="CalendarLog!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "EventDraftID" not in header:
+        return None
+    didx = header.index("EventDraftID")
+    for row in rows[1:]:
+        if len(row) > didx and row[didx].strip() == draft_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_event_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="CalendarLog!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in OPEN_EVENT_STATES:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("StartDateTime", "")) or now_utc(), item.get("EventDraftID", "")))
+    return out
+
+
+def resolve_event_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("eventdraftid") or fields.get("event_draft_id") or fields.get("id") or fields.get("eventid") or fields.get("event_id")
+    if requested_id:
+        row = event_row_by_draft_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"EventDraftID {requested_id} not found"]
+
+    active_id = get_active_event_id(source_link)
+    if active_id:
+        row = event_row_by_draft_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in OPEN_EVENT_STATES:
+            return row, []
+        clear_active_event_id(source_link, active_id)
+
+    drafts = open_event_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open event draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active event drafts: " + ", ".join(d.get("EventDraftID", "") for d in drafts if d.get("EventDraftID"))]
+    return drafts[0], []
+
+
+def route_event(svc, svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str, *, allow_calendar_creation: bool = False) -> RouterResult:
+    """Draft-first /event router (EVENT-003).
+
+    Writes a Sheet-only EventDraft; never creates a Calendar event unless
+    allow_calendar_creation=True AND the draft is explicitly promoted. The live
+    plugin always passes allow_calendar_creation=False (Calendar creation disabled
+    pending EVENT-004).
+    """
+    explicit_id = fields.get("id") or fields.get("eventdraftid") or fields.get("event_draft_id") or ""
+
+    # Free text becomes EventTitle when title absent. Do NOT infer natural-language dates/times.
+    event_title = (fields.get("title") or fields.get("event_title") or free_text or "").strip()
+    EVENT_MISSING = ["title"]
+    missing_followup = [name for name in EVENT_MISSING if not fields.get(name) and not free_text]
+    status = fields.get("status") or ("needs-info" if (missing_followup or not fields.get("start")) else "new")
+
+    # Time validation: accept offset/ Z ISO; reject naive datetimes.
+    start_raw = fields.get("start") or fields.get("start_time") or ""
+    start_dt = None
+    if start_raw:
+        if is_naive_iso(start_raw):
+            # Naive ISO -> do NOT guess UTC. Report incomplete, store phrase in Notes, ask for offset.
+            missing_followup = sorted(set(missing_followup + ["start (offset-bearing ISO, e.g. 2026-07-12T09:00:00-06:00)"]))
+            status = "needs-info"
+            start_raw = start_raw  # preserve ambiguous phrase (not written to StartDateTime)
+        else:
+            start_dt = parse_dt(start_raw)
+            if start_dt is None:
+                # Non-ISO / natural-language phrase (e.g. "Saturday morning") -> do not infer.
+                missing_followup = sorted(set(missing_followup + ["start (offset-bearing ISO, e.g. 2026-07-12T09:00:00-06:00)"]))
+                status = "needs-info"
+            else:
+                start_raw = start_dt.isoformat()
+
+    end_raw = fields.get("end") or fields.get("end_time") or ""
+    end_dt = None
+    if end_raw:
+        if is_naive_iso(end_raw):
+            end_raw = fields.get("end") or fields.get("end_time") or ""
+            if status != "needs-info":
+                status = "needs-info"
+        else:
+            end_dt = parse_dt(end_raw)
+            if end_dt is None:
+                end_raw = fields.get("end") or fields.get("end_time") or ""
+                if status != "needs-info":
+                    status = "needs-info"
+            else:
+                end_raw = end_dt.isoformat()
+
+    privacy = explicit_privacy_level(fields) or ("internal" if (fields.get("privacy_level") or privacy_level) == "internal" else "private-review")
+
+    notes_parts = []
+    if free_text and fields.get("title"):
+        notes_parts.append(free_text)
+    if not start_dt and (fields.get("start") or fields.get("start_time")):
+        notes_parts.append(f"Unparsed time phrase: {fields.get('start') or fields.get('start_time')}")
+    if not end_dt and (fields.get("end") or fields.get("end_time")):
+        notes_parts.append(f"Unparsed end phrase: {fields.get('end') or fields.get('end_time')}")
+    if free_text and not fields.get("title"):
+        # free_text was used as EventTitle; preserve the original phrasing in Notes.
+        notes_parts.append(free_text)
+    notes = fields.get("notes", "")
+    if notes_parts:
+        extra = " | ".join(notes_parts)
+        notes = f"{notes}\n{extra}" if notes else extra
+
+    result = ops.upsert_event_draft(
         svc,
-        event_title=title,
-        event_type=fields.get("type", "telegram-test"),
-        start_time=start,
-        end_time=end,
-        description=fields.get("description", free_text or "Safe fake Telegram event"),
-        location=fields.get("location", ""),
-        private_location="",
-        related_task_id=fields.get("task", ""),
-        related_request_id=fields.get("request", ""),
-        related_donation_id=fields.get("donation", ""),
+        event_draft_id=explicit_id,
+        event_title=event_title or UNKNOWN,
+        event_type=fields.get("event_type") or fields.get("type") or "event",
+        start_time=start_raw if start_dt else "",
+        end_time=end_raw if end_dt else "",
+        description=fields.get("description") or "",
+        location=fields.get("location") or "",
+        private_location=fields.get("private_location") or "",
+        attendees=fields.get("attendees") or "",
+        related_task_id=fields.get("related_task_id") or fields.get("task") or "",
+        related_request_id=fields.get("related_request_id") or fields.get("request") or "",
+        related_donation_id=fields.get("related_donation_id") or fields.get("donation") or "",
+        privacy_level=privacy,
+        public_calendar_allowed="no",
+        public_title=fields.get("public_title") or "",
+        public_description=fields.get("public_description") or "",
+        public_location=fields.get("public_location") or "",
+        approval_status=fields.get("approval_status") or "needs-info",
+        status=status,
+        source_link=source_link,
+        notes=notes,
     )
-    return RouterResult(True, "/event", result.get("status", "written"), "Calendar event created through backend.", record_id=fields["id"], calendar_event_id=result.get("calendar_id", ""), privacy_level=privacy_level, backend_status=result.get("status", "created"))
+    draft_id = result["id"]
+
+    # Active pointer rules (contract 6).
+    cal_id_blank = True  # draft-first: CalendarEventID always blank here
+    if status in OPEN_EVENT_STATES and cal_id_blank:
+        set_active_event_id(source_link, draft_id)
+    else:
+        clear_active_event_id(source_link, draft_id)
+
+    if not allow_calendar_creation:
+        # Draft-only: no Calendar backend call. Wording (contract 1 + 9):
+        # never "Event created"; say "Draft Event created", "Calendar: not created",
+        # and "Calendar creation is disabled pending EVENT-004".
+        return RouterResult(
+            True,
+            "/event",
+            status,
+            f"Draft Event created: {draft_id}\nCalendar: not created\nCalendar creation is disabled pending EVENT-004.",
+            record_id=draft_id,
+            calendar_event_id="",
+            missing_fields=missing_followup,
+            privacy_level=privacy,
+            backend_status=result.get("status", "created"),
+        )
+
+    # allow_calendar_creation=True path is only exercised by fake tests; real
+    # promotion additionally requires explicit create_calendar=yes. Handled in
+    # route_event_followup because promotion is a follow-up action.
+    return RouterResult(
+        True,
+        "/event",
+        status,
+        f"Draft Event created: {draft_id}",
+        record_id=draft_id,
+        calendar_event_id="",
+        missing_fields=missing_followup,
+        privacy_level=privacy,
+        backend_status=result.get("status", "created"),
+    )
+
+
+EVENT_SPECIFIC_KEYS = {
+    "event", "event_title", "event_type", "start", "start_time", "end", "end_time",
+    "description", "location", "private_location", "attendees", "related_task_id",
+    "related_request_id", "related_donation_id", "privacy", "privacy_level",
+    "public_calendar_allowed", "public_title", "public_description", "public_location",
+    "approval", "approval_status", "notes", "status", "eventdraftid", "event_draft_id",
+    "id", "create_calendar", "confirm_create",
+}
+# Generic keys that must NOT alone select the event handler (contract 5).
+EVENT_GENERIC_KEYS = {"title", "type", "task", "request", "donation", "description", "notes", "privacy_level", "status"}
+
+# Other command follow-up prefixes that must NOT be intercepted as events.
+_EVENT_NON_EVENT_PREFIXES = {"report", "task", "inventory", "donation", "need"}
+
+
+def route_event_followup(svc, svc_cal, followup_text: str, source_link: str, *, allow_calendar_creation: bool = False) -> RouterResult | None:
+    """Attach a follow-up to the active /event draft, or promote it to Calendar.
+
+    Event-specific fields (see EVENT_SPECIFIC_KEYS) or an explicit EVT id select
+    this handler. Without an active draft, generic keys (title/description/status/
+    notes/privacy_level) alone must NOT select the event handler. Also do not
+    intercept report/task/inventory/donation/need follow-ups.
+    """
+    fields, free_text = parse_followup_text(followup_text)
+
+    # Do not intercept other command follow-ups. This covers both the bare
+    # prefix form ("/report ...", "report ...") and the key=value form
+    # ("task=TASK-1 ...", "donation=DON-1 ...", etc.) where the first
+    # token's key is a non-event command prefix.
+    tokens = followup_text.strip().split()
+    first_token = tokens[0].lower().rstrip(":").lstrip("/") if tokens else ""
+    if first_token in _EVENT_NON_EVENT_PREFIXES:
+        return None
+    if "=" in first_token:
+        first_key = first_token.split("=", 1)[0]
+        if first_key in _EVENT_NON_EVENT_PREFIXES:
+            return None
+
+    has_explicit_id = bool(fields.get("eventdraftid") or fields.get("event_draft_id") or fields.get("id") or fields.get("eventid") or fields.get("event_id"))
+    present_event_keys = EVENT_SPECIFIC_KEYS & set(fields.keys())
+    # Strip the generic-only keys: require at least one truly event-specific key.
+    event_only_keys = present_event_keys - {"title", "type", "task", "request", "donation", "description", "notes", "privacy_level", "status", "id"}
+    has_active = bool(get_active_event_id(source_link))
+    has_event_field = bool(event_only_keys) or has_explicit_id
+
+    if not has_event_field and not has_active:
+        return None
+
+    target, problems = resolve_event_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active event drafts:"):
+            return RouterResult(
+                False, "/event", "needs_more_info",
+                "Multiple active event drafts found. Please name EventDraftID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/event", "needs_more_info",
+            "No open event draft found in this chat/session.",
+            missing_fields=problems or ["open event draft in this chat/session"],
+        )
+
+    draft_id = target.get("EventDraftID", "")
+
+    # Explicit promotion only (contract 8).
+    create_calendar = (fields.get("create_calendar") or fields.get("confirm_create") or "").strip().lower() in {"yes", "true", "1"}
+    if create_calendar:
+        if not allow_calendar_creation:
+            # Disabled pending EVENT-004 — update draft fields, keep pointer, no Calendar backend.
+            _apply_event_followup_updates(svc, target, fields, free_text, source_link)
+            return RouterResult(
+                True, "/event", "needs-info",
+                f"Event draft ready: {draft_id}\nCalendar creation is disabled pending EVENT-004.\nNo Calendar event was created.",
+                record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="updated",
+            )
+        # Fake-test promotion path (allow_calendar_creation=True). Return an
+        # already-created draft before mutating it or re-checking terminal row
+        # approval/status, preserving router-level idempotency.
+        existing_calendar_id = target.get("CalendarEventID", "").strip()
+        if existing_calendar_id:
+            clear_active_event_id(source_link, draft_id)
+            return RouterResult(
+                True, "/event", "confirmed",
+                f"Event already promoted: {draft_id} → Calendar {existing_calendar_id}",
+                record_id=draft_id, calendar_event_id=existing_calendar_id,
+                privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="already_created",
+            )
+        # Otherwise require explicit promotion + EVENT-002 approval conditions.
+        upd = _apply_event_followup_updates(svc, target, fields, free_text, source_link)
+        row = event_row_by_draft_id(svc, draft_id)
+        approval = (upd.get("approval_status") or row.get("ApprovalStatus", "")).strip().lower()
+        st = (upd.get("status") or row.get("Status", "")).strip().lower()
+        start_val = row.get("StartDateTime", "")
+        if approval != "approved" or st != "ready" or not start_val or "T" not in (start_val or ""):
+            return RouterResult(
+                True, "/event", "needs-info",
+                f"Event draft {draft_id} not yet approved/ready for Calendar promotion.",
+                record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="updated",
+            )
+        promo = ops.create_calendar_event_from_draft(svc_cal, svc, event_draft_id=draft_id)
+        if promo.get("status") in {"created", "already_created"}:
+            clear_active_event_id(source_link, draft_id)
+            return RouterResult(
+                True, "/event", "confirmed",
+                f"Event promoted: {draft_id} → Calendar {promo.get('calendar_id', '')}",
+                record_id=draft_id, calendar_event_id=promo.get("calendar_id", ""),
+                privacy_level=target.get("PrivacyLevel", "private-review"), backend_status="confirmed",
+            )
+        return RouterResult(
+            True, "/event", "blocked",
+            f"Calendar promotion blocked for {draft_id}: {promo.get('status')}",
+            record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+            backend_status="blocked",
+        )
+
+    upd = _apply_event_followup_updates(svc, target, fields, free_text, source_link)
+    final_status = (upd.get("status") or target.get("Status", "")).strip().lower()
+    # Active pointer maintenance (contract 6).
+    row = event_row_by_draft_id(svc, draft_id)
+    cal_id = row.get("CalendarEventID", "") if row else ""
+    if cal_id and final_status == "confirmed":
+        clear_active_event_id(source_link, draft_id)
+    elif final_status in {"cancelled", "rejected"}:
+        clear_active_event_id(source_link, draft_id)
+    elif final_status in OPEN_EVENT_STATES and not cal_id:
+        set_active_event_id(source_link, draft_id)
+    return RouterResult(
+        True, "/event", final_status or "updated",
+        f"Attached follow-up to {draft_id}.",
+        record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+        backend_status=upd.get("status", "updated"),
+    )
+
+
+def _apply_event_followup_updates(svc, target, fields, free_text, source_link: str) -> dict:
+    updates: dict[str, str] = {}
+    # Event-specific field mapping + aliases (contract 5).
+    if "event_title" in fields or "title" in fields:
+        updates["event_title"] = fields.get("event_title", fields.get("title", ""))
+    if "event_type" in fields or "type" in fields:
+        updates["event_type"] = fields.get("event_type", fields.get("type", ""))
+    if "start" in fields or "start_time" in fields:
+        updates["start_time"] = fields.get("start", fields.get("start_time", ""))
+    if "end" in fields or "end_time" in fields:
+        updates["end_time"] = fields.get("end", fields.get("end_time", ""))
+    if "description" in fields:
+        updates["description"] = fields["description"]
+    if "location" in fields:
+        updates["location"] = fields["location"]
+    if "private_location" in fields:
+        updates["private_location"] = fields["private_location"]
+    if "attendees" in fields:
+        updates["attendees"] = fields["attendees"]
+    if "related_task_id" in fields or "task" in fields:
+        updates["related_task_id"] = fields.get("related_task_id", fields.get("task", ""))
+    if "related_request_id" in fields or "request" in fields:
+        updates["related_request_id"] = fields.get("related_request_id", fields.get("request", ""))
+    if "related_donation_id" in fields or "donation" in fields:
+        updates["related_donation_id"] = fields.get("related_donation_id", fields.get("donation", ""))
+    if "privacy" in fields or "privacy_level" in fields:
+        updates["privacy_level"] = fields.get("privacy_level", fields.get("privacy", ""))
+    if "public_calendar_allowed" in fields:
+        updates["public_calendar_allowed"] = fields["public_calendar_allowed"]
+    if "public_title" in fields:
+        updates["public_title"] = fields["public_title"]
+    if "public_description" in fields:
+        updates["public_description"] = fields["public_description"]
+    if "public_location" in fields:
+        updates["public_location"] = fields["public_location"]
+    if "approval" in fields or "approval_status" in fields:
+        updates["approval_status"] = fields.get("approval_status", fields.get("approval", ""))
+    if "notes" in fields:
+        updates["notes"] = fields["notes"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked = set(updates.keys()) | {"eventdraftid", "event_draft_id", "id", "eventid", "event_id", "create_calendar", "confirm_create"}
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        new_notes = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+        updates["notes"] = new_notes
+
+    result = ops.upsert_event_draft(
+        svc,
+        event_draft_id=target.get("EventDraftID", ""),
+        event_title=updates.get("event_title", target.get("EventTitle", "")),
+        event_type=updates.get("event_type", target.get("EventType", "event")),
+        start_time=updates.get("start_time", target.get("StartDateTime", "")),
+        end_time=updates.get("end_time", target.get("EndDateTime", "")),
+        description=updates.get("description", target.get("Description", "")),
+        location=updates.get("location", target.get("Location", "")),
+        private_location=updates.get("private_location", target.get("PrivateLocation", "")),
+        attendees=updates.get("attendees", target.get("Attendees", "")),
+        related_task_id=updates.get("related_task_id", target.get("RelatedTaskID", "")),
+        related_request_id=updates.get("related_request_id", target.get("RelatedRequestID", "")),
+        related_donation_id=updates.get("related_donation_id", target.get("RelatedDonationID", "")),
+        privacy_level=updates.get("privacy_level", target.get("PrivacyLevel", "")),
+        public_calendar_allowed=updates.get("public_calendar_allowed", target.get("PublicCalendarAllowed", "")),
+        public_title=updates.get("public_title", target.get("PublicTitle", "")),
+        public_description=updates.get("public_description", target.get("PublicDescription", "")),
+        public_location=updates.get("public_location", target.get("PublicLocation", "")),
+        approval_status=updates.get("approval_status", target.get("ApprovalStatus", "")),
+        status=updates.get("status", target.get("Status", "")),
+        notes=updates.get("notes", target.get("Notes", "")),
+        source_link=source_link,
+    )
+    return updates
 
 
 def run_sync() -> dict[str, Any]:
