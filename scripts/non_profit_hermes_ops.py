@@ -22,7 +22,36 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-# ── Shared config (same as sync_approved_safe_data.py) ──────────────────────
+# ── Canonical shared schema ─────────────────────────────────────────────────
+
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
+from non_profit_hermes_schema import (
+    HEADERS,
+    PRIMARY_KEYS,
+    AFFIRMATIVE_VALUES,
+    APPROVED_PRIVACY_LEVELS,
+    TERMINAL_STATUSES,
+    PUBLIC_STATUS_BY_TYPE,
+    PUBLIC_SUMMARY_ALLOWED_FIELD,
+    PUBLIC_LISTING_ALLOWED_FIELD,
+    PRIVACY_LEVEL_FIELD,
+    LAST_UPDATED_FIELD,
+    CONSENT_TO_SHARE_FIELD,
+    CONSENT_TO_PUBLIC_THANKS_FIELD,
+    col,
+    get_header_range,
+    get_full_range,
+    get_primary_key,
+    is_affirmative,
+    is_approved_privacy,
+    is_public_status,
+    is_terminal_status,
+)
+
+# ── Shared config ────────────────────────────────────────────────────────────
 
 ROOT = Path(r"C:\Users\fallo\non-profit-hermes-mvp")
 TOKEN = Path(r"C:\Users\fallo\AppData\Local\hermes\google_token.json")
@@ -39,72 +68,7 @@ SCOPES = [
 SPREADSHEET_ID = "1Sf68PnxsuqW2PVzHZgyh8vV90Y4UlJ-GYexQ7JlOxlE"
 CALENDAR_ID = "e1c99cc72c43a87bb340a6e867f0b56caf1da4d4f485454e2370e17daa20e32a@group.calendar.google.com"
 
-# ── Column headers per tab (from MVP data model) ────────────────────────────
-
-HEADERS: dict[str, list[str]] = {
-    "Requests": [
-        "RequestID", "DateReceived", "Source", "SubmittedBy", "PersonOrGroup",
-        "ContactMethod", "NeedCategory", "NeedDescription", "Quantity",
-        "LocationPrivate", "LocationPublicSafe", "Urgency", "NeededBy",
-        "ConsentToRecord", "ConsentToShare", "PrivacyLevel", "AssignedTo",
-        "Status", "NextAction", "CalendarEventID", "RelatedInventoryItem",
-        "Notes", "CreatedBy", "LastUpdated", "SourceMessageLink",
-    ],
-    "Donations": [
-        "DonationID", "DateOffered", "DonorName", "DonorContact",
-        "DonationType", "ItemDescription", "Quantity", "Condition",
-        "PickupOrDropoff", "Location", "AvailableDate", "StorageNeeded",
-        "MatchesCurrentNeed", "AssignedPickupVolunteer", "Status",
-        "ReceiptNeeded", "ThankYouNeeded", "ConsentToPublicThanks",
-        "NextAction", "Notes", "SourceMessageLink",
-    ],
-    "Reports": [
-        "ReportID", "Date", "SubmittedBy", "ReportType", "Summary",
-        "PeopleServedEstimate", "ItemsDistributed", "Incidents",
-        "FollowUpsNeeded", "SensitiveDetails", "PublicSummaryDraft",
-        "PrivacyLevel", "RelatedTasks", "RelatedRequests", "RelatedDonations",
-        "PhotosAttached", "Status", "NextAction", "Notes", "LastUpdated",
-        "SourceMessageLink",
-    ],
-    "Tasks": [
-        "TaskID", "DateCreated", "TaskTitle", "TaskDescription", "Category",
-        "Priority", "AssignedTo", "DueDate", "RelatedRequestID",
-        "RelatedDonationID", "RelatedCalendarEventID", "Status", "Blocker",
-        "NextAction", "CompletionReport", "LastUpdated", "SourceMessageLink",
-        "Notes",
-    ],
-    "Inventory": [
-        "ItemID", "ItemName", "Category", "QuantityOnHand", "Unit",
-        "MinimumNeeded", "StorageLocation", "Condition", "LastCounted",
-        "LastUpdatedBy", "NeededThisWeek", "PublicNeedAllowed", "Notes",
-        "Status", "NextAction", "LastUpdated", "SourceMessageLink",
-    ],
-    "CalendarLog": [
-        "CalendarEventID", "EventTitle", "EventType", "StartDateTime",
-        "EndDateTime", "Location", "PrivateLocation", "Description",
-        "Attendees", "RelatedTaskID", "RelatedRequestID", "RelatedDonationID",
-        "Status", "CreatedBy", "LastUpdated", "EventDraftID", "PrivacyLevel",
-        "PublicCalendarAllowed", "PublicTitle", "PublicDescription",
-        "PublicLocation", "ApprovalStatus", "SourceMessageLink", "Notes",
-    ],
-    "AuditLog": [
-        "AuditID", "Timestamp", "Actor", "Action", "TargetSystem",
-        "TargetItem", "Before", "After", "Result", "Error", "SourceMessageLink",
-    ],
-}
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
 AUDIT_HEADERS = HEADERS["AuditLog"]
-
-
-def col(n: int) -> str:
-    """Convert 1-indexed column number to A1 notation."""
-    s = ""
-    while n:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
-    return s
 
 
 def now_utc() -> datetime:
@@ -206,18 +170,6 @@ def ensure_header(svc, tab: str) -> None:
     ).execute()
 
 
-def ensure_header(svc, tab: str) -> None:
-    """Ensure the header row for the given tab matches HEADERS[tab]."""
-    range_end = col(len(HEADERS[tab]))
-    body = {"values": [HEADERS[tab]]}
-    svc.spreadsheets().values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"{tab}!A1:{range_end}1",
-        valueInputOption="USER_ENTERED",
-        body=body,
-    ).execute()
-
-
 # ── AuditLog helper ─────────────────────────────────────────────────────────
 
 def write_audit_log(
@@ -251,7 +203,7 @@ def write_audit_log(
     return audit_id
 
 
-# ── Primary operations ─────────────────────────────────────────────────────
+# ── Primary operations ──────────────────────────────────────────────────────
 
 def _find_row_by_id(svc, tab: str, id_col: str, id_value: str) -> tuple[int, list[str], list[str]] | None:
     """Return (row_number, header, row_values) for the matching ID, or None."""
@@ -426,8 +378,11 @@ def add_donation(
     next_action: str = "",
     notes: str = "",
     source_link: str = "",
+    privacy_level: str = "private-review",
+    public_listing_allowed: str = "",
 ) -> dict:
     """Add a donation row to the Donations tab. Idempotent on DonationID."""
+    ensure_header(svc, "Donations")
     did = donation_id or gen_id("DON")
     if _row_exists(svc, "Donations", "DonationID", did):
         write_audit_log(svc, "Hermes", "duplicate_skipped", "Google Sheets", f"Donations/{did}",
@@ -453,15 +408,17 @@ def add_donation(
         "ReceiptNeeded": receipt_needed,
         "ThankYouNeeded": thank_you_needed,
         "ConsentToPublicThanks": consent_to_public_thanks,
+        "PrivacyLevel": privacy_level,
+        "PublicListingAllowed": public_listing_allowed,
         "NextAction": next_action,
         "Notes": notes,
         "SourceMessageLink": source_link,
+        "LastUpdated": now_ts,
     })
     result = append_row(svc, "Donations", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Donations/{did}",
                      after=f"Donation {did} created: {item_description}")
     return {"tab": "Donations", "id": did, "status": "created", "api_result": result}
-
 
 
 def update_donation(
@@ -484,8 +441,11 @@ def update_donation(
     next_action: str | None = None,
     notes: str | None = None,
     source_link: str | None = None,
+    privacy_level: str | None = None,
+    public_listing_allowed: str | None = None,
 ) -> dict:
     """Update an existing donation row by DonationID."""
+    ensure_header(svc, "Donations")
     found = _find_row_by_id(svc, "Donations", "DonationID", donation_id)
     if not found:
         write_audit_log(svc, "Hermes", "update_missing", "Google Sheets", f"Donations/{donation_id}",
@@ -514,6 +474,8 @@ def update_donation(
         "ReceiptNeeded": receipt_needed,
         "ThankYouNeeded": thank_you_needed,
         "ConsentToPublicThanks": consent_to_public_thanks,
+        "PrivacyLevel": privacy_level,
+        "PublicListingAllowed": public_listing_allowed,
         "NextAction": next_action,
         "Notes": notes,
         "SourceMessageLink": source_link,
@@ -552,6 +514,13 @@ def add_report(
     privacy_level: str = "board-visible",
     sensitive_details: str = "",
     source_link: str = "",
+    people_served_estimate: str = "",
+    items_distributed: str = "",
+    followups_needed: str = "",
+    public_summary_draft: str = "",
+    public_summary_allowed: str = "",
+    status: str = "needs-info",
+    next_action: str = "review",
 ) -> dict:
     """Add a report row to the Reports tab. Idempotent on ReportID."""
     ensure_header(svc, "Reports")
@@ -568,19 +537,24 @@ def add_report(
         "SubmittedBy": submitted_by,
         "ReportType": report_type,
         "Summary": summary,
+        "PeopleServedEstimate": people_served_estimate,
+        "ItemsDistributed": items_distributed,
+        "FollowUpsNeeded": followups_needed,
         "SensitiveDetails": sensitive_details,
-        "PublicSummaryDraft": summary,
+        "PublicSummaryDraft": public_summary_draft,
         "PrivacyLevel": privacy_level,
-        "Status": "needs-info",
-        "NextAction": "review",
+        "Status": status,
+        "NextAction": next_action,
         "Notes": "",
         "LastUpdated": now_ts,
         "SourceMessageLink": source_link,
+        "PublicSummaryAllowed": public_summary_allowed,
     })
     result = append_row(svc, "Reports", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Reports/{rid}",
                      after=f"Report {rid} created: {summary}")
     return {"tab": "Reports", "id": rid, "status": "created", "api_result": result}
+
 
 def update_report(
     svc,
@@ -599,6 +573,8 @@ def update_report(
     next_action: str | None = None,
     status: str | None = None,
     source_link: str | None = None,
+    public_summary_allowed: str | None = None,
+    notes: str | None = None,
 ) -> dict:
     """Update an existing report row by ReportID."""
     ensure_header(svc, "Reports")
@@ -629,6 +605,8 @@ def update_report(
         "Date": date,
         "NextAction": next_action,
         "Status": status,
+        "Notes": notes,
+        "PublicSummaryAllowed": public_summary_allowed,
         "SourceMessageLink": source_link,
     }
     for key, value in updates.items():
@@ -685,9 +663,16 @@ def add_task(
         "Priority": priority,
         "AssignedTo": assigned_to,
         "DueDate": due_date,
+        "RelatedRequestID": "",
+        "RelatedDonationID": "",
+        "RelatedCalendarEventID": "",
         "Status": status,
+        "Blocker": "",
+        "NextAction": "",
+        "CompletionReport": "",
         "LastUpdated": now_ts,
         "SourceMessageLink": source_link,
+        "Notes": "",
     })
     result = append_row(svc, "Tasks", row)
     write_audit_log(svc, "Hermes", "create", "Google Sheets", f"Tasks/{tid}",
@@ -951,10 +936,6 @@ def create_calendar_event(
 
 
 # ── EVENT-002: durable event-draft backend ──────────────────────────────────
-#
-# Drafts live in the SAME 24-column CalendarLog schema as real events. A draft is
-# simply a CalendarLog row whose CalendarEventID is blank; promote it to a real
-# event with create_calendar_event_from_draft, which writes back into the SAME row.
 
 def _normalize_event_draft_fields(**kwargs) -> dict:
     """Build a CalendarLog mapping from EVENT-002 draft keyword args.
@@ -1368,7 +1349,7 @@ def create_calendar_event_from_draft(
     return {"tab": "CalendarLog", "id": event_draft_id, "status": "created", "calendar_id": cal_event_id}
 
 
-# ── CLI test mode ───────────────────────────────────────────────────────────
+# ── CLI test mode ──────────────────────────────────────────────────────────
 
 def run_test_write() -> int:
     """Create safe fake test records to prove write capability."""
@@ -1497,8 +1478,8 @@ def run_test_write() -> int:
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Non-Profit Hermes backend write operations")
-    parser.add_argument("--test-write", action="store_true", help="Run safe fake test writes")
+    parser = argparse.ArgumentParser(description="Non-Profit Hermes Ops Backend")
+    parser.add_argument("--test-write", action="store_true", help="Run safe fake test write")
     args = parser.parse_args()
 
     if args.test_write:
@@ -1509,4 +1490,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

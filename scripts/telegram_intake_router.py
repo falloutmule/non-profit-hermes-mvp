@@ -1097,6 +1097,10 @@ def route_donation_followup(svc, followup_text: str, source_link: str) -> Router
         updates["thank_you_needed"] = fields["thank_you_needed"]
     if "consent_to_public_thanks" in fields or "public_thanks" in fields:
         updates["consent_to_public_thanks"] = fields.get("consent_to_public_thanks", fields.get("public_thanks", ""))
+    if "privacy_level" in fields:
+        updates["privacy_level"] = fields["privacy_level"]
+    if "public_listing_allowed" in fields:
+        updates["public_listing_allowed"] = fields["public_listing_allowed"]
     if "next_action" in fields:
         updates["next_action"] = fields["next_action"]
     if "status" in fields:
@@ -1130,6 +1134,8 @@ def route_donation_followup(svc, followup_text: str, source_link: str) -> Router
         receipt_needed=updates.get("receipt_needed", target.get("ReceiptNeeded", UNKNOWN)),
         thank_you_needed=updates.get("thank_you_needed", target.get("ThankYouNeeded", UNKNOWN)),
         consent_to_public_thanks=updates.get("consent_to_public_thanks", target.get("ConsentToPublicThanks", UNKNOWN)),
+        privacy_level=updates.get("privacy_level", target.get("PrivacyLevel", "private-review")),
+        public_listing_allowed=updates.get("public_listing_allowed", target.get("PublicListingAllowed", "")),
         notes=updates.get("notes", target.get("Notes", "")),
         source_link=source_link,
     )
@@ -1156,7 +1162,7 @@ def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source
         item_description = UNKNOWN
     donation_id = fields.get("donationid") or fields.get("donation_id") or fields.get("id") or ""
     missing_followup = [
-        name for name in ["pickup_or_dropoff", "location", "available_date", "receipt_needed", "consent_to_public_thanks", "next_action"]
+        name for name in ["pickup_or_dropoff", "location", "available_date", "receipt_needed", "consent_to_public_thanks", "privacy_level", "public_listing_allowed", "next_action"]
         if not fields.get(name)
     ]
     status = fields.get("status") or ("needs-info" if missing_followup else "new")
@@ -1176,6 +1182,8 @@ def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source
         receipt_needed=fields.get("receipt_needed", UNKNOWN),
         thank_you_needed=fields.get("thank_you_needed", UNKNOWN),
         consent_to_public_thanks=fields.get("consent_to_public_thanks", fields.get("public_thanks", UNKNOWN)),
+        privacy_level=explicit_privacy_level(fields) or "private-review",
+        public_listing_allowed=fields.get("public_listing_allowed", ""),
         notes="Telegram /donation intake; missing fields marked unknown; human review required" if missing_followup else "Telegram /donation intake",
         source_link=source_link,
     )
@@ -1192,7 +1200,7 @@ def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source
         "Donation row written through backend.",
         record_id=result["id"],
         missing_fields=missing_followup,
-        privacy_level="private-review",
+        privacy_level=explicit_privacy_level(fields) or "private-review",
         backend_status=result.get("status", "created"),
     )
 
@@ -1242,6 +1250,13 @@ def route_report(
         privacy_level=final_privacy,
         sensitive_details="",  # never auto-populate sensitive details
         source_link=source_link,
+        people_served_estimate=fields.get("people_served_estimate", UNKNOWN),
+        items_distributed=fields.get("items_distributed", UNKNOWN),
+        followups_needed=fields.get("followups_needed", UNKNOWN),
+        public_summary_draft=public_summary_draft,
+        public_summary_allowed=fields.get("public_summary_allowed", ""),
+        status=status,
+        next_action=next_action,
     )
     if result.get("status") == "created":
         if status in {"needs-info", "draft"}:
@@ -1343,6 +1358,8 @@ def route_report_followup(svc, followup_text: str, source_link: str) -> RouterRe
         next_action=updates.get("next_action", target.get("NextAction", "review")),
         status=updates.get("status", target.get("Status", "needs-info")),
         source_link=source_link,
+        public_summary_allowed=updates.get("public_summary_allowed", target.get("PublicSummaryAllowed", "")),
+        notes=updates.get("notes", target.get("Notes", "")),
     )
     final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
     if final_status == "ready":
