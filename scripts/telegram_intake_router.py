@@ -29,6 +29,8 @@ SCRIPTS = ROOT / "scripts"
 DOCS_DATA = ROOT / "docs" / "data"
 STATE_DIR = Path.home() / "AppData" / "Local" / "hermes" / "state"
 ACTIVE_NEED_STATE_PATH = STATE_DIR / "telegram_active_need_drafts.json"
+EVENT_CALENDAR_PROMOTION_AUTHORIZATION_PATH = STATE_DIR / "event_calendar_promotion_authorization.json"
+ONE_SHOT_CALENDAR_PROMOTION_MODE = "one-shot-local-authorization"
 SYNC_SCRIPT = SCRIPTS / "sync_approved_safe_data.py"
 
 if str(SCRIPTS) not in sys.path:
@@ -167,6 +169,88 @@ def _result_to_text(result: "RouterResult") -> str:
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _authorization_path(authorization_path: Path | None = None) -> Path:
+    """Return the local-only EVENT-004 authorization state path."""
+    return Path(authorization_path or EVENT_CALENDAR_PROMOTION_AUTHORIZATION_PATH)
+
+
+def _parse_aware_iso(value: str) -> datetime | None:
+    """Parse an offset-bearing ISO timestamp; never infer a timezone."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def write_event_calendar_promotion_authorization(
+    *,
+    authorized_event_draft_id: str,
+    authorized_source_scope: str,
+    expires_at: str,
+    authorization_path: Path | None = None,
+) -> dict[str, object]:
+    """Write one exact, expiring local authorization for an operator-only caller.
+
+    This helper is deliberately not routed from Telegram.  It validates and writes
+    only the narrowly-scoped state that EVENT-004 consumes on its first real
+    promotion attempt.
+    """
+    draft_id = (authorized_event_draft_id or "").strip()
+    scope = source_scope(authorized_source_scope)
+    expiry = _parse_aware_iso(expires_at)
+    if not draft_id.startswith("EVT-"):
+        raise ValueError("authorized_event_draft_id must be an EVT- draft ID")
+    if not scope:
+        raise ValueError("authorized_source_scope is required")
+    if expiry is None:
+        raise ValueError("expires_at must be an offset-bearing ISO timestamp")
+    state = {
+        "authorized_event_draft_id": draft_id,
+        "authorized_source_scope": scope,
+        "expires_at": expiry.isoformat(),
+        "remaining_uses": 1,
+    }
+    path = _authorization_path(authorization_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+    return state
+
+
+def _valid_event_calendar_promotion_authorization(
+    *, draft_id: str, source_link: str, authorization_path: Path | None = None,
+) -> tuple[bool, str]:
+    """Validate (without consuming) the exact local EVENT-004 authorization."""
+    path = _authorization_path(authorization_path)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False, "no exact local one-shot authorization"
+    expiry = _parse_aware_iso(str(state.get("expires_at", "")))
+    if expiry is None or expiry <= now_utc():
+        return False, "local one-shot authorization expired"
+    if state.get("remaining_uses") != 1:
+        return False, "local one-shot authorization already used"
+    if str(state.get("authorized_event_draft_id", "")).strip() != draft_id:
+        return False, "local authorization is for a different EventDraftID"
+    if source_scope(str(state.get("authorized_source_scope", ""))) != source_scope(source_link):
+        return False, "local authorization is for a different source scope"
+    return True, ""
+
+
+def _consume_event_calendar_promotion_authorization(authorization_path: Path | None = None) -> None:
+    """Remove the authorization before the first actual Calendar promotion call."""
+    try:
+        _authorization_path(authorization_path).unlink()
+    except FileNotFoundError:
+        pass
 
 
 def parse_message(text: str) -> tuple[str, dict[str, str], str]:
@@ -858,6 +942,7 @@ def handle_message(
     *,
     source_link: str = "telegram-simulated:test",
     allow_calendar_creation: bool = False,
+    calendar_promotion_mode: str = "",
 ) -> RouterResult:
     stripped = (text or "").strip()
     if stripped and not stripped.startswith("/"):
@@ -868,6 +953,7 @@ def handle_message(
             stripped,
             source_link,
             allow_calendar_creation=allow_calendar_creation,
+            calendar_promotion_mode=calendar_promotion_mode,
         )
         if followup_result is not None:
             return followup_result
@@ -1930,7 +2016,12 @@ EVENT_GENERIC_KEYS = {"title", "type", "task", "request", "donation", "descripti
 _EVENT_NON_EVENT_PREFIXES = {"report", "task", "inventory", "donation", "need"}
 
 
-def route_event_followup(svc, svc_cal, followup_text: str, source_link: str, *, allow_calendar_creation: bool = False) -> RouterResult | None:
+def route_event_followup(
+    svc, svc_cal, followup_text: str, source_link: str, *,
+    allow_calendar_creation: bool = False,
+    calendar_promotion_mode: str = "",
+    authorization_path: Path | None = None,
+) -> RouterResult | None:
     """Attach a follow-up to the active /event draft, or promote it to Calendar.
 
     Event-specific fields (see EVENT_SPECIFIC_KEYS) or an explicit EVT id select
@@ -1982,8 +2073,9 @@ def route_event_followup(svc, svc_cal, followup_text: str, source_link: str, *, 
     # Explicit promotion only (contract 8).
     create_calendar = (fields.get("create_calendar") or fields.get("confirm_create") or "").strip().lower() in {"yes", "true", "1"}
     if create_calendar:
-        if not allow_calendar_creation:
-            # Disabled pending EVENT-004 — update draft fields, keep pointer, no Calendar backend.
+        one_shot_mode = calendar_promotion_mode == ONE_SHOT_CALENDAR_PROMOTION_MODE
+        if not one_shot_mode:
+            # Draft-only default: updating a draft cannot implicitly enable Calendar writes.
             _apply_event_followup_updates(svc, target, fields, free_text, source_link)
             return RouterResult(
                 True, "/event", "needs-info",
@@ -1991,9 +2083,7 @@ def route_event_followup(svc, svc_cal, followup_text: str, source_link: str, *, 
                 record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
                 backend_status="updated",
             )
-        # Fake-test promotion path (allow_calendar_creation=True). Return an
-        # already-created draft before mutating it or re-checking terminal row
-        # approval/status, preserving router-level idempotency.
+        # Idempotent retries are safe without an authorization and cannot insert again.
         existing_calendar_id = target.get("CalendarEventID", "").strip()
         if existing_calendar_id:
             clear_active_event_id(source_link, draft_id)
@@ -2004,19 +2094,40 @@ def route_event_followup(svc, svc_cal, followup_text: str, source_link: str, *, 
                 privacy_level=target.get("PrivacyLevel", "private-review"),
                 backend_status="already_created",
             )
-        # Otherwise require explicit promotion + EVENT-002 approval conditions.
+        # All ordinary draft gates must pass before an authorization is consumed.
         upd = _apply_event_followup_updates(svc, target, fields, free_text, source_link)
         row = event_row_by_draft_id(svc, draft_id)
         approval = (upd.get("approval_status") or row.get("ApprovalStatus", "")).strip().lower()
         st = (upd.get("status") or row.get("Status", "")).strip().lower()
+        public_calendar_allowed = row.get("PublicCalendarAllowed", "")
+        privacy_level = row.get("PrivacyLevel", "")
         start_val = row.get("StartDateTime", "")
-        if approval != "approved" or st != "ready" or not start_val or "T" not in (start_val or ""):
+        end_val = row.get("EndDateTime", "")
+        start_dt = _parse_aware_iso(start_val)
+        end_dt = _parse_aware_iso(end_val) if end_val else None
+        title = row.get("EventTitle", "").strip()
+        if (public_calendar_allowed != "no" or privacy_level != "private-review"
+                or approval != "approved" or st != "ready" or not title or title == UNKNOWN
+                or start_dt is None or (end_val and end_dt is None)
+                or (end_dt is not None and end_dt <= start_dt)):
             return RouterResult(
                 True, "/event", "needs-info",
                 f"Event draft {draft_id} not yet approved/ready for Calendar promotion.",
                 record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
                 backend_status="updated",
             )
+        authorized, reason = _valid_event_calendar_promotion_authorization(
+            draft_id=draft_id, source_link=source_link, authorization_path=authorization_path,
+        )
+        if not authorized:
+            return RouterResult(
+                False, "/event", "blocked",
+                f"Calendar promotion blocked for {draft_id}: {reason}.",
+                record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="authorization_required",
+            )
+        # Consume before the first actual external attempt, including a failed one.
+        _consume_event_calendar_promotion_authorization(authorization_path)
         promo = ops.create_calendar_event_from_draft(svc_cal, svc, event_draft_id=draft_id)
         if promo.get("status") in {"created", "already_created"}:
             clear_active_event_id(source_link, draft_id)

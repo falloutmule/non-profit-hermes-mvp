@@ -183,11 +183,16 @@ class EventRouterTests(unittest.TestCase):
         self._state_tmp.close()
         self._orig_state_path = tir.ACTIVE_NEED_STATE_PATH
         tir.ACTIVE_NEED_STATE_PATH = Path(self._state_tmp.name)
+        self._authorization_path = Path(self._state_tmp.name + ".authorization")
 
     def tearDown(self):
         tir.ACTIVE_NEED_STATE_PATH = self._orig_state_path
         try:
             Path(self._state_tmp.name).unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            Path(self._state_tmp.name + ".authorization").unlink()
         except FileNotFoundError:
             pass
 
@@ -334,7 +339,12 @@ class EventRouterTests(unittest.TestCase):
         self.assertEqual(tir.get_active_event_id(SRC), "")
         # Cleared when confirmed + CalendarEventID populated (promotion path).
         r3 = tir.route_event(sheets, cal, {"event_title": "R", "start": "2026-07-12T09:00:00-06:00", "approval_status": "approved", "status": "ready"}, "", SRC, "private-review")
-        tir.route_event_followup(sheets, cal, f"create_calendar=yes id={r3.record_id}", SRC, allow_calendar_creation=True)
+        tir.write_event_calendar_promotion_authorization(
+            authorized_event_draft_id=r3.record_id, authorized_source_scope=SRC,
+            expires_at="2099-01-01T00:00:00+00:00",
+            authorization_path=self._authorization_path,
+        )
+        tir.route_event_followup(sheets, cal, f"create_calendar=yes id={r3.record_id}", SRC, allow_calendar_creation=True, calendar_promotion_mode=tir.ONE_SHOT_CALENDAR_PROMOTION_MODE, authorization_path=self._authorization_path)
         self.assertEqual(tir.get_active_event_id(SRC), "")
 
     # ── Test 7: time validation ──
@@ -378,8 +388,13 @@ class EventRouterTests(unittest.TestCase):
         self.assertEqual(sheets.row_by_draft(r.record_id)["EventTitle"], "Renamed")
         self.assertIn("Calendar creation is disabled pending EVENT-004", r2.message)
 
-        # Fake-test promotion (allow_calendar_creation=True) -> requires approval + create.
-        r3 = tir.route_event_followup(sheets, cal, f"create_calendar=yes id={r.record_id}", SRC, allow_calendar_creation=True)
+        # One exact local authorization is required even in the in-memory fake.
+        tir.write_event_calendar_promotion_authorization(
+            authorized_event_draft_id=r.record_id, authorized_source_scope=SRC,
+            expires_at="2099-01-01T00:00:00+00:00",
+            authorization_path=self._authorization_path,
+        )
+        r3 = tir.route_event_followup(sheets, cal, f"create_calendar=yes id={r.record_id}", SRC, allow_calendar_creation=True, calendar_promotion_mode=tir.ONE_SHOT_CALENDAR_PROMOTION_MODE, authorization_path=self._authorization_path)
         self.assertEqual(r3.status, "confirmed")
         self.assertTrue(r3.calendar_event_id.startswith("cal-"))
         self.assertEqual(cal.insert_count, 1)
@@ -388,7 +403,7 @@ class EventRouterTests(unittest.TestCase):
 
         # Repeating the same explicit router promotion is idempotent: return the
         # existing ID without another Calendar insert or CalendarLog row.
-        r4 = tir.route_event_followup(sheets, cal, f"create_calendar=yes id={r.record_id}", SRC, allow_calendar_creation=True)
+        r4 = tir.route_event_followup(sheets, cal, f"create_calendar=yes id={r.record_id}", SRC, allow_calendar_creation=True, calendar_promotion_mode=tir.ONE_SHOT_CALENDAR_PROMOTION_MODE, authorization_path=self._authorization_path)
         self.assertEqual(r4.status, "confirmed")
         self.assertEqual(r4.backend_status, "already_created")
         self.assertEqual(r4.calendar_event_id, r3.calendar_event_id)
@@ -498,11 +513,181 @@ class EventRouterTests(unittest.TestCase):
         self.assertEqual(captured["message"], '/event event_title="Offline only"')
         self.assertEqual(captured["source_link"], "telegram:6080816249")
         self.assertIs(captured["allow_calendar_creation"], False)
+        self.assertEqual(captured["calendar_promotion_mode"], "one-shot-local-authorization")
         self.assertEqual(text, rendered)
         self.assertRegex(text, r"(?m)^Draft Event created: EVT-OFFLINE1$")
         self.assertIn("Calendar: not created", text)
         self.assertIn("Calendar creation is disabled pending EVENT-004.", text)
         self.assertNotRegex(text, r"(?m)^Event created")
+
+    def test_10_plugin_prefixes_explicit_id_updates_for_router_classification(self):
+        plugin_path = Path.home() / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"
+        plugin = load_module("event_plugin_explicit_id_update_test", str(plugin_path))
+        calls: list[tuple[str, dict[str, object]]] = []
+        fake_router = types.ModuleType("telegram_intake_router")
+        fake_router.handle_message = lambda message, **kwargs: calls.append((message, kwargs))
+        fake_router._result_to_text = lambda result: "fake renderer"
+        original_import = builtins.__import__
+
+        def offline_import(name, *args, **kwargs):
+            if name == "telegram_intake_router":
+                return fake_router
+            return original_import(name, *args, **kwargs)
+
+        for payload in (
+            'id=EVT-A31A0CF8 event_title="Restored" status=ready',
+            'id=EVT-A31A0CF8 description="Sensitive medical details"',
+        ):
+            with self.subTest(payload=payload), mock.patch("builtins.__import__", side_effect=offline_import):
+                text = plugin._event(payload)
+            self.assertEqual(text, "fake renderer")
+            self.assertEqual(
+                calls.pop(0)[0],
+                "/event " + payload,
+                "ordinary explicit-ID updates must remain /event-prefixed for router classification",
+            )
+
+    def test_10_actual_plugin_dispatches_exact_promotion_raw_and_rejects_extra_fields(self):
+        plugin_path = Path.home() / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"
+        plugin = load_module("event_plugin_promotion_dispatch_test", str(plugin_path))
+        calls: list[tuple[str, dict[str, object]]] = []
+        sentinel = object()
+        fake_router = types.ModuleType("telegram_intake_router")
+
+        def fake_handle_message(message: str, **kwargs):
+            calls.append((message, kwargs))
+            return sentinel
+
+        fake_router.handle_message = fake_handle_message
+        fake_router._result_to_text = lambda result: "fake renderer" if result is sentinel else "unexpected"
+        original_import = builtins.__import__
+
+        def offline_import(name, *args, **kwargs):
+            if name == "telegram_intake_router":
+                return fake_router
+            return original_import(name, *args, **kwargs)
+
+        # The exact promotion shape must reach the follow-up dispatcher as raw text:
+        # a /event prefix would route it to upsert instead.
+        with mock.patch("builtins.__import__", side_effect=offline_import):
+            text = plugin._event("event_draft_id=EVT-A31A0CF8 confirm_create=yes")
+        self.assertEqual(text, "fake renderer")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "event_draft_id=EVT-A31A0CF8 confirm_create=yes")
+        self.assertEqual(calls[0][1]["source_link"], "telegram:6080816249")
+        self.assertIs(calls[0][1]["allow_calendar_creation"], False)
+        self.assertEqual(calls[0][1]["calendar_promotion_mode"], "one-shot-local-authorization")
+
+        calls.clear()
+        with mock.patch("builtins.__import__", side_effect=offline_import):
+            rejected = plugin._event("id=EVT-A31A0CF8 create_calendar=yes description=private")
+        self.assertEqual(calls, [], "promotion-shaped payload with extra fields must not reach the router")
+        self.assertIn("Promotion request rejected", rejected)
+
+    def test_10_plugin_rejects_invalid_promotion_alias_payloads_without_dispatch(self):
+        plugin_path = Path.home() / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"
+        plugin = load_module("event_plugin_invalid_promotion_alias_test", str(plugin_path))
+        calls: list[tuple[str, dict[str, object]]] = []
+        fake_router = types.ModuleType("telegram_intake_router")
+        fake_router.handle_message = lambda message, **kwargs: calls.append((message, kwargs))
+        fake_router._result_to_text = lambda result: "unexpected"
+        original_import = builtins.__import__
+
+        def offline_import(name, *args, **kwargs):
+            if name == "telegram_intake_router":
+                return fake_router
+            return original_import(name, *args, **kwargs)
+
+        for payload in (
+            "id=EVT-A31A0CF8 create_calendar=no",
+            "id=EVT-A31A0CF8 confirm_create=false",
+            "id= create_calendar=yes",
+            "confirm_create=yes",
+        ):
+            with self.subTest(payload=payload), mock.patch("builtins.__import__", side_effect=offline_import):
+                rejected = plugin._event(payload)
+            self.assertEqual(calls, [], f"{payload!r} must be rejected locally, never dispatched as /event")
+            self.assertIn("Promotion request rejected", rejected)
+
+    def test_10_plugin_rejects_two_populated_draft_id_aliases_without_dispatch(self):
+        plugin_path = Path.home() / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"
+        plugin = load_module("event_plugin_duplicate_id_alias_test", str(plugin_path))
+        calls: list[tuple[str, dict[str, object]]] = []
+        fake_router = types.ModuleType("telegram_intake_router")
+        fake_router.handle_message = lambda message, **kwargs: calls.append((message, kwargs))
+        fake_router._result_to_text = lambda result: "unexpected"
+        original_import = builtins.__import__
+
+        def offline_import(name, *args, **kwargs):
+            if name == "telegram_intake_router":
+                return fake_router
+            return original_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=offline_import):
+            rejected = plugin._event("id=EVT-A31A0CF8 event_draft_id=EVT-CONFLICT confirm_create=yes")
+
+        self.assertEqual(calls, [], "ambiguous draft ID aliases must not reach the router")
+        self.assertIn("Promotion request rejected", rejected)
+
+    def test_10_plugin_rejects_two_confirmation_fields_without_dispatch(self):
+        plugin_path = Path.home() / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"
+        plugin = load_module("event_plugin_duplicate_confirmation_test", str(plugin_path))
+        calls: list[tuple[str, dict[str, object]]] = []
+        fake_router = types.ModuleType("telegram_intake_router")
+        fake_router.handle_message = lambda message, **kwargs: calls.append((message, kwargs))
+        fake_router._result_to_text = lambda result: "unexpected"
+        original_import = builtins.__import__
+
+        def offline_import(name, *args, **kwargs):
+            if name == "telegram_intake_router":
+                return fake_router
+            return original_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=offline_import):
+            rejected = plugin._event("id=EVT-A31A0CF8 create_calendar=yes confirm_create=yes")
+
+        self.assertEqual(calls, [], "multiple confirmation fields must not reach the router")
+        self.assertIn("Promotion request rejected", rejected)
+
+    def test_10_plugin_rejects_non_evt_draft_id_without_dispatch(self):
+        plugin_path = Path.home() / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"
+        plugin = load_module("event_plugin_non_evt_id_test", str(plugin_path))
+        calls: list[tuple[str, dict[str, object]]] = []
+        fake_router = types.ModuleType("telegram_intake_router")
+        fake_router.handle_message = lambda message, **kwargs: calls.append((message, kwargs))
+        fake_router._result_to_text = lambda result: "unexpected"
+        original_import = builtins.__import__
+
+        def offline_import(name, *args, **kwargs):
+            if name == "telegram_intake_router":
+                return fake_router
+            return original_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=offline_import):
+            rejected = plugin._event("id=NOT-AN-EVENT confirm_create=yes")
+
+        self.assertEqual(calls, [], "non-EVT draft IDs must not reach the router")
+        self.assertIn("Promotion request rejected", rejected)
+
+    def test_10_plugin_rejects_blank_evt_suffix_without_dispatch(self):
+        plugin_path = Path.home() / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"
+        plugin = load_module("event_plugin_blank_evt_suffix_test", str(plugin_path))
+        calls: list[tuple[str, dict[str, object]]] = []
+        fake_router = types.ModuleType("telegram_intake_router")
+        fake_router.handle_message = lambda message, **kwargs: calls.append((message, kwargs))
+        fake_router._result_to_text = lambda result: "unexpected"
+        original_import = builtins.__import__
+
+        def offline_import(name, *args, **kwargs):
+            if name == "telegram_intake_router":
+                return fake_router
+            return original_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=offline_import):
+            rejected = plugin._event("id=EVT- confirm_create=yes")
+
+        self.assertEqual(calls, [], "blank EVT suffix must be rejected locally with zero router calls")
+        self.assertIn("Promotion request rejected", rejected)
 
     # ── Test 11: default privacy + no invented public fields ──
     def test_11_default_privacy_no_invented_public(self):
