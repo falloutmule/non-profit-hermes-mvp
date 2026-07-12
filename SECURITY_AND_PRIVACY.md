@@ -1,6 +1,6 @@
 # Security and Privacy — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-11 13:48 MDT (CLEANUP-002 closeout)
+**Last updated:** 2026-07-12 (EVENT-004 post-capture documentation reconciliation; see `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md`)
 
 ## Privacy model
 
@@ -25,14 +25,18 @@ These controls resolve the former schema divergence, row-100 truncation, missing
 
 ## Calendar policy and EVENT-004 boundary
 
-Calendar creation is disabled in the live `/event` plugin (`allow_calendar_creation=False`). EVENT-001 through EVENT-003 completed privacy-gated draft handling; EVENT-004 is **unstarted and blocked**. No live Google Calendar event has been created by the `/event` flow.
+Calendar creation is exception-only, not a general consequence of `/event`. The authoritative final EVENT-004 evidence JSON supports one renewed-explicitly-authorized promotion of the synthetic `private-review` draft `EVT-A31A0CF8`: one confirmed Calendar event (`cpq3e1oivn4ajb4t8ktemjuj0g`) with empty location and attendees, `PublicCalendarAllowed=no`, approved-calendar exclusion (`approved_calendar_count=0`), and authorization absent after success.
+
+Future Calendar creation requires separate per-event human authorization, a scoped promotion guard, preflight, authorization consumption immediately before the first external attempt (non-reusable after a failed attempt), same-row Calendar ID persistence, and idempotent-retry verification. The EVENT-004 result does not authorize public-calendar inclusion, another promotion, plugin/gateway activation, Telegram registration, or public publication.
+
+The direct installed-plugin daily invocation used for controlled verification was observed during the execution session to pass with an in-memory marker and zero writes, but it was not a human-originated Telegram-delivered message. The controlled local `/daily` CLI zero-write observation was likewise an execution-session observation. Neither observation is contained in the authoritative final evidence JSON, and neither proves Telegram transport or human delivery. Offline tests independently cover idempotence. See `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md` for the evidence boundary and audit IDs.
 
 ## Remaining concerns
 
-- `/daily` remains coupled to generation behavior. Publication is frozen until CLEANUP-003 separates the daily summary from generation; no public snapshot update or automatic approval backfill is authorized.
+- CLEANUP-003 is complete and keeps `/daily` in read-only in-memory state; it does not generate a public snapshot. Publication remains frozen, and no automatic approval backfill is authorized.
 - The current OAuth token requests broader scopes than necessary (Gmail, Drive, Contacts, Documents, Sheets, Calendar). Least-privilege scope reduction remains a separate CLEANUP-005 concern.
 - `google_token.json`, `.env`, and credentials must never be committed. Machine-specific paths remain a configuration concern for CLEANUP-005.
 
 ## Test safety
 
-The project’s fake-based test suite does not make network calls. Explicit live-write operational modes remain separate from offline tests and require deliberate operator use.
+The project’s fake-based test suite does not make network calls. Explicit live-write operational modes remain separate from offline tests and require deliberate operator use. The one EVENT-004 live create was narrowly authorized, recorded, and is not a reusable authorization.
