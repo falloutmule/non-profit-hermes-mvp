@@ -269,22 +269,23 @@ class EventCalendarPrivacyGateTests(unittest.TestCase):
             "Location": "Public service area",
             "Status": "confirmed",
         }
-        exports = {
-            "approved_needs.json": [],
-            "approved_donations.json": [],
-            "approved_reports.json": [],
-            "approved_calendar.json": [event, {**event, "CalendarEventID": "evt-daily-2"}],
-            "approved_board_log.json": [],
+        snapshot = {
+            "approved_needs": [],
+            "approved_donations": [],
+            "approved_reports": [],
+            "approved_calendar": [event, {**event, "CalendarEventID": "evt-daily-2"}],
+            "approved_board_log": [],
+            "approved_volunteer_gaps": [],
         }
         with (
-            patch.object(router, "run_sync", return_value={"marker": "EVENT-001-MARKER", "rows": {"approved_calendar": 2}}),
-            patch.object(router, "read_json", side_effect=lambda name: exports[name]),
+            patch.object(router.approved_safe_sync, "collect_approved_safe_data", return_value=snapshot),
+            patch.object(router, "daily_services", return_value=(object(), object())),
             patch.object(router, "now_utc", return_value=datetime(2026, 7, 10, tzinfo=timezone.utc)),
         ):
             summary = router.run_daily_summary()
 
         self.assertEqual(summary.count("Community pantry test (confirmed)"), 1)
-        self.assertIn("Marker: EVENT-001-MARKER", summary)
+        self.assertIn("Source: approved-safe in-memory snapshot", summary)
         self.assertIn("daily_plugin_version: website-links-dedup-003", summary)
 
 

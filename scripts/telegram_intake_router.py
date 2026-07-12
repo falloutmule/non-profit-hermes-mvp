@@ -35,6 +35,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import non_profit_hermes_ops as ops  # noqa: E402
+import sync_approved_safe_data as approved_safe_sync  # noqa: E402
 
 UNKNOWN = "unknown"
 SOURCE_PREFIX = "telegram-simulated"
@@ -890,6 +891,10 @@ def handle_message(
     if command not in COMMANDS:
         return RouterResult(False, command or UNKNOWN, "unsupported", "Unsupported command. Supported: " + ", ".join(sorted(COMMANDS)))
 
+    if command == "/daily":
+        summary = run_daily_summary()
+        return RouterResult(True, command, "summarized", "Read-only in-memory board-safe summary; no public files were generated.", summary=summary)
+
     privacy_level, sensitive_hold, sensitive_terms = classify_privacy(text)
     svc, svc_cal = services()
 
@@ -903,10 +908,6 @@ def handle_message(
             privacy_level=privacy_level,
             sensitive_hold=True,
         )
-
-    if command == "/daily":
-        summary = run_daily_summary()
-        return RouterResult(True, command, "summarized", "Daily board-facing summary generated.", summary=summary)
 
     handlers = {
         "/need": route_need,
@@ -2222,13 +2223,22 @@ def _format_completed_item_lines(entries: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def run_daily_summary() -> str:
-    sync_result = run_sync()
-    needs = read_json("approved_needs.json")
-    donations = read_json("approved_donations.json")
-    reports = read_json("approved_reports.json")
-    calendar = read_json("approved_calendar.json")
-    board_log = read_json("approved_board_log.json")
+def daily_services():
+    """Create read-only service clients for the /daily approved-safe snapshot."""
+    credentials = approved_safe_sync.creds(persist_refresh=False)
+    return approved_safe_sync.sheets_service(credentials), approved_safe_sync.calendar_service(credentials)
+
+
+def run_daily_summary(sheets_service=None, calendar_service=None) -> str:
+    """Build a Telegram-safe summary directly from an in-memory safe snapshot."""
+    if sheets_service is None or calendar_service is None:
+        sheets_service, calendar_service = daily_services()
+    snapshot = approved_safe_sync.collect_approved_safe_data(sheets_service, calendar_service)
+    needs = snapshot["approved_needs"]
+    donations = snapshot["approved_donations"]
+    reports = snapshot["approved_reports"]
+    calendar = snapshot["approved_calendar"]
+    board_log = snapshot["approved_board_log"]
 
     # Deduplicate by primary keys
     needs = _dedupe_by_key(needs, "RequestID")
@@ -2266,6 +2276,13 @@ def run_daily_summary() -> str:
     else:
         lines.append("- No board-safe donation records found.")
 
+    lines += ["", "Approved-safe reports:"]
+    if reports:
+        for report in reports[-5:]:
+            lines.append(f"- {report.get('ReportID', UNKNOWN)}: {report.get('Summary', UNKNOWN)}")
+    else:
+        lines.append("- No approved-safe reports found.")
+
     lines += ["", "Volunteer gaps:", "- None listed in approved-safe export."]
     lines += ["", "Inventory shortages:", "- Inventory is not exported publicly yet; check private Sheet."]
     lines += ["", "Website drafts needing approval:", "- None listed in approved-safe export."]
@@ -2290,7 +2307,7 @@ def run_daily_summary() -> str:
     else:
         lines.append("- No recent successful audit entries found.")
     lines += ["", "Website:", "- Board home: https://falloutmule.github.io/non-profit-hermes-mvp/", "- Today: https://falloutmule.github.io/non-profit-hermes-mvp/today.html", "- Current needs: https://falloutmule.github.io/non-profit-hermes-mvp/current-needs.html", "- Calendar: https://falloutmule.github.io/non-profit-hermes-mvp/calendar.html", "- Reports: https://falloutmule.github.io/non-profit-hermes-mvp/reports.html"]
-    lines += ["", "Sync state:", f"- Marker: {sync_result.get('marker', UNKNOWN)}", f"- Rows: {sync_result.get('rows', {})}"]
+    lines += ["", "Read state:", "- Source: approved-safe in-memory snapshot", f"- Counts: {{'needs': {len(needs)}, 'calendar': {len(calendar)}, 'reports': {len(reports)}, 'donations': {len(donations)}}}"]
     lines += ["", "daily_plugin_version: website-links-dedup-003"]
     return "\n".join(lines)
 

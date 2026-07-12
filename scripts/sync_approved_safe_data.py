@@ -588,6 +588,8 @@ def build_pages(
     reports,
     donations,
     board_log,
+    *,
+    docs_dir: Path = DOCS,
 ) -> None:
     timestamp = now.strftime("%Y-%m-%d %H:%M UTC")
     safe_state = "approved-safe sync verified"
@@ -628,7 +630,7 @@ def build_pages(
 <ul>
 {html_list(preview_items)}
 </ul>"""
-    write_both(DOCS / "index", "Non-Profit Hermes MVP", index_body)
+    write_both(docs_dir / "index", "Non-Profit Hermes MVP", index_body)
 
     # --- current-needs.html ---
     needs_items = []
@@ -651,7 +653,7 @@ def build_pages(
 <ul>
 {html_list(needs_items)}
 </ul>"""
-    write_both(DOCS / "current-needs", "Current Needs", needs_body)
+    write_both(docs_dir / "current-needs", "Current Needs", needs_body)
 
     # --- calendar.html ---
     cal_items = []
@@ -670,7 +672,7 @@ def build_pages(
 <ul>
 {html_list(cal_items)}
 </ul>"""
-    write_both(DOCS / "calendar", "Calendar", cal_body)
+    write_both(docs_dir / "calendar", "Calendar", cal_body)
 
     # --- reports.html ---
     rep_items = []
@@ -689,7 +691,7 @@ def build_pages(
 <ul>
 {html_list(rep_items)}
 </ul>"""
-    write_both(DOCS / "reports", "Reports", reports_body)
+    write_both(docs_dir / "reports", "Reports", reports_body)
 
     # --- today.html ---
     today_items = []
@@ -710,7 +712,7 @@ def build_pages(
 <ul>
 {html_list(today_items)}
 </ul>"""
-    write_both(DOCS / "today", "Today", today_body)
+    write_both(docs_dir / "today", "Today", today_body)
 
     # --- deployment-proof.html ---
     proof_body = f"""<h1>Deployment Proof</h1>
@@ -726,69 +728,64 @@ def build_pages(
 <li>Board log entries: {len(board_log)}</li>
 </ul>
 <p><a href="./">Back to Home</a></p>"""
-    write_both(DOCS / "deployment-proof", "Deployment Proof", proof_body)
+    write_both(docs_dir / "deployment-proof", "Deployment Proof", proof_body)
 
 
-# ── Main sync function ────────────────────────────────────────────────────────
+# ── Shared approved-safe read model and explicit sync writer ──────────────────
 
-def run_sync(dry_run: bool = False) -> int:
-    """Run the approved-safe sync. If dry_run=True, print counts and write nothing."""
-    c = creds(persist_refresh=not dry_run)
-    sheets = sheets_service(c)
-    calendar = calendar_service(c)
-
-    # Read all tabs with complete rows (no row-100 limit)
-    tab_rows = {}
-    for tab in TAB_ORDER:
-        tab_rows[tab] = read_sheet_rows(sheets, tab)
-
-    calendar_items = safe_calendar_export(tab_rows.get("CalendarLog", []), calendar)
-    now = datetime.now(timezone.utc)
-
+def collect_approved_safe_data(sheets_service, calendar_service) -> dict:
+    """Collect one approved-safe snapshot without writing files or public output."""
+    tab_rows = {tab: read_sheet_rows(sheets_service, tab) for tab in TAB_ORDER}
     approved_needs = safe_needs_from_requests(tab_rows.get("Requests", []))
     approved_reports = safe_reports(tab_rows.get("Reports", []))
     approved_donations = safe_donations(tab_rows.get("Donations", []))
-    visible_request_ids = {n.get("RequestID", "") for n in approved_needs if n.get("RequestID")}
-    visible_report_ids = {r.get("ReportID", "") for r in approved_reports if r.get("ReportID")}
-    approved_board_log = safe_board_log(
-        tab_rows.get("AuditLog", []),
-        visible_request_ids,
-        {d.get("DonationID", "") for d in approved_donations if d.get("DonationID")},
-        visible_report_ids,
-    )
-
-    out = {
+    approved_calendar = safe_calendar_export(tab_rows.get("CalendarLog", []), calendar_service)
+    visible_request_ids = {item["RequestID"] for item in approved_needs if item.get("RequestID")}
+    visible_donation_ids = {item["DonationID"] for item in approved_donations if item.get("DonationID")}
+    visible_report_ids = {item["ReportID"] for item in approved_reports if item.get("ReportID")}
+    return {
         "approved_needs": approved_needs,
-        "approved_calendar": calendar_items,
+        "approved_calendar": approved_calendar,
         "approved_reports": approved_reports,
         "approved_donations": approved_donations,
         "approved_volunteer_gaps": safe_volunteer_gaps(),
-        "approved_board_log": approved_board_log,
+        "approved_board_log": safe_board_log(
+            tab_rows.get("AuditLog", []), visible_request_ids, visible_donation_ids, visible_report_ids,
+        ),
+        "tab_rows": tab_rows,
+        "collected_at": datetime.now(timezone.utc),
     }
 
-    if dry_run:
-        print(json.dumps(dry_run_metrics(tab_rows, out), indent=2, sort_keys=True))
-        return 0
 
-    # Write JSON data exports to docs/data/
-    for name, obj in out.items():
-        write_json(DATA / f"{name}.json", obj)
-
-    # Write all HTML pages
-    build_pages(
-        now,
-        out["approved_needs"],
-        out["approved_calendar"],
-        out["approved_reports"],
-        out["approved_donations"],
-        out["approved_board_log"],
+def write_public_site(snapshot: dict, *, docs_dir: Path = DOCS) -> None:
+    """Write an already-collected snapshot. Only the explicit sync path calls this."""
+    data_dir = docs_dir / "data"
+    export_names = (
+        "approved_needs", "approved_calendar", "approved_reports", "approved_donations",
+        "approved_volunteer_gaps", "approved_board_log",
     )
-
-    # Preserve the static deployment proof file
-    live_check = DOCS / "LIVE_CHECK_002.html"
+    for name in export_names:
+        write_json(data_dir / f"{name}.json", snapshot[name])
+    build_pages(
+        snapshot["collected_at"], snapshot["approved_needs"], snapshot["approved_calendar"],
+        snapshot["approved_reports"], snapshot["approved_donations"], snapshot["approved_board_log"],
+        docs_dir=docs_dir,
+    )
+    (docs_dir / ".nojekyll").write_text("")
+    live_check = docs_dir / "LIVE_CHECK_002.html"
     if not live_check.exists():
         live_check.write_text("LIVE_CHECK_002_NON_PROFIT_HERMES_DEPLOYED\n")
 
+
+def run_sync(dry_run: bool = False) -> int:
+    """Run explicit approved-safe sync. ``dry_run`` reads but never writes."""
+    credentials = creds(persist_refresh=not dry_run)
+    snapshot = collect_approved_safe_data(sheets_service(credentials), calendar_service(credentials))
+    out = {name: snapshot[name] for name in snapshot if name.startswith("approved_")}
+    if dry_run:
+        print(json.dumps(dry_run_metrics(snapshot["tab_rows"], out), indent=2, sort_keys=True))
+        return 0
+    write_public_site(snapshot, docs_dir=DOCS)
     print(f"Sync complete. Marker: {MARKER}")
     return 0
 
