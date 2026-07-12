@@ -8,11 +8,11 @@ Document CLEANUP-003: make `/daily` a read-only, board-safe summary path while p
 
 # Original /daily call chain
 
-Historically, `/daily` reached the Telegram intake router and its daily-summary path, which assembled a board-safe summary from the approved-safe in-memory snapshot. The live plugin remained thin and rendered the router result rather than introducing a separate write path.
+Historically, `/daily` reached the Telegram intake router and routed to `run_daily_summary()`. That function called `run_sync()`, which used the explicit sync path to generate public docs/data; it then read approved JSON files via `read_json()` to form the board-safe summary. The live plugin remained thin and rendered the router result rather than introducing a separate write path.
 
 # New architecture
 
-`/daily` is documented as a read-only summary path: it consumes the approved-safe in-memory snapshot and returns a board-safe summary. It must not create public snapshots, mutate Git/docs, change Google tokens, or perform live writes. Display output carries `daily_plugin_version: website-links-dedup-003`.
+`/daily` is documented as a read-only summary path: it uses `daily_services()` and `collect_approved_safe_data()` to assemble the approved-safe data in memory and return a board-safe summary, with no generation. It must not create public snapshots, mutate Git/docs, change Google tokens, or perform live writes. Display output carries `daily_plugin_version: website-links-dedup-003`.
 
 # Files changed
 
