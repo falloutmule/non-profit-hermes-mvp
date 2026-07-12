@@ -1,0 +1,5 @@
+name: non-profit-hermes-donation
+version: 0.1.0
+description: Live /donation command for Non-Profit Hermes — creates a safe donation draft through the router/backend.
+author: Hermes Agent
+kind: standalone

@@ -1,0 +1,5 @@
+name: non-profit-hermes-daily
+version: 0.1.0
+description: Live /daily command for Non-Profit Hermes board-safe summary only.
+author: Hermes Agent
+kind: standalone

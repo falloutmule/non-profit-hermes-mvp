@@ -1,0 +1,5 @@
+name: non-profit-hermes-task
+version: 0.1.0
+description: Live /task command for Non-Profit Hermes.
+author: Hermes Agent
+kind: standalone

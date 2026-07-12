@@ -1,0 +1,133 @@
+{
+  "schema": "CLEANUP-004 runtime plugin manifest",
+  "version": 1,
+  "plugins": [
+    {
+      "name": "daily",
+      "directory": "non-profit-hermes-daily",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "e4d797b55d463b76377f6fd5db55a7beb1f6a967181fc43166519d9eff54b0c8"
+        },
+        {
+          "path": "init.py",
+          "sha256": "e55c923556d4aa6e3e48216afd34252ba9566a849b62ce999b1ae58ded16c927"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "76ee0934c02c2d4599152f0eba9c06b49f567c7acd780fa2198f2443da6121b3"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    },
+    {
+      "name": "event",
+      "directory": "non-profit-hermes-event",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "a421fbdaa5544816d9872f705e3c3713333f9486d3bd6b2b1be9b90a1f32a446"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "7c3711b87ae81229b83c4d0d2fac867c1a66751277d475bdd135200b748924b5"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    },
+    {
+      "name": "need",
+      "directory": "non-profit-hermes-need",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "f9f694c2d4f978f15d0bae5abe5391bdc5a18211b71b7e7d934a535b815ea028"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "a4ff2d3473e42e4a81424eaf006903523412a90413d332fe5379a86a3116b930"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    },
+    {
+      "name": "donation",
+      "directory": "non-profit-hermes-donation",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "6eb689e0f2e7468d126f21efc71c76defe640703cfa31f77e52e9cea2fd241c9"
+        },
+        {
+          "path": "init.py",
+          "sha256": "59119e7feaedb42bcb28ea2fd9fda870e41cee8adfd7b2216e64b032c146388f"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "ab96a3f58754ad3520d3292a00ae44c1e7d58512814a3a335f09603b924bb408"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    },
+    {
+      "name": "report",
+      "directory": "non-profit-hermes-report",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "f4ab02fbc9a33a6515ab359de7020def7b5f9a44ac098cad5d2d1eaed5857aa7"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "d8b88730c28a62a9a7b7a597efd5d40bd9cd3ff956390e8f6436d1af30e1b7d5"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    },
+    {
+      "name": "task",
+      "directory": "non-profit-hermes-task",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "5f14632f651d71ecc1bc6d50c887c3ea50f8a3f0263bb9ddb4af3245f42b2ef0"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "fea98056cb50558413b71abd7fd596fb09a888c212fc88e7aa41fa34ea63c319"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    },
+    {
+      "name": "inventory",
+      "directory": "non-profit-hermes-inventory",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "52f79a04cd90b87ada50009c7ba7cea63fc2c38ba12c84ee4217eb0a11a8af60"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "4a67c8ad1595a8d510295ca2fb0986ca79a3f32031cd1f07c1982a5cb916de8d"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    }
+  ]
+}

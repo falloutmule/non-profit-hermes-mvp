@@ -1,0 +1,5 @@
+name: non-profit-hermes-need
+version: 0.1.0
+description: Live /need command for Non-Profit Hermes — creates a safe board-visible request through the router/backend.
+author: Hermes Agent
+kind: standalone

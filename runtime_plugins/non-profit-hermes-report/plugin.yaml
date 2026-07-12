@@ -1,0 +1,5 @@
+name: non-profit-hermes-report
+version: 0.1.0
+description: Live /report command for Non-Profit Hermes.
+author: Hermes Agent
+kind: standalone

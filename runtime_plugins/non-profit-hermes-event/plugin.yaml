@@ -1,0 +1,5 @@
+name: non-profit-hermes-event
+version: 0.1.0
+description: Live draft-only /event command for Non-Profit Hermes — writes a Sheet-only EventDraft through the router/backend; Calendar creation disabled pending EVENT-004.
+author: Hermes Agent
+kind: standalone

@@ -1,0 +1,5 @@
+name: non-profit-hermes-inventory
+version: 0.1.0
+description: Live /inventory command for Non-Profit Hermes.
+author: Hermes Agent
+kind: standalone
