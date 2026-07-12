@@ -113,7 +113,7 @@ Direct invocation of the installed daily gateway plugin was observed during the 
 
 ## Remaining blockers
 
-Production rollout is still blocked pending review of the recorded implementation, a documentation/evidence commit, and any separately approved gateway/Telegram operational work. The implementation was subsequently recorded in already-pushed commit `fb2911c8e4cdc0c2c4bcf5a67fcd948db74cf174`; the documentation/evidence commit remains pending. CLEANUP-003 is complete and keeps `/daily` read-only in-memory; publication remains frozen. No new Calendar promotion is authorized by this report.
+EVENT-004 closeout is complete. Production rollout remains blocked pending any separately approved gateway/Telegram operational work. The implementation was subsequently recorded in already-pushed commit `fb2911c8e4cdc0c2c4bcf5a67fcd948db74cf174`, and this documentation/evidence closeout is recorded in `24d14a6bf5677c79a986b1c57d010cc703e71b11`. CLEANUP-003 is complete and keeps `/daily` read-only in-memory; publication remains frozen. No new Calendar promotion is authorized by this report.
 
 ## Production policy
 
@@ -121,13 +121,13 @@ Calendar creation remains exception-only: use draft-first intake, explicit per-e
 
 ## Next actionable step
 
-Review the pending documentation/evidence update, then obtain separate authorization before any documentation/evidence commit or push, gateway operation, or future event promotion. The implementation commit is already historical evidence, not authority for further live work.
+No further EVENT-004 closeout action is required. Obtain separate authorization before any gateway operation or future event promotion. The historical implementation and documentation commits are not authority for further live work.
 
 ## Commit hashes
 
 - Starting commit: `871131e26275148260c26a7366ff4fd43e57144d`.
 - Post-capture implementation commit (already pushed): `fb2911c8e4cdc0c2c4bcf5a67fcd948db74cf174` (`feat: add controlled event promotion authorization`). Local/origin/GitHub `main` matched immediately after that push; query current state when needed with `git rev-parse HEAD` and `git ls-remote origin refs/heads/main`.
-- Documentation/evidence commit: pending; no current staging, commit, push, or remote-equality claim is implied by this report.
+- Documentation/evidence closeout commit: `24d14a6bf5677c79a986b1c57d010cc703e71b11` (`docs: record controlled live calendar promotion`). Query current Git and remote state when needed; this historical report does not assert a continuing remote-equality claim.
 
 ## Evidence paths and IDs
 

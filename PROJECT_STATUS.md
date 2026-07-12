@@ -1,6 +1,6 @@
 # Project Status — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-12 (EVENT-004 post-capture documentation reconciliation; see `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md`)
+**Last updated:** 2026-07-12 (EVENT-004 closeout; see `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md`)
 
 ## Current repository state
 
@@ -12,7 +12,7 @@
 | CLEANUP-002 closeout commit (historical) | `0bae419c0f7f6173beb0545c163cc9e1d0d028c1` |
 | EVENT-004 starting commit (historical) | `871131e26275148260c26a7366ff4fd43e57144d` |
 | EVENT-004 implementation commit (historical, already pushed) | `fb2911c8e4cdc0c2c4bcf5a67fcd948db74cf174` — `feat: add controlled event promotion authorization`; local/origin/GitHub `main` matched immediately after its push |
-| Evidence/documentation commit | Pending review and separate authorization; query current Git/remote state when needed rather than relying on this table |
+| EVENT-004 evidence/documentation closeout commit (historical) | `24d14a6bf5677c79a986b1c57d010cc703e71b11` — `docs: record controlled live calendar promotion`; query current Git/remote state when needed rather than relying on this table |
 | Current Git revision | Query when needed: `git rev-parse HEAD` |
 | Current remote `main` revision | Query when needed: `git ls-remote origin refs/heads/main` |
 | Visibility | public |
@@ -28,7 +28,7 @@ The controlled live `--dry-run` observed zero approved public needs, donations, 
 
 ## EVENT-004 — controlled live Calendar promotion
 
-**Controlled execution complete; production rollout remains blocked.** The authoritative final evidence JSON captured 2026-07-12 supports one synthetic draft, `EVT-A31A0CF8`, promoted to the configured Google Calendar: confirmed event ID `cpq3e1oivn4ajb4t8ktemjuj0g`, persisted to CalendarLog row 14, with configured-window and exact-ID counts each 1. A direct installed-plugin retry observed during the execution session returned `already_created`; the JSON records the final one-event/13-row state, not retry occurrence.
+**EVENT-004 is fully complete; production rollout remains blocked.** The authoritative final evidence JSON captured 2026-07-12 supports one synthetic draft, `EVT-A31A0CF8`, promoted to the configured Google Calendar: confirmed event ID `cpq3e1oivn4ajb4t8ktemjuj0g`, persisted to CalendarLog row 14, with configured-window and exact-ID counts each 1. A direct installed-plugin retry observed during the execution session returned `already_created`; the JSON records the final one-event/13-row state, not retry occurrence.
 
 The final JSON supports the private event's exclusion from approved-calendar output (`approved_calendar_count=0`) and authorization-absent state after promotion. The final offline suite passed **72 tests and 64 subtests**. Controlled local `/daily` CLI and direct installed-plugin daily invocation passed with zero writes during the execution session; those observations are not contained in the JSON. Neither was a human-originated Telegram-delivered message or proves Telegram transport.
 
@@ -58,7 +58,7 @@ The prior committed approved-safe snapshot (2026-07-11 00:26 UTC; marker `CLEAN_
 | EVENT-001 — Calendar publication privacy gate | Complete |
 | EVENT-002 — Durable event-draft backend | Complete |
 | EVENT-003 — Draft-first Telegram `/event` intake | Complete and live verified |
-| EVENT-004 — Controlled live Calendar promotion | One authorized synthetic promotion complete; implementation commit `fb2911c` already pushed, documentation/evidence commit pending, production rollout blocked |
+| EVENT-004 — Controlled live Calendar promotion | Fully complete; implementation commit `fb2911c` and evidence/documentation closeout commit `24d14a6` recorded; production rollout remains blocked and future promotions require new per-draft authorization |
 | CLEANUP-002 — Export safety | Complete (`9626aaa`) |
 | CLEANUP-003 — Separate `/daily` from generation | Complete |
 
