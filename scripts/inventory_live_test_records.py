@@ -82,6 +82,11 @@ def _has_personal_operational_data(record: Mapping[str, Any]) -> bool:
     ))
 
 
+def _is_duplicate_review_candidate(record: Mapping[str, Any]) -> bool:
+    """Require an explicit fixture field before duplicate-only classification."""
+    return record.get("DuplicateReviewCandidate") is True
+
+
 def _stable_identity(record: Mapping[str, Any]) -> str:
     for field in ("EventDraftID", "RecordID", "AuditID", "RequestID", "DonationID", "ReportID"):
         value = _text(record, field)
@@ -116,6 +121,14 @@ def classify_records(records: Sequence[Mapping[str, Any]]) -> list[dict[str, str
                 "confidence": "low",
                 "reason": "Record is not a field mapping and requires manual review.",
             })
+        elif _has_personal_operational_data(record):
+            results.append(_result(
+                record,
+                index,
+                REAL_OPERATIONAL_DO_NOT_TOUCH,
+                "high",
+                "Personal operational data is present; do not alter this record.",
+            ))
         elif _is_event_004_evidence(record):
             results.append(_result(
                 record,
@@ -148,21 +161,16 @@ def classify_records(records: Sequence[Mapping[str, Any]]) -> list[dict[str, str
                 "high",
                 "Explicit historical retention marker requires preservation.",
             ))
-        elif identities.get(_stable_identity(record), 0) > 1:
+        elif (
+            _is_duplicate_review_candidate(record)
+            and identities.get(_stable_identity(record), 0) > 1
+        ):
             results.append(_result(
                 record,
                 index,
                 POSSIBLE_DUPLICATE_REVIEW,
                 "high",
                 "Repeated stable identity requires review; no action is inferred.",
-            ))
-        elif _has_personal_operational_data(record):
-            results.append(_result(
-                record,
-                index,
-                REAL_OPERATIONAL_DO_NOT_TOUCH,
-                "high",
-                "Personal operational data is present; do not alter this record.",
             ))
         else:
             results.append(_result(

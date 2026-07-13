@@ -119,8 +119,18 @@ class LiveTestRecordInventoryTests(unittest.TestCase):
     def test_repeated_stable_identity_is_possible_duplicate_review(self):
         inventory = load_inventory_module()
         records = [
-            {"DonationID": "DON-DUP-001", "ItemDescription": "coats", "Status": "new"},
-            {"DonationID": "DON-DUP-001", "ItemDescription": "coats", "Status": "new"},
+            {
+                "DonationID": "DON-DUP-001",
+                "ItemDescription": "coats",
+                "Status": "new",
+                "DuplicateReviewCandidate": True,
+            },
+            {
+                "DonationID": "DON-DUP-001",
+                "ItemDescription": "coats",
+                "Status": "new",
+                "DuplicateReviewCandidate": True,
+            },
         ]
 
         result = inventory.classify_records(records)
@@ -129,6 +139,84 @@ class LiveTestRecordInventoryTests(unittest.TestCase):
             "POSSIBLE_DUPLICATE_REVIEW",
             "POSSIBLE_DUPLICATE_REVIEW",
         ])
+
+    def test_duplicate_real_operational_records_remain_do_not_touch(self):
+        inventory = load_inventory_module()
+        records = [
+            {"DonationID": "DON-REAL-DUP-001", "ContactName": "Avery Example", "DuplicateReviewCandidate": True},
+            {"DonationID": "DON-REAL-DUP-001", "ContactName": "Avery Example", "DuplicateReviewCandidate": True},
+        ]
+
+        result = inventory.classify_records(records)
+
+        self.assertEqual(
+            [item["classification"] for item in result],
+            ["REAL_OPERATIONAL_DO_NOT_TOUCH", "REAL_OPERATIONAL_DO_NOT_TOUCH"],
+        )
+
+    def test_duplicate_event_004_evidence_records_remain_evidence_retain(self):
+        inventory = load_inventory_module()
+        evidence = {
+            "EventDraftID": "EVT-EVIDENCE-DUP-001",
+            "EventTitle": "EVENT-004 SAFE FAKE CALENDAR PROMOTION TEST",
+            "Status": "confirmed",
+            "ApprovalStatus": "created",
+            "CalendarEventID": "cpq3e1oivn4ajb4t8ktemjuj0g",
+            "Description": "EVENT-004 SAFE FAKE CALENDAR TEST — synthetic record for controlled system verification only.",
+            "DuplicateReviewCandidate": True,
+        }
+
+        result = inventory.classify_records([evidence, evidence.copy()])
+
+        self.assertEqual(
+            [item["classification"] for item in result],
+            ["EVIDENCE_RETAIN", "EVIDENCE_RETAIN"],
+        )
+
+    def test_duplicate_historical_records_remain_historical_retain(self):
+        inventory = load_inventory_module()
+        historical = {
+            "ReportID": "REP-HISTORICAL-DUP-001",
+            "RetentionDisposition": "historical-retain",
+            "Status": "completed",
+            "DuplicateReviewCandidate": True,
+        }
+
+        result = inventory.classify_records([historical, historical.copy()])
+
+        self.assertEqual(
+            [item["classification"] for item in result],
+            ["HISTORICAL_RETAIN", "HISTORICAL_RETAIN"],
+        )
+
+    def test_duplicate_ambiguous_records_remain_unknown_manual_review(self):
+        inventory = load_inventory_module()
+        ambiguous = {"ReportID": "REP-UNKNOWN-DUP-001", "Summary": "unclassified"}
+
+        result = inventory.classify_records([ambiguous, ambiguous.copy()])
+
+        self.assertEqual(
+            [item["classification"] for item in result],
+            ["UNKNOWN_MANUAL_REVIEW", "UNKNOWN_MANUAL_REVIEW"],
+        )
+
+    def test_vague_test_fake_or_sample_words_remain_unknown_manual_review(self):
+        inventory = load_inventory_module()
+        records = [
+            {"ReportID": "REP-VAGUE-TEST-001", "Summary": "test"},
+            {"ReportID": "REP-VAGUE-FAKE-001", "Summary": "fake"},
+            {"ReportID": "REP-VAGUE-SAMPLE-001", "Summary": "sample"},
+        ]
+
+        result = inventory.classify_records(records)
+
+        self.assertEqual(
+            [item["classification"] for item in result],
+            ["UNKNOWN_MANUAL_REVIEW", "UNKNOWN_MANUAL_REVIEW", "UNKNOWN_MANUAL_REVIEW"],
+        )
+        self.assertTrue(
+            all(set(item) == {"record_ref", "classification", "confidence", "reason"} for item in result)
+        )
 
     def test_classification_is_deterministic_and_does_not_mutate_inputs(self):
         inventory = load_inventory_module()
