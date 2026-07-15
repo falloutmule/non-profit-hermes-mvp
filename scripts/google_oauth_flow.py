@@ -7,6 +7,7 @@ inside the injected boundaries.
 """
 from __future__ import annotations
 
+import hmac
 import secrets
 import time
 from dataclasses import dataclass
@@ -169,7 +170,12 @@ def run_oauth_exchange(
         try:
             if persisted.expires_at <= float(now()):
                 return _result(False, "PENDING_SESSION_EXPIRED", exchange_attempted=False)
-            if persisted.state != state or persisted.verifier != verifier:
+            if not _valid_opaque(persisted.state) or not _valid_opaque(persisted.verifier):
+                return _result(False, "PENDING_OPAQUE_VALUE_MISMATCH", exchange_attempted=False)
+            if not hmac.compare_digest(persisted.state, state) or not hmac.compare_digest(
+                persisted.verifier,
+                verifier,
+            ):
                 return _result(False, "PENDING_OPAQUE_VALUE_MISMATCH", exchange_attempted=False)
             if persisted.redirect_uri != listener_uri:
                 return _result(False, "PENDING_REDIRECT_MISMATCH", exchange_attempted=False)

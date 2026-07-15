@@ -43,6 +43,7 @@ SCOPES = frozenset(
 STATE = "opaque-state-sentinel"
 VERIFIER = "opaque-verifier-sentinel"
 CODE = "opaque-code-sentinel"
+_UNSET = object()
 
 
 @dataclass
@@ -77,8 +78,16 @@ class FakeFlow:
 
 
 class FakePendingStore:
-    def __init__(self, redirect_override=None):
+    def __init__(
+        self,
+        redirect_override=None,
+        *,
+        state_override=_UNSET,
+        verifier_override=_UNSET,
+    ):
         self.redirect_override = redirect_override
+        self.state_override = state_override
+        self.verifier_override = verifier_override
         self.payload = None
         self.save_calls = 0
         self.load_calls = 0
@@ -88,11 +97,15 @@ class FakePendingStore:
 
     def save(self, payload):
         self.save_calls += 1
-        if self.redirect_override is not None:
+        if (
+            self.redirect_override is not None
+            or self.state_override is not _UNSET
+            or self.verifier_override is not _UNSET
+        ):
             payload = type(payload)(
-                redirect_uri=self.redirect_override,
-                state=payload.state,
-                verifier=payload.verifier,
+                redirect_uri=payload.redirect_uri if self.redirect_override is None else self.redirect_override,
+                state=payload.state if self.state_override is _UNSET else self.state_override,
+                verifier=payload.verifier if self.verifier_override is _UNSET else self.verifier_override,
                 expires_at=payload.expires_at,
             )
         self.payload = payload
@@ -133,11 +146,17 @@ def make_run(
     *,
     flow_redirect=REDIRECT,
     pending_redirect=None,
+    pending_state=_UNSET,
+    pending_verifier=_UNSET,
     now_values=(100.0, 100.0),
 ):
     events: list[str] = []
     listener = FakeListener(callback or accepted_result())
-    store = FakePendingStore(pending_redirect)
+    store = FakePendingStore(
+        pending_redirect,
+        state_override=pending_state,
+        verifier_override=pending_verifier,
+    )
     exchange = FakeExchange()
 
     def listener_factory(*, state, port, timeout):
@@ -327,3 +346,67 @@ def test_expired_pending_session_blocks_exchange_and_clears_state():
     assert exchange.calls == []
     assert listener.close_calls == 1
     assert store.clear_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("pending_state", "expected_accepted", "expected_code", "expected_comparison"),
+    [
+        (STATE, True, "EXCHANGE_COMPLETED", (STATE, STATE)),
+        ("tampered-state", False, "PENDING_OPAQUE_VALUE_MISMATCH", ("tampered-state", STATE)),
+    ],
+)
+def test_persisted_state_uses_constant_time_comparison_for_equal_and_unequal_values(
+    monkeypatch,
+    pending_state,
+    expected_accepted,
+    expected_code,
+    expected_comparison,
+):
+    module = load_module()
+    assert hasattr(module, "hmac")
+    compare_digest = module.hmac.compare_digest
+    calls = []
+
+    def observe_compare_digest(left, right):
+        calls.append((left, right))
+        return compare_digest(left, right)
+
+    monkeypatch.setattr(module.hmac, "compare_digest", observe_compare_digest)
+    result, listener, store, exchange, _ = make_run(module, pending_state=pending_state)
+
+    assert result["accepted"] is expected_accepted
+    assert result["invariant_code"] == expected_code
+    assert expected_comparison in calls
+    if expected_accepted:
+        assert exchange.calls == [(CODE, REDIRECT, VERIFIER)]
+    else:
+        assert exchange.calls == []
+    assert listener.close_calls == 1
+    assert store.clear_calls == 1
+    assert store.payload is None
+
+
+def test_malformed_persisted_state_skips_constant_time_comparison_and_never_exchanges(
+    monkeypatch,
+):
+    module = load_module()
+    assert hasattr(module, "hmac")
+    calls = []
+
+    def observe_compare_digest(left, right):
+        calls.append((left, right))
+        return True
+
+    monkeypatch.setattr(module.hmac, "compare_digest", observe_compare_digest)
+    result, listener, store, exchange, _ = make_run(module, pending_state=object())
+
+    assert result == {
+        "accepted": False,
+        "invariant_code": "PENDING_OPAQUE_VALUE_MISMATCH",
+        "exchange_attempted": False,
+    }
+    assert calls == []
+    assert exchange.calls == []
+    assert listener.close_calls == 1
+    assert store.clear_calls == 1
+    assert store.payload is None

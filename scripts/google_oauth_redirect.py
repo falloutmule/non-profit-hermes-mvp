@@ -6,6 +6,7 @@ in the browser response.
 """
 from __future__ import annotations
 
+import hmac
 import math
 import socket
 import threading
@@ -49,6 +50,18 @@ def _valid_port(port: Any, *, allow_zero: bool) -> bool:
 
 def _is_os_selected_port_request(port: Any) -> bool:
     return type(port) is int and port == 0
+
+
+def _state_matches(callback_state: Any, expected_state: Any) -> bool:
+    """Compare exactly one validated callback state without coercion."""
+    if (
+        type(callback_state) is not list
+        or len(callback_state) != 1
+        or type(callback_state[0]) is not str
+        or type(expected_state) is not str
+    ):
+        return False
+    return hmac.compare_digest(callback_state[0], expected_state)
 
 
 def _format_live_redirect(port: Any) -> str:
@@ -289,7 +302,7 @@ class OneShotCallbackListener:
                 callback_redirect_uri=self.redirect_uri,
                 state_matches=False,
             )
-        elif params.get("state") != [self._state]:
+        elif not _state_matches(params.get("state"), self._state):
             self._finish(
                 "STATE_MISMATCH",
                 callback_redirect_uri=self.redirect_uri,

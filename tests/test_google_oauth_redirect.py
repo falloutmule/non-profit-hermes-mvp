@@ -305,3 +305,59 @@ def test_listener_cleanup_is_idempotent() -> None:
     assert not listener.thread.is_alive()
     assert listener.socket is None
     time.sleep(0.01)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_code", "expected_comparison"),
+    [
+        ("state=expected&code=synthetic", "REDIRECT_ACCEPTED", ("expected", "expected")),
+        ("state=wrong&code=synthetic", "STATE_MISMATCH", ("wrong", "expected")),
+    ],
+)
+def test_callback_state_uses_constant_time_comparison_for_equal_and_unequal_values(
+    monkeypatch,
+    query,
+    expected_code,
+    expected_comparison,
+) -> None:
+    module = load_module()
+    assert hasattr(module, "hmac")
+    compare_digest = module.hmac.compare_digest
+    calls = []
+
+    def observe_compare_digest(left, right):
+        calls.append((left, right))
+        return compare_digest(left, right)
+
+    monkeypatch.setattr(module.hmac, "compare_digest", observe_compare_digest)
+    listener = module.start_one_shot_callback_listener(state="expected", timeout=2.0)
+    try:
+        result = listener._consume_query(query)
+        assert result["invariant_code"] == expected_code
+        assert expected_comparison in calls
+    finally:
+        listener.close()
+    assert listener.socket is None
+
+
+def test_callback_rejects_malformed_non_string_state_before_constant_time_comparison(
+    monkeypatch,
+) -> None:
+    module = load_module()
+    assert hasattr(module, "hmac")
+    calls = []
+
+    def observe_compare_digest(left, right):
+        calls.append((left, right))
+        return True
+
+    monkeypatch.setattr(module.hmac, "compare_digest", observe_compare_digest)
+    monkeypatch.setattr(module, "parse_qs", lambda *args, **kwargs: {"state": [object()]})
+    listener = module.start_one_shot_callback_listener(state="expected", timeout=2.0)
+    try:
+        result = listener._consume_query("state=ignored&code=synthetic")
+        assert result["invariant_code"] == "STATE_MISMATCH"
+        assert calls == []
+    finally:
+        listener.close()
+    assert listener.socket is None
