@@ -207,6 +207,8 @@ def test_listener_is_active_before_consumer_use_and_accepts_one_root_callback() 
         result = listener.wait(timeout=2)
         assert result["accepted"] is True
         assert result["invariant_code"] == "REDIRECT_ACCEPTED"
+        assert result["callback_redirect_uri"] == listener.redirect_uri
+        assert result["state_matches"] is True
         assert "synthetic-code" not in body
     finally:
         listener.close()

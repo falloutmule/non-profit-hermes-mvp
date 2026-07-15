@@ -243,7 +243,14 @@ class OneShotCallbackListener:
                 self._closed = True
                 self._server.socket = None
 
-    def _finish(self, invariant_code: str, authorization_code: str | None = None) -> None:
+    def _finish(
+        self,
+        invariant_code: str,
+        authorization_code: str | None = None,
+        *,
+        callback_redirect_uri: str | None = None,
+        state_matches: bool | None = None,
+    ) -> None:
         with self._lock:
             if self._result is not None:
                 return
@@ -252,6 +259,10 @@ class OneShotCallbackListener:
                 "accepted": invariant_code == "REDIRECT_ACCEPTED",
                 "invariant_code": invariant_code,
             }
+            if callback_redirect_uri is not None:
+                self._result["callback_redirect_uri"] = callback_redirect_uri
+            if state_matches is not None:
+                self._result["state_matches"] = state_matches
             self._done.set()
 
     def _consume_request(self, request_target: str, host_header: str | None) -> dict[str, object]:
@@ -273,17 +284,34 @@ class OneShotCallbackListener:
                 return {"accepted": False, "invariant_code": "SECOND_CALLBACK_REJECTED"}
         params = parse_qs(query, keep_blank_values=True, strict_parsing=False)
         if "error" in params:
-            self._finish("CALLBACK_OAUTH_ERROR")
+            self._finish(
+                "CALLBACK_OAUTH_ERROR",
+                callback_redirect_uri=self.redirect_uri,
+                state_matches=False,
+            )
         elif params.get("state") != [self._state]:
-            self._finish("STATE_MISMATCH")
+            self._finish(
+                "STATE_MISMATCH",
+                callback_redirect_uri=self.redirect_uri,
+                state_matches=False,
+            )
         elif (
             params.get("code") is None
             or params.get("code") != [params["code"][0]]
             or not params["code"][0]
         ):
-            self._finish("CALLBACK_MISSING_CODE")
+            self._finish(
+                "CALLBACK_MISSING_CODE",
+                callback_redirect_uri=self.redirect_uri,
+                state_matches=True,
+            )
         else:
-            self._finish("REDIRECT_ACCEPTED", params["code"][0])
+            self._finish(
+                "REDIRECT_ACCEPTED",
+                params["code"][0],
+                callback_redirect_uri=self.redirect_uri,
+                state_matches=True,
+            )
         return self._snapshot_result()
 
     def _snapshot_result(self) -> dict[str, object]:
