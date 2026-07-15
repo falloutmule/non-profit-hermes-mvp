@@ -50,12 +50,11 @@ class FakeListener:
 
 
 class FakeRawFlow:
-    def __init__(self, credentials, *, fetch_error=None):
+    def __init__(self, credentials, *, fetch_error=None, redirect_uri=REDIRECT):
         self.credentials = credentials
         self.fetch_error = fetch_error
         self.fetch_calls = []
-        self.authorization_redirect_uri = REDIRECT
-        self.exchange_redirect_uri = REDIRECT
+        self.redirect_uri = redirect_uri
 
     def authorization_url(self, **kwargs):
         self.authorization_kwargs = kwargs
@@ -205,6 +204,7 @@ def test_success_saves_pending_then_handoff_after_live_listener_and_fetches_once
     paths = make_paths(module, tmp_path)
     paths.client_secret.write_text(json.dumps({"installed": {"client_id": "client-id"}}))
     events = []
+    adapters = []
     raw_flow = FakeRawFlow(FakeCredentials())
 
     def listener_factory(**kwargs):
@@ -217,17 +217,20 @@ def test_success_saves_pending_then_handoff_after_live_listener_and_fetches_once
         return fake_prepare(reference, candidate, data, **kwargs)
 
     def flow_factory(*, redirect_uri, scopes, state, verifier, handoff):
-        del redirect_uri, scopes, state, verifier
+        del scopes, state, verifier
         assert paths.pending.exists()
         events.append("flow_constructed")
-        return module.GoogleAuthFlowAdapter(
+        adapter = module.GoogleAuthFlowAdapter(
             raw_flow,
+            redirect_uri=redirect_uri,
             handoff=handoff,
             operational_token=paths.operational_token,
             candidate=paths.candidate,
             baseline_hash=hashlib.sha256(paths.operational_token.read_bytes()).hexdigest(),
             candidate_preparer=preparer,
         )
+        adapters.append(adapter)
+        return adapter
 
     result = module.run_guarded_oauth(
         paths,
@@ -241,6 +244,8 @@ def test_success_saves_pending_then_handoff_after_live_listener_and_fetches_once
 
     assert result["accepted"] is True
     assert result["invariant_code"] == "EXCHANGE_COMPLETED"
+    assert adapters[0].authorization_redirect_uri == REDIRECT
+    assert adapters[0].exchange_redirect_uri == REDIRECT
     assert events[:3] == ["listener_bound", "restricted_write", "flow_constructed"]
     assert "restricted_write" in events[3:]
     assert raw_flow.fetch_calls == [{"code": CODE}]
@@ -256,6 +261,108 @@ def test_success_saves_pending_then_handoff_after_live_listener_and_fetches_once
     assert "redirect_uri" in evidence
 
 
+def test_from_client_secret_binds_real_google_flow_redirect_and_publishes_url(tmp_path: Path):
+    module = load_module()
+    client_secret = tmp_path / "client_secret.json"
+    client_secret.write_text(
+        json.dumps(
+            {
+                "installed": {
+                    "client_id": "synthetic.apps.googleusercontent.com",
+                    "client_secret": "synthetic-secret",
+                    "auth_uri": "https://accounts.google.example/auth",
+                    "token_uri": "https://oauth2.googleapis.example/token",
+                    "redirect_uris": [REDIRECT],
+                }
+            }
+        )
+    )
+    operational = tmp_path / "operational.json"
+    operational.write_bytes(b"operational-baseline")
+    handoff = module.TransientUrlHandoff(
+        tmp_path / "handoff.json",
+        operational,
+        preparer=fake_prepare,
+    )
+
+    adapter = module.GoogleAuthFlowAdapter.from_client_secret(
+        client_secret=client_secret,
+        scopes=["scope:a"],
+        redirect_uri=REDIRECT,
+        state=STATE,
+        verifier=VERIFIER,
+        handoff=handoff,
+        operational_token=operational,
+        candidate=tmp_path / "candidate.json",
+        baseline_hash=hashlib.sha256(operational.read_bytes()).hexdigest(),
+        candidate_preparer=fake_prepare,
+    )
+
+    assert adapter.authorization_redirect_uri == REDIRECT
+    assert adapter.exchange_redirect_uri == REDIRECT
+    assert adapter._flow.redirect_uri == REDIRECT
+    assert not hasattr(adapter._flow, "authorization_redirect_uri")
+    assert not hasattr(adapter._flow, "exchange_redirect_uri")
+    url = adapter.authorization_url()
+    assert url.startswith("https://accounts.google.example/")
+    assert handoff.path.read_text() == url
+
+
+def test_adapter_rejects_raw_flow_redirect_mismatch_before_authorization_or_fetch(tmp_path: Path):
+    module = load_module()
+    operational = tmp_path / "operational.json"
+    operational.write_bytes(b"operational-baseline")
+    raw_flow = FakeRawFlow(FakeCredentials(), redirect_uri="http://127.0.0.1:43128/")
+    handoff = module.TransientUrlHandoff(
+        tmp_path / "handoff.json",
+        operational,
+        preparer=fake_prepare,
+    )
+
+    with pytest.raises(module.RunnerInvariantError) as error:
+        module.GoogleAuthFlowAdapter(
+            raw_flow,
+            redirect_uri=REDIRECT,
+            handoff=handoff,
+            operational_token=operational,
+            candidate=tmp_path / "candidate.json",
+            baseline_hash=hashlib.sha256(operational.read_bytes()).hexdigest(),
+            candidate_preparer=fake_prepare,
+        )
+
+    assert error.value.code == "AUTH_EXCHANGE_REDIRECT_MISMATCH"
+    assert raw_flow.fetch_calls == []
+    assert not handoff.path.exists()
+
+
+def test_adapter_rejects_missing_raw_flow_redirect_before_authorization_or_fetch(tmp_path: Path):
+    module = load_module()
+    operational = tmp_path / "operational.json"
+    operational.write_bytes(b"operational-baseline")
+    raw_flow = FakeRawFlow(FakeCredentials())
+    del raw_flow.redirect_uri
+    handoff = module.TransientUrlHandoff(
+        tmp_path / "handoff.json",
+        operational,
+        preparer=fake_prepare,
+    )
+
+    with pytest.raises(module.RunnerInvariantError) as error:
+        module.GoogleAuthFlowAdapter(
+            raw_flow,
+            redirect_uri=REDIRECT,
+            handoff=handoff,
+            operational_token=operational,
+            candidate=tmp_path / "candidate.json",
+            baseline_hash=hashlib.sha256(operational.read_bytes()).hexdigest(),
+            candidate_preparer=fake_prepare,
+        )
+
+    assert error.value.code == "REDIRECT_URI_MISSING"
+    assert raw_flow.fetch_calls == []
+    assert not handoff.path.exists()
+
+
 def test_fetch_failure_is_one_shot_redacted_and_cleans_candidate_pending_handoff(tmp_path: Path):
     module = load_module()
     paths = make_paths(module, tmp_path)
@@ -263,9 +370,10 @@ def test_fetch_failure_is_one_shot_redacted_and_cleans_candidate_pending_handoff
     raw_flow = FakeRawFlow(FakeCredentials(), fetch_error=RuntimeError(f"leaked {CODE} {VERIFIER}"))
 
     def flow_factory(*, redirect_uri, scopes, state, verifier, handoff):
-        del redirect_uri, scopes, state, verifier
+        del scopes, state, verifier
         return module.GoogleAuthFlowAdapter(
             raw_flow,
+            redirect_uri=redirect_uri,
             handoff=handoff,
             operational_token=paths.operational_token,
             candidate=paths.candidate,
@@ -310,9 +418,10 @@ def test_operational_hash_change_blocks_candidate_write(tmp_path: Path):
     raw_flow.fetch_token = mutate_after_endpoint
 
     def flow_factory(*, redirect_uri, scopes, state, verifier, handoff):
-        del redirect_uri, scopes, state, verifier
+        del scopes, state, verifier
         return module.GoogleAuthFlowAdapter(
             raw_flow,
+            redirect_uri=redirect_uri,
             handoff=handoff,
             operational_token=paths.operational_token,
             candidate=paths.candidate,
@@ -345,9 +454,10 @@ def test_final_result_and_evidence_never_render_secret_values(tmp_path: Path):
     raw_flow = FakeRawFlow(FakeCredentials(), fetch_error=RuntimeError("secret failure"))
 
     def flow_factory(*, redirect_uri, scopes, state, verifier, handoff):
-        del redirect_uri, scopes, state, verifier
+        del scopes, state, verifier
         return module.GoogleAuthFlowAdapter(
             raw_flow,
+            redirect_uri=redirect_uri,
             handoff=handoff,
             operational_token=paths.operational_token,
             candidate=paths.candidate,

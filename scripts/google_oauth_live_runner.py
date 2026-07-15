@@ -44,11 +44,11 @@ if str(_SCRIPT_DIR) not in sys.path:
 try:
     from .google_oauth_acl import prepare_candidate as _prepare_candidate
     from .google_oauth_flow import PendingOAuthSession, run_oauth_exchange
-    from .google_oauth_redirect import start_one_shot_callback_listener
+    from .google_oauth_redirect import start_one_shot_callback_listener, validate_redirect_contract
 except ImportError:  # pragma: no cover - direct script/module loading
     from google_oauth_acl import prepare_candidate as _prepare_candidate
     from google_oauth_flow import PendingOAuthSession, run_oauth_exchange
-    from google_oauth_redirect import start_one_shot_callback_listener
+    from google_oauth_redirect import start_one_shot_callback_listener, validate_redirect_contract
 
 
 DEFAULT_PENDING_PATH: Final[Path] = TOKEN_PATH.with_name("google_oauth_pending.json")
@@ -274,6 +274,7 @@ class GoogleAuthFlowAdapter:
         self,
         flow: Any,
         *,
+        redirect_uri: str,
         handoff: TransientUrlHandoff,
         operational_token: os.PathLike[str] | str,
         candidate: os.PathLike[str] | str,
@@ -282,6 +283,19 @@ class GoogleAuthFlowAdapter:
         acl_runner: Callable[..., str] | None = None,
         snapshotter: Callable[..., Any] | None = None,
     ) -> None:
+        try:
+            raw_redirect_uri = flow.redirect_uri
+        except Exception as exc:
+            raise RunnerInvariantError("REDIRECT_URI_MISSING") from exc
+        redirect_contract = validate_redirect_contract(
+            redirect_uri=redirect_uri,
+            authorization_redirect_uri=raw_redirect_uri,
+            exchange_redirect_uri=raw_redirect_uri,
+            callback_redirect_uri=redirect_uri,
+        )
+        if redirect_contract.get("accepted") is not True:
+            code = redirect_contract.get("invariant_code")
+            raise RunnerInvariantError(code if type(code) is str else "REDIRECT_URI_MISSING")
         self._flow = flow
         self._handoff = handoff
         self._operational_token = Path(operational_token)
@@ -292,8 +306,8 @@ class GoogleAuthFlowAdapter:
         self._snapshotter = snapshotter
         self._url_published = False
         self._fetch_called = False
-        self.authorization_redirect_uri = getattr(flow, "authorization_redirect_uri", "")
-        self.exchange_redirect_uri = getattr(flow, "exchange_redirect_uri", self.authorization_redirect_uri)
+        self.authorization_redirect_uri = redirect_uri
+        self.exchange_redirect_uri = redirect_uri
 
     @classmethod
     def from_client_secret(
@@ -323,6 +337,7 @@ class GoogleAuthFlowAdapter:
         )
         return cls(
             flow,
+            redirect_uri=redirect_uri,
             handoff=handoff,
             operational_token=operational_token,
             candidate=candidate,
