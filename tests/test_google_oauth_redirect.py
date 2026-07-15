@@ -199,7 +199,7 @@ def test_listener_is_active_before_consumer_use_and_accepts_one_root_callback() 
         with socket.create_connection(("127.0.0.1", listener.port), timeout=1):
             pass
         with urlopen(
-            listener.redirect_uri + "?state=synthetic-state&code=synthetic-code",
+            listener.redirect_uri + "?state=synthetic-state&code=synthetic-code&scope=scope.one",
             timeout=1,
         ) as response:
             body = response.read().decode("utf-8")
@@ -209,6 +209,7 @@ def test_listener_is_active_before_consumer_use_and_accepts_one_root_callback() 
         assert result["invariant_code"] == "REDIRECT_ACCEPTED"
         assert result["callback_redirect_uri"] == listener.redirect_uri
         assert result["state_matches"] is True
+        assert result["granted_scopes"] == frozenset({"scope.one"})
         assert "synthetic-code" not in body
     finally:
         listener.close()
@@ -225,6 +226,80 @@ def test_listener_rejects_state_mismatch() -> None:
         assert error.value.code == 400
         result = listener.wait(timeout=2)
         assert result["invariant_code"] == "STATE_MISMATCH"
+    finally:
+        listener.close()
+
+
+def test_listener_rejects_a_callback_without_one_canonical_scope_set() -> None:
+    module = load_module()
+    listener = module.start_one_shot_callback_listener(state="synthetic", timeout=2.0)
+    try:
+        result = listener._consume_query("state=synthetic&code=opaque-code-sentinel")
+        assert result == {
+            "accepted": False,
+            "invariant_code": "SCOPE_SET_MISMATCH",
+            "callback_redirect_uri": listener.redirect_uri,
+            "state_matches": True,
+        }
+        assert "opaque-code-sentinel" not in repr(result)
+        assert "synthetic" not in repr(result)
+    finally:
+        listener.close()
+
+
+def test_listener_returns_a_canonical_scope_frozenset_for_a_reordered_scope_list() -> None:
+    module = load_module()
+    listener = module.start_one_shot_callback_listener(state="synthetic", timeout=2.0)
+    try:
+        result = listener._consume_query(
+            "state=synthetic&code=opaque-code-sentinel&scope=scope.two+scope.one"
+        )
+        assert result["accepted"] is True
+        assert result["granted_scopes"] == frozenset({"scope.one", "scope.two"})
+        assert "opaque-code-sentinel" not in repr(result)
+        assert "synthetic" not in repr(result)
+    finally:
+        listener.close()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "state=synthetic&code=opaque-code-sentinel&scope=",
+        "state=synthetic&code=opaque-code-sentinel&scope=scope.one+scope.one",
+        "state=synthetic&code=opaque-code-sentinel&scope=scope.one++scope.two",
+        "state=synthetic&code=opaque-code-sentinel&scope=scope.one&scope=scope.two",
+    ],
+)
+def test_listener_rejects_blank_duplicate_malformed_or_multiple_scope_parameters(query) -> None:
+    module = load_module()
+    listener = module.start_one_shot_callback_listener(state="synthetic", timeout=2.0)
+    try:
+        result = listener._consume_query(query)
+        assert result["accepted"] is False
+        assert result["invariant_code"] == "SCOPE_SET_MISMATCH"
+        assert "opaque-code-sentinel" not in repr(result)
+        assert "synthetic" not in repr(result)
+    finally:
+        listener.close()
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("state=synthetic&error=access_denied", "CALLBACK_OAUTH_ERROR"),
+        ("state=wrong&code=opaque-code-sentinel", "STATE_MISMATCH"),
+    ],
+)
+def test_listener_preserves_error_and_state_rejection_before_scope_validation(query, expected) -> None:
+    module = load_module()
+    listener = module.start_one_shot_callback_listener(state="synthetic", timeout=2.0)
+    try:
+        result = listener._consume_query(query)
+        assert result["accepted"] is False
+        assert result["invariant_code"] == expected
+        assert "opaque-code-sentinel" not in repr(result)
+        assert "synthetic" not in repr(result)
     finally:
         listener.close()
 
@@ -270,7 +345,7 @@ def test_consume_callback_once_rejects_second_callback() -> None:
     try:
         first = module.consume_callback_once(
             listener,
-            listener.redirect_uri + "?state=synthetic&code=first",
+            listener.redirect_uri + "?state=synthetic&code=first&scope=scope.one",
         )
         second = module.consume_callback_once(
             listener,
@@ -310,7 +385,11 @@ def test_listener_cleanup_is_idempotent() -> None:
 @pytest.mark.parametrize(
     ("query", "expected_code", "expected_comparison"),
     [
-        ("state=expected&code=synthetic", "REDIRECT_ACCEPTED", ("expected", "expected")),
+        (
+            "state=expected&code=synthetic&scope=scope.one",
+            "REDIRECT_ACCEPTED",
+            ("expected", "expected"),
+        ),
         ("state=wrong&code=synthetic", "STATE_MISMATCH", ("wrong", "expected")),
     ],
 )

@@ -64,6 +64,20 @@ def _state_matches(callback_state: Any, expected_state: Any) -> bool:
     return hmac.compare_digest(callback_state[0], expected_state)
 
 
+def _canonical_callback_scopes(params: dict[str, list[str]]) -> frozenset[str] | None:
+    """Return exactly one canonical, duplicate-free callback scope set."""
+    raw_scopes = params.get("scope")
+    if type(raw_scopes) is not list or len(raw_scopes) != 1 or type(raw_scopes[0]) is not str:
+        return None
+    names = raw_scopes[0].split(" ")
+    if any(not name or any(character.isspace() for character in name) for name in names):
+        return None
+    granted_scopes = frozenset(names)
+    if len(granted_scopes) != len(names):
+        return None
+    return granted_scopes
+
+
 def _format_live_redirect(port: Any) -> str:
     """Format only a port obtained from a currently bound local server."""
     if not _valid_port(port, allow_zero=False):
@@ -263,6 +277,7 @@ class OneShotCallbackListener:
         *,
         callback_redirect_uri: str | None = None,
         state_matches: bool | None = None,
+        granted_scopes: frozenset[str] | None = None,
     ) -> None:
         with self._lock:
             if self._result is not None:
@@ -276,6 +291,8 @@ class OneShotCallbackListener:
                 self._result["callback_redirect_uri"] = callback_redirect_uri
             if state_matches is not None:
                 self._result["state_matches"] = state_matches
+            if granted_scopes is not None:
+                self._result["granted_scopes"] = granted_scopes
             self._done.set()
 
     def _consume_request(self, request_target: str, host_header: str | None) -> dict[str, object]:
@@ -319,12 +336,21 @@ class OneShotCallbackListener:
                 state_matches=True,
             )
         else:
-            self._finish(
-                "REDIRECT_ACCEPTED",
-                params["code"][0],
-                callback_redirect_uri=self.redirect_uri,
-                state_matches=True,
-            )
+            granted_scopes = _canonical_callback_scopes(params)
+            if granted_scopes is None:
+                self._finish(
+                    "SCOPE_SET_MISMATCH",
+                    callback_redirect_uri=self.redirect_uri,
+                    state_matches=True,
+                )
+            else:
+                self._finish(
+                    "REDIRECT_ACCEPTED",
+                    params["code"][0],
+                    callback_redirect_uri=self.redirect_uri,
+                    state_matches=True,
+                    granted_scopes=granted_scopes,
+                )
         return self._snapshot_result()
 
     def _snapshot_result(self) -> dict[str, object]:

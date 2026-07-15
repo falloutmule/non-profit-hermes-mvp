@@ -68,6 +68,13 @@ def _valid_scopes(scopes: Any) -> bool:
     return type(scopes) is frozenset and all(type(scope) is str and bool(scope) for scope in scopes)
 
 
+def _valid_granted_scopes(scopes: Any) -> bool:
+    return type(scopes) is frozenset and bool(scopes) and all(
+        type(scope) is str and bool(scope) and not any(character.isspace() for character in scope)
+        for scope in scopes
+    )
+
+
 def run_oauth_exchange(
     *,
     scopes: frozenset[str],
@@ -196,6 +203,10 @@ def run_oauth_exchange(
             return _result(False, "AUTH_EXCHANGE_REDIRECT_MISMATCH", exchange_attempted=False)
         if callback.get("state_matches") is not True:
             return _result(False, "STATE_MISMATCH", exchange_attempted=False)
+
+        granted_scopes = callback.get("granted_scopes")
+        if not _valid_granted_scopes(granted_scopes) or granted_scopes != scopes:
+            return _result(False, "SCOPE_SET_MISMATCH", exchange_attempted=False)
 
         code = getattr(listener, "authorization_code", None)
         if not _valid_opaque(code):

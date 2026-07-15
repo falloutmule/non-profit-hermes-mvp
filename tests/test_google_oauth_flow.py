@@ -149,12 +149,16 @@ class FakeExchange:
         return "synthetic-token-never-returned"
 
 
-def accepted_result(redirect_uri: str = REDIRECT) -> dict[str, object]:
+def accepted_result(
+    redirect_uri: str = REDIRECT,
+    granted_scopes: frozenset[str] = SCOPES,
+) -> dict[str, object]:
     return {
         "accepted": True,
         "invariant_code": "REDIRECT_ACCEPTED",
         "callback_redirect_uri": redirect_uri,
         "state_matches": True,
+        "granted_scopes": granted_scopes,
     }
 
 
@@ -349,6 +353,57 @@ def test_exact_immutable_scope_set_is_passed_without_narrowing_or_mutation():
     assert observed == [SCOPES]
     assert observed[0] is SCOPES
     assert observed[0] == SCOPES
+
+
+def test_exact_callback_scope_set_in_a_different_order_exchanges_once() -> None:
+    module = load_module()
+    granted_scopes = frozenset(reversed(tuple(SCOPES)))
+    result, listener, store, exchange, _ = make_run(
+        module,
+        accepted_result(granted_scopes=granted_scopes),
+    )
+
+    assert result == {
+        "accepted": True,
+        "invariant_code": "EXCHANGE_COMPLETED",
+        "exchange_attempted": True,
+    }
+    assert exchange.calls == [(CODE, REDIRECT, VERIFIER)]
+    assert listener.close_calls == 1
+    assert store.clear_calls == 1
+
+
+@pytest.mark.parametrize(
+    "granted_scopes",
+    [
+        None,
+        frozenset(scope for scope in SCOPES if scope != "scope.calendar.events"),
+        frozenset((*SCOPES, "scope.unrequested")),
+        ("scope.calendar.readonly",),
+        frozenset((*SCOPES, "")),
+    ],
+)
+def test_callback_scope_mismatch_blocks_exchange_and_cleans_up_without_secret_diagnostics(
+    granted_scopes,
+):
+    module = load_module()
+    result, listener, store, exchange, _ = make_run(
+        module,
+        accepted_result(granted_scopes=granted_scopes),
+    )
+
+    assert result == {
+        "accepted": False,
+        "invariant_code": "SCOPE_SET_MISMATCH",
+        "exchange_attempted": False,
+    }
+    assert exchange.calls == []
+    assert listener.close_calls == 1
+    assert store.clear_calls == 1
+    assert store.payload is None
+    assert CODE not in repr(result)
+    assert STATE not in repr(result)
+    assert VERIFIER not in repr(result)
 
 
 def test_fixed_port_request_is_rejected_before_any_listener_or_exchange():
