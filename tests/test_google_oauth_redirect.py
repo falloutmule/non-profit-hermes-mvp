@@ -6,6 +6,7 @@ import socket
 import sys
 import threading
 import time
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -28,19 +29,93 @@ def load_module():
     return module
 
 
-def test_resolve_uses_ipv4_loopback_and_random_port() -> None:
-    redirect = load_module().resolve_installed_redirect()
-    assert redirect.startswith("http://127.0.0.1:")
-    assert redirect.endswith("/")
-    assert int(redirect.rsplit(":", 1)[1][:-1]) > 0
+def test_resolve_returns_a_live_bound_listener_with_its_exact_redirect() -> None:
+    module = load_module()
+    bound = module.resolve_installed_redirect()
+    try:
+        assert bound.redirect_uri.startswith("http://127.0.0.1:")
+        assert bound.redirect_uri.endswith("/")
+        assert int(bound.redirect_uri.rsplit(":", 1)[1][:-1]) > 0
+        assert bound.socket is not None
+        with socket.create_connection(("127.0.0.1", bound.port), timeout=1):
+            pass
+    finally:
+        bound.close()
+    assert bound.socket is None
 
 
-def test_resolve_rejects_non_loopback_and_historical_localhost_port() -> None:
+def test_resolve_rejects_non_loopback_host() -> None:
     module = load_module()
     for host in ("localhost", "0.0.0.0", "192.0.2.1", "::1"):
         with pytest.raises(module.RedirectContractError) as error:
-            module.resolve_installed_redirect(host, 1)
+            module.resolve_installed_redirect(host, 0)
         assert error.value.code == "LOOPBACK_BIND_FAILED"
+
+
+@pytest.mark.parametrize("port", [True, False, "0", None, -1, 1, 43127, 65536])
+def test_public_entry_points_reject_every_port_request_except_integer_zero(port) -> None:
+    module = load_module()
+    with pytest.raises(module.RedirectContractError) as error:
+        module.resolve_installed_redirect("127.0.0.1", port)
+    assert error.value.code == "LOOPBACK_BIND_FAILED"
+
+    with pytest.raises(module.RedirectContractError) as error:
+        module.start_one_shot_callback_listener(state="synthetic", port=port, timeout=1)
+    assert error.value.code == "LOOPBACK_BIND_FAILED"
+
+
+def test_listener_uses_live_bound_result_without_a_closed_probe_uri(monkeypatch) -> None:
+    module = load_module()
+    bound = module.resolve_installed_redirect()
+    try:
+        def closed_probe_must_not_be_used(*args, **kwargs):
+            del args, kwargs
+            raise AssertionError("closed port probe must not produce a listener URI")
+
+        monkeypatch.setattr(module, "resolve_installed_redirect", closed_probe_must_not_be_used)
+        listener = module.start_one_shot_callback_listener(
+            bound,
+            state="synthetic",
+            timeout=2.0,
+        )
+        try:
+            assert listener.redirect_uri == bound.redirect_uri
+            assert listener.socket is not None
+            with socket.create_connection(("127.0.0.1", listener.port), timeout=1):
+                pass
+        finally:
+            listener.close()
+        assert not listener.thread.is_alive()
+        assert listener.socket is None
+    finally:
+        bound.close()
+
+
+def test_bound_redirect_uri_is_immutable_until_listener_ownership_transfers() -> None:
+    module = load_module()
+    bound = module.resolve_installed_redirect()
+    try:
+        with pytest.raises(FrozenInstanceError):
+            bound.redirect_uri = "http://127.0.0.1:43127/"
+    finally:
+        bound.close()
+
+
+def test_listener_start_failure_closes_the_claimed_live_socket(monkeypatch) -> None:
+    module = load_module()
+    bound = module.resolve_installed_redirect()
+    server = bound._server
+    assert server is not None
+
+    def fail_start(listener) -> None:
+        del listener
+        raise RuntimeError("synthetic start failure")
+
+    monkeypatch.setattr(module.OneShotCallbackListener, "start", fail_start)
+    with pytest.raises(RuntimeError, match="synthetic start failure"):
+        module.start_one_shot_callback_listener(bound, state="synthetic", timeout=1)
+    assert server.socket is None
+    assert not any(thread.name.startswith("google-oauth-loopback-") for thread in threading.enumerate())
 
 
 def test_contract_accepts_one_exact_redirect_for_authorization_exchange_and_callback() -> None:

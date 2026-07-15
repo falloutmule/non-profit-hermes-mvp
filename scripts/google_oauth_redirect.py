@@ -47,6 +47,63 @@ def _valid_port(port: Any, *, allow_zero: bool) -> bool:
     )
 
 
+def _is_os_selected_port_request(port: Any) -> bool:
+    return type(port) is int and port == 0
+
+
+def _format_live_redirect(port: Any) -> str:
+    """Format only a port obtained from a currently bound local server."""
+    if not _valid_port(port, allow_zero=False):
+        _raise_bind_failure()
+    return f"http://{LOOPBACK_HOST}:{port}{_CALLBACK_PATH}"
+
+
+class _UnconfiguredCallbackHandler(BaseHTTPRequestHandler):
+    """Reject requests queued before a bound listener receives its session state."""
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        self.send_response(503)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def log_message(self, format: str, *args: Any) -> None:
+        del format, args
+
+
+@dataclass(frozen=True)
+class _BoundLoopbackRedirect:
+    """Own a live port-0 bind until it is transferred to one callback listener."""
+
+    redirect_uri: str
+    port: int
+    _server: HTTPServer | None
+
+    @property
+    def uri(self) -> str:
+        return self.redirect_uri
+
+    @property
+    def socket(self) -> socket.socket | None:
+        if self._server is None:
+            return None
+        return getattr(self._server, "socket", None)
+
+    def claim_server(self) -> HTTPServer:
+        if self._server is None:
+            _raise_bind_failure()
+        server = self._server
+        object.__setattr__(self, "_server", None)
+        return server
+
+    def close(self) -> None:
+        if self._server is None:
+            return
+        self._server.server_close()
+        self._server.socket = None
+        object.__setattr__(self, "_server", None)
+
+
 def _canonical_redirect(uri: Any) -> _ParsedRedirect | None:
     if type(uri) is not str or not uri:
         return None
@@ -72,21 +129,24 @@ def _canonical_redirect(uri: Any) -> _ParsedRedirect | None:
     return _ParsedRedirect(uri=uri, port=port)
 
 
-def resolve_installed_redirect(host: str = LOOPBACK_HOST, port: int = 0) -> str:
-    """Return the canonical loopback URI, reserving an OS-selected port when needed."""
-    if host != LOOPBACK_HOST or not _valid_port(port, allow_zero=True):
+def resolve_installed_redirect(
+    host: str = LOOPBACK_HOST,
+    port: int = 0,
+) -> _BoundLoopbackRedirect:
+    """Bind port 0 and return its still-live canonical redirect ownership handle."""
+    if host != LOOPBACK_HOST or not _is_os_selected_port_request(port):
         _raise_bind_failure()
-
-    if port == 0:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            probe.bind((LOOPBACK_HOST, 0))
-            port = int(probe.getsockname()[1])
-        except OSError:
-            _raise_bind_failure()
-        finally:
-            probe.close()
-    return f"http://{LOOPBACK_HOST}:{port}{_CALLBACK_PATH}"
+    try:
+        server = HTTPServer((LOOPBACK_HOST, 0), _UnconfiguredCallbackHandler)
+    except OSError:
+        _raise_bind_failure()
+    try:
+        actual_port = int(server.server_port)
+        redirect_uri = _format_live_redirect(actual_port)
+    except RedirectContractError:
+        server.server_close()
+        raise
+    return _BoundLoopbackRedirect(redirect_uri, actual_port, server)
 
 
 def validate_redirect_contract(
@@ -272,7 +332,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
 
 def start_one_shot_callback_listener(
-    redirect_uri: str | None = None,
+    redirect_uri: _BoundLoopbackRedirect | None = None,
     state: str | None = None,
     *,
     host: str = LOOPBACK_HOST,
@@ -280,39 +340,45 @@ def start_one_shot_callback_listener(
     timeout: float = 120.0,
 ) -> OneShotCallbackListener:
     """Bind and start one local callback listener before returning its exact URI."""
+    if host != LOOPBACK_HOST or not _is_os_selected_port_request(port):
+        _raise_bind_failure()
     if type(state) is not str or not state:
         raise RedirectContractError("STATE_MISMATCH")
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
         raise RedirectContractError("CALLBACK_EXPIRED")
-    if host != LOOPBACK_HOST or not _valid_port(port, allow_zero=True):
-        _raise_bind_failure()
 
-    expected = _canonical_redirect(redirect_uri) if redirect_uri is not None else None
-    if redirect_uri is not None and expected is None:
+    if redirect_uri is None:
+        bound_redirect = resolve_installed_redirect(host, port)
+    elif type(redirect_uri) is _BoundLoopbackRedirect:
+        bound_redirect = redirect_uri
+    else:
         raise RedirectContractError("REDIRECT_URI_MISSING")
-    if expected is not None:
-        if port not in (0, expected.port):
-            _raise_bind_failure()
-        port = expected.port
 
     listener_ref: list[OneShotCallbackListener] = []
 
     def handler(*args: Any, **kwargs: Any) -> None:
         _CallbackHandler(listener_ref[0], *args, **kwargs)
 
+    server: HTTPServer | None = None
     try:
-        server = HTTPServer((LOOPBACK_HOST, port), handler)
-    except OSError:
-        _raise_bind_failure()
-    actual_port = int(server.server_port)
-    actual_uri = resolve_installed_redirect(LOOPBACK_HOST, actual_port)
-    if expected is not None and expected.uri != actual_uri:
-        server.server_close()
-        _raise_bind_failure()
-    listener = OneShotCallbackListener(server, state, actual_uri, float(timeout))
-    listener_ref.append(listener)
-    listener.start()
-    return listener
+        server = bound_redirect.claim_server()
+        server.RequestHandlerClass = handler
+        listener = OneShotCallbackListener(
+            server,
+            state,
+            bound_redirect.redirect_uri,
+            float(timeout),
+        )
+        listener_ref.append(listener)
+        listener.start()
+        return listener
+    except Exception:
+        if server is None:
+            bound_redirect.close()
+        else:
+            server.server_close()
+            server.socket = None
+        raise
 
 
 def consume_callback_once(
