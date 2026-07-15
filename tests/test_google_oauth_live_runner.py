@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -367,3 +368,147 @@ def test_final_result_and_evidence_never_render_secret_values(tmp_path: Path):
     rendered = repr(result) + paths.evidence.read_text()
     for secret in (STATE, VERIFIER, CODE, "client-secret-value", "refresh-token-secret-value", "access-token-secret-value"):
         assert secret not in rendered
+
+
+def test_cli_help_exits_zero_without_dispatch_or_transient_files(tmp_path: Path, capsys):
+    module = load_module()
+    paths = make_paths(module, tmp_path)
+    dispatched = []
+
+    with pytest.raises(SystemExit) as exit_info:
+        module.main(
+            ["--help"],
+            runner=lambda **kwargs: dispatched.append(kwargs),
+            paths=paths,
+        )
+
+    assert exit_info.value.code == 0
+    assert dispatched == []
+    assert "execute-live" in capsys.readouterr().out
+    assert not paths.pending.exists()
+    assert not paths.candidate.exists()
+    assert not paths.url_handoff.exists()
+    assert not paths.evidence.exists()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["--unknown"],
+        ["--timeout", "not-a-number"],
+        ["--dry-run"],
+        ["--status"],
+    ],
+)
+def test_non_live_cli_paths_fail_closed_without_dispatch_or_transient_files(tmp_path: Path, capsys, argv):
+    module = load_module()
+    paths = make_paths(module, tmp_path)
+    dispatched = []
+
+    exit_code = module.main(argv, runner=lambda **kwargs: dispatched.append(kwargs), paths=paths)
+
+    rendered = capsys.readouterr().out
+    assert exit_code == 1
+    assert dispatched == []
+    assert "authorization" not in rendered.lower()
+    assert not paths.pending.exists()
+    assert not paths.candidate.exists()
+    assert not paths.url_handoff.exists()
+    assert not paths.evidence.exists()
+
+
+def test_cli_live_arming_requires_matching_baseline_hash_before_dispatch(tmp_path: Path, capsys):
+    module = load_module()
+    paths = make_paths(module, tmp_path)
+    paths.client_secret.write_text(json.dumps({"installed": {"client_id": "client-id"}}))
+    dispatched = []
+
+    exit_code = module.main(
+        ["--execute-live", "--expected-operational-sha256", "0" * 64],
+        runner=lambda **kwargs: dispatched.append(kwargs),
+        paths=paths,
+    )
+
+    assert exit_code == 1
+    assert dispatched == []
+    assert json.loads(capsys.readouterr().out)["invariant_code"] == "OPERATIONAL_TOKEN_HASH_MISMATCH"
+    assert not paths.pending.exists()
+    assert not paths.candidate.exists()
+    assert not paths.url_handoff.exists()
+    assert not paths.evidence.exists()
+
+
+def test_cli_dispatches_once_only_after_arming_validated_parameters(tmp_path: Path, capsys):
+    module = load_module()
+    paths = make_paths(module, tmp_path)
+    paths.client_secret.write_text(json.dumps({"installed": {"client_id": "client-id"}}))
+    expected_hash = hashlib.sha256(paths.operational_token.read_bytes()).hexdigest()
+    dispatched = []
+
+    def runner(**kwargs):
+        dispatched.append(kwargs)
+        return {"accepted": False, "invariant_code": "CALLBACK_EXPIRED", "exchange_attempted": False}
+
+    exit_code = module.main(
+        [
+            "--execute-live",
+            "--expected-operational-sha256",
+            expected_hash,
+            "--timeout",
+            "45",
+            "--pending-ttl",
+            "300",
+        ],
+        runner=runner,
+        paths=paths,
+    )
+
+    assert exit_code == 1
+    assert len(dispatched) == 1
+    assert dispatched[0]["paths"] == paths
+    assert dispatched[0]["timeout"] == 45.0
+    assert dispatched[0]["pending_ttl"] == 300.0
+    assert json.loads(capsys.readouterr().out)["invariant_code"] == "CALLBACK_EXPIRED"
+
+
+def test_default_evidence_is_temp_and_stale_evidence_requires_fresh_temp_output(tmp_path: Path, capsys):
+    module = load_module()
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    assert module.DEFAULT_EVIDENCE_PATH.resolve().is_relative_to(temp_root)
+    assert not module.DEFAULT_EVIDENCE_PATH.resolve().is_relative_to(ROOT.resolve())
+
+    paths = make_paths(module, tmp_path)
+    paths.client_secret.write_text(json.dumps({"installed": {"client_id": "client-id"}}))
+    paths.evidence.write_text("stale")
+    expected_hash = hashlib.sha256(paths.operational_token.read_bytes()).hexdigest()
+    dispatched = []
+
+    blocked = module.main(
+        ["--execute-live", "--expected-operational-sha256", expected_hash],
+        runner=lambda **kwargs: dispatched.append(kwargs),
+        paths=paths,
+    )
+
+    assert blocked == 1
+    assert dispatched == []
+    assert json.loads(capsys.readouterr().out)["invariant_code"] == "EVIDENCE_PRESENT"
+
+    fresh = temp_root / "GR_OAUTH_001_fresh_evidence.json"
+    if fresh.exists():
+        fresh.unlink()
+    dispatched_result = module.main(
+        [
+            "--execute-live",
+            "--expected-operational-sha256",
+            expected_hash,
+            "--fresh-output",
+            str(fresh),
+        ],
+        runner=lambda **kwargs: dispatched.append(kwargs) or {"accepted": False, "invariant_code": "CALLBACK_EXPIRED"},
+        paths=paths,
+    )
+
+    assert dispatched_result == 1
+    assert len(dispatched) == 1
+    assert dispatched[0]["paths"].evidence == fresh

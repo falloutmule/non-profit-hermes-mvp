@@ -8,13 +8,16 @@ repository: tests use fakes; operators must explicitly invoke the CLI.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
+import re
 import secrets
 import sys
+import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Final
@@ -51,7 +54,12 @@ except ImportError:  # pragma: no cover - direct script/module loading
 DEFAULT_PENDING_PATH: Final[Path] = TOKEN_PATH.with_name("google_oauth_pending.json")
 DEFAULT_CANDIDATE_PATH: Final[Path] = TOKEN_PATH.with_name("google_token.candidate.json")
 DEFAULT_HANDOFF_PATH: Final[Path] = TOKEN_PATH.with_name("google_oauth_url_handoff.json")
-DEFAULT_EVIDENCE_PATH: Final[Path] = Path(__file__).resolve().parents[1] / "GR_OAUTH_001_URL_EVIDENCE.json"
+DEFAULT_EVIDENCE_PATH: Final[Path] = Path(tempfile.gettempdir()) / "GR_OAUTH_001_URL_EVIDENCE.json"
+_MIN_TIMEOUT: Final[float] = 1.0
+_MAX_TIMEOUT: Final[float] = 300.0
+_MIN_PENDING_TTL: Final[float] = 60.0
+_MAX_PENDING_TTL: Final[float] = 3600.0
+_SHA256_RE: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class RunnerInvariantError(RuntimeError):
@@ -526,15 +534,102 @@ def run_guarded_oauth(
         handoff.clear()
 
 
-def main() -> int:
-    """Explicit CLI entry point; never prints an authorization URL or secret."""
-    result = run_guarded_oauth(
-        state_factory=lambda: secrets.token_urlsafe(32),
-        verifier_factory=lambda: secrets.token_urlsafe(48),
-        now=time.time,
+class _RedactedArgumentParser(argparse.ArgumentParser):
+    """Convert malformed operational input into a stable redacted result."""
+
+    def error(self, message: str) -> None:
+        del message
+        raise RunnerInvariantError("CLI_ARGUMENT_INVALID")
+
+
+def _build_cli_parser() -> argparse.ArgumentParser:
+    parser = _RedactedArgumentParser(
+        description="Run the explicitly armed one-shot OAuth recovery adapter.",
+        allow_abbrev=False,
     )
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result.get("accepted") is True else 1
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--execute-live", action="store_true", help="perform the one authorized live recovery attempt")
+    action.add_argument("--dry-run", action="store_true", help="validate command safety only; never performs OAuth")
+    action.add_argument("--status", action="store_true", help="return a redacted non-live status result")
+    parser.add_argument("--expected-operational-sha256", metavar="SHA256")
+    parser.add_argument("--timeout", type=float, default=120.0, metavar="SECONDS")
+    parser.add_argument("--pending-ttl", type=float, default=600.0, metavar="SECONDS")
+    parser.add_argument("--fresh-output", type=Path, metavar="TEMP_PATH")
+    return parser
+
+
+def _safe_cli_result(result: object) -> dict[str, object]:
+    """Allow only the runner's non-secret result fields onto the CLI."""
+    if type(result) is not dict:
+        return _redacted_result("RUNNER_RESULT_INVALID")
+    code = result.get("invariant_code")
+    if type(code) is not str or _SHA256_RE.fullmatch(code.lower()) is not None or not re.fullmatch(r"[A-Z_]{1,80}", code):
+        return _redacted_result("RUNNER_RESULT_INVALID")
+    return {
+        "accepted": result.get("accepted") is True,
+        "invariant_code": code,
+        "exchange_attempted": result.get("exchange_attempted") is True,
+    }
+
+
+def _emit_cli_result(result: object) -> int:
+    safe_result = _safe_cli_result(result)
+    print(json.dumps(safe_result, sort_keys=True))
+    return 0 if safe_result["accepted"] is True else 1
+
+
+def _fresh_temp_output(path: Path) -> Path | None:
+    candidate = path.expanduser().resolve()
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    try:
+        candidate.relative_to(temp_root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    runner: Callable[..., dict[str, object]] = run_guarded_oauth,
+    paths: RunnerPaths = DEFAULT_PATHS,
+) -> int:
+    """Require explicit arming before any live OAuth preflight or listener work."""
+    try:
+        args = _build_cli_parser().parse_args(argv)
+    except RunnerInvariantError as error:
+        return _emit_cli_result(_redacted_result(error.code))
+
+    if not args.execute_live:
+        return _emit_cli_result(_redacted_result("LIVE_EXECUTION_NOT_ARMED"))
+    if type(args.expected_operational_sha256) is not str or not _SHA256_RE.fullmatch(args.expected_operational_sha256):
+        return _emit_cli_result(_redacted_result("OPERATIONAL_TOKEN_HASH_REQUIRED"))
+    if not _MIN_TIMEOUT <= args.timeout <= _MAX_TIMEOUT or not _MIN_PENDING_TTL <= args.pending_ttl <= _MAX_PENDING_TTL:
+        return _emit_cli_result(_redacted_result("CLI_ARGUMENT_INVALID"))
+
+    effective_paths = paths
+    if args.fresh_output is not None:
+        fresh_output = _fresh_temp_output(args.fresh_output)
+        if fresh_output is None or fresh_output.exists():
+            return _emit_cli_result(_redacted_result("FRESH_OUTPUT_INVALID"))
+        effective_paths = replace(paths, evidence=fresh_output)
+
+    try:
+        _, baseline_hash = _preflight(effective_paths)
+    except RunnerInvariantError as error:
+        return _emit_cli_result(_redacted_result(error.code))
+    if baseline_hash != args.expected_operational_sha256:
+        return _emit_cli_result(_redacted_result("OPERATIONAL_TOKEN_HASH_MISMATCH"))
+    if effective_paths.evidence.exists():
+        return _emit_cli_result(_redacted_result("EVIDENCE_PRESENT"))
+
+    return _emit_cli_result(
+        runner(
+            paths=effective_paths,
+            timeout=args.timeout,
+            pending_ttl=args.pending_ttl,
+        )
+    )
 
 
 run_live_oauth_recovery = run_guarded_oauth
