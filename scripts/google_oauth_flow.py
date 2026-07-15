@@ -108,7 +108,7 @@ def run_oauth_exchange(
         return _result(False, "OPAQUE_VALUE_GENERATION_FAILED", exchange_attempted=False)
 
     listener = None
-    pending_saved = False
+    pending_cleanup_required = False
     try:
         try:
             # This is the first external seam: it must bind/start port zero before
@@ -122,29 +122,30 @@ def run_oauth_exchange(
             return _result(False, "REDIRECT_URI_MISSING", exchange_attempted=False)
 
         try:
-            flow = flow_factory(
-                redirect_uri=listener_uri,
-                scopes=scopes,
-                state=state,
-                verifier=verifier,
-            )
-            # Construct the authorization request after binding.  Its returned
-            # URL is deliberately discarded and never crosses this API boundary.
-            flow.authorization_url()
-        except Exception:
-            return _result(False, "AUTHORIZATION_CONSTRUCTION_FAILED", exchange_attempted=False)
-
-        try:
             pending = PendingOAuthSession(
                 redirect_uri=listener_uri,
                 state=state,
                 verifier=verifier,
                 expires_at=float(now()) + float(pending_ttl),
             )
+            pending_cleanup_required = True
             pending_store.save(pending)
-            pending_saved = True
         except Exception:
             return _result(False, "PENDING_SESSION_SAVE_FAILED", exchange_attempted=False)
+
+        try:
+            flow = flow_factory(
+                redirect_uri=listener_uri,
+                scopes=scopes,
+                state=state,
+                verifier=verifier,
+            )
+            # Construct the authorization request after binding and pending
+            # persistence.  Its returned URL is deliberately discarded and
+            # never crosses this API boundary.
+            flow.authorization_url()
+        except Exception:
+            return _result(False, "AUTHORIZATION_CONSTRUCTION_FAILED", exchange_attempted=False)
 
         try:
             callback = listener.wait(timeout=timeout)
@@ -206,7 +207,7 @@ def run_oauth_exchange(
             return _result(False, "EXCHANGE_FAILED", exchange_attempted=True)
         return _result(True, "EXCHANGE_COMPLETED", exchange_attempted=True)
     finally:
-        if pending_saved:
+        if pending_cleanup_required:
             try:
                 pending_store.clear()
             except Exception:

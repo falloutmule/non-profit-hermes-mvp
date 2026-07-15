@@ -64,16 +64,26 @@ class FakeListener:
 
 
 class FakeFlow:
-    def __init__(self, redirect_uri: str, scopes: frozenset[str], events: list[str]):
+    def __init__(
+        self,
+        redirect_uri: str,
+        scopes: frozenset[str],
+        events: list[str],
+        *,
+        authorization_url_error=None,
+    ):
         self.authorization_redirect_uri = redirect_uri
         self.exchange_redirect_uri = redirect_uri
         self.scopes = scopes
         self._events = events
+        self.authorization_url_error = authorization_url_error
         self.authorization_url_calls = 0
 
     def authorization_url(self):
         self.authorization_url_calls += 1
         self._events.append("authorization_url")
+        if self.authorization_url_error is not None:
+            raise self.authorization_url_error
         return "synthetic-url-without-being-returned"
 
 
@@ -84,10 +94,14 @@ class FakePendingStore:
         *,
         state_override=_UNSET,
         verifier_override=_UNSET,
+        save_error=None,
+        events=None,
     ):
         self.redirect_override = redirect_override
         self.state_override = state_override
         self.verifier_override = verifier_override
+        self.save_error = save_error
+        self.shared_events = events
         self.payload = None
         self.save_calls = 0
         self.load_calls = 0
@@ -111,6 +125,10 @@ class FakePendingStore:
         self.payload = payload
         self.saved_payloads.append(payload)
         self.events.append("save")
+        if self.shared_events is not None:
+            self.shared_events.append("save")
+        if self.save_error is not None:
+            raise self.save_error
 
     def load(self):
         self.load_calls += 1
@@ -149,6 +167,7 @@ def make_run(
     pending_state=_UNSET,
     pending_verifier=_UNSET,
     now_values=(100.0, 100.0),
+    authorization_url_error=None,
 ):
     events: list[str] = []
     listener = FakeListener(callback or accepted_result())
@@ -156,6 +175,7 @@ def make_run(
         pending_redirect,
         state_override=pending_state,
         verifier_override=pending_verifier,
+        events=events,
     )
     exchange = FakeExchange()
 
@@ -171,7 +191,12 @@ def make_run(
         assert redirect_uri == REDIRECT
         assert state == STATE
         assert verifier == VERIFIER
-        return FakeFlow(flow_redirect, scopes, events)
+        return FakeFlow(
+            flow_redirect,
+            scopes,
+            events,
+            authorization_url_error=authorization_url_error,
+        )
 
     now_calls = iter(now_values)
     result = module.run_oauth_exchange(
@@ -193,7 +218,7 @@ def test_success_binds_before_factory_and_reuses_exact_uri_through_one_exchange(
     result, listener, store, exchange, events = make_run(module)
 
     assert result == {"accepted": True, "invariant_code": "EXCHANGE_COMPLETED", "exchange_attempted": True}
-    assert events[:2] == ["listener_started", "flow_factory"]
+    assert events == ["listener_started", "save", "flow_factory", "authorization_url"]
     assert listener.close_calls == 1
     assert listener.wait_calls == 1
     assert store.save_calls == 1
@@ -204,6 +229,97 @@ def test_success_binds_before_factory_and_reuses_exact_uri_through_one_exchange(
     assert store.saved_payloads[0].verifier == VERIFIER
     assert exchange.calls == [(CODE, REDIRECT, VERIFIER)]
     assert store.events == ["save", "clear"]
+
+
+def test_authorization_construction_is_reached_only_after_pending_session_is_saved():
+    module = load_module()
+    events: list[str] = []
+    listener = FakeListener(accepted_result())
+    store = FakePendingStore(events=events)
+    exchange = FakeExchange()
+
+    def listener_factory(**kwargs):
+        del kwargs
+        events.append("listener_started")
+        return listener
+
+    def flow_factory(*, redirect_uri, scopes, state, verifier):
+        del redirect_uri, scopes, state, verifier
+        events.append("flow_factory")
+        assert store.payload is not None
+        assert events == ["listener_started", "save", "flow_factory"]
+        return FakeFlow(REDIRECT, SCOPES, events)
+
+    result = module.run_oauth_exchange(
+        scopes=SCOPES,
+        listener_factory=listener_factory,
+        flow_factory=flow_factory,
+        pending_store=store,
+        exchange=exchange,
+        state_factory=lambda: STATE,
+        verifier_factory=lambda: VERIFIER,
+        now=lambda: 100.0,
+    )
+
+    assert result["accepted"] is True
+    assert events == ["listener_started", "save", "flow_factory", "authorization_url"]
+
+
+def test_pending_save_failure_blocks_authorization_construction_and_cleans_up():
+    module = load_module()
+    events: list[str] = []
+    listener = FakeListener(accepted_result())
+    store = FakePendingStore(save_error=RuntimeError("synthetic save failure"), events=events)
+    flow_factory_calls = []
+    exchange = FakeExchange()
+
+    def flow_factory(**kwargs):
+        flow_factory_calls.append(kwargs)
+        return FakeFlow(REDIRECT, SCOPES, events)
+
+    result = module.run_oauth_exchange(
+        scopes=SCOPES,
+        listener_factory=lambda **kwargs: listener,
+        flow_factory=flow_factory,
+        pending_store=store,
+        exchange=exchange,
+        state_factory=lambda: STATE,
+        verifier_factory=lambda: VERIFIER,
+        now=lambda: 100.0,
+    )
+
+    assert result == {
+        "accepted": False,
+        "invariant_code": "PENDING_SESSION_SAVE_FAILED",
+        "exchange_attempted": False,
+    }
+    assert flow_factory_calls == []
+    assert exchange.calls == []
+    assert listener.close_calls == 1
+    assert store.clear_calls == 1
+    assert store.payload is None
+    assert events == ["save"]
+
+
+def test_authorization_url_failure_after_save_cleans_up_pending_session_and_listener():
+    module = load_module()
+    result, listener, store, exchange, events = make_run(
+        module,
+        authorization_url_error=RuntimeError("synthetic authorization URL failure"),
+    )
+
+    assert result == {
+        "accepted": False,
+        "invariant_code": "AUTHORIZATION_CONSTRUCTION_FAILED",
+        "exchange_attempted": False,
+    }
+    assert events == ["listener_started", "save", "flow_factory", "authorization_url"]
+    assert store.save_calls == 1
+    assert store.clear_calls == 1
+    assert store.payload is None
+    assert listener.close_calls == 1
+    assert listener.wait_calls == 0
+    assert exchange.calls == []
 
 
 def test_exact_immutable_scope_set_is_passed_without_narrowing_or_mutation():
@@ -303,7 +419,7 @@ def test_authorization_and_exchange_redirect_mismatch_blocks_exchange():
     assert exchange.calls == []
     assert listener.close_calls == 1
     assert store.clear_calls == 1
-    assert events[:2] == ["listener_started", "flow_factory"]
+    assert events == ["listener_started", "save", "flow_factory", "authorization_url"]
 
 
 def test_flow_factory_error_is_redacted_and_cleans_up_listener_and_pending():
@@ -328,7 +444,8 @@ def test_flow_factory_error_is_redacted_and_cleans_up_listener_and_pending():
 
     assert result == {"accepted": False, "invariant_code": "AUTHORIZATION_CONSTRUCTION_FAILED", "exchange_attempted": False}
     assert listener.close_calls == 1
-    assert store.clear_calls == 0
+    assert store.save_calls == 1
+    assert store.clear_calls == 1
     assert exchange.calls == []
     assert STATE not in repr(result)
     assert VERIFIER not in repr(result)
