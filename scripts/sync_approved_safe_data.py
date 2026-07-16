@@ -40,6 +40,7 @@ from non_profit_hermes_schema import (
     is_terminal_status,
     TAB_ORDER,
 )
+from google_oauth_refresh import refresh_and_persist_credential
 
 ROOT = Path(r"C:\Users\fallo\non-profit-hermes-mvp")
 DOCS = ROOT / "docs"
@@ -111,9 +112,10 @@ def creds(*, persist_refresh: bool = True) -> Credentials:
     """Load credentials, refreshing in memory unless persistence is requested."""
     c = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
     if c.expired and c.refresh_token:
-        c.refresh(Request())
         if persist_refresh:
-            TOKEN.write_text(json.dumps(json.loads(c.to_json()), indent=2))
+            refresh_and_persist_credential(c, Request(), TOKEN, SCOPES)
+        else:
+            c.refresh(Request())
     return c
 
 

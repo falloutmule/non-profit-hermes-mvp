@@ -19,25 +19,41 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path]:
     (plugin / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
     manifest = {
         "version": 1,
-        "plugins": [{"name": "demo", "directory": "non-profit-hermes-demo", "files": [
-            {"path": "__init__.py", "sha256": "b6c11985b7720c15580c1b1dac6a53b12254777518f0d8ea5b6892c8e768e90e"},
-            {"path": "plugin.yaml", "sha256": "cb2d32547da87ed7b8b831d616a75f2be75eef2aee08bbb6bf9aecdf08d7f20a"},
-        ], "mutable_paths": ["__pycache__/**"]}],
+        "plugins": [
+            {
+                "name": "demo",
+                "directory": "non-profit-hermes-demo",
+                "files": [
+                    {"path": "__init__.py", "sha256": "b6c11985b7720c15580c1b1dac6a53b12254777518f0d8ea5b6892c8e768e90e"},
+                    {"path": "plugin.yaml", "sha256": "cb2d32547da87ed7b8b831d616a75f2be75eef2aee08bbb6bf9aecdf08d7f20a"},
+                ],
+                "mutable_paths": ["__pycache__/**"],
+            }
+        ],
     }
     # hashes are corrected by the production tool in the test setup itself.
     import hashlib
+
     for item in manifest["plugins"][0]["files"]:
         item["sha256"] = hashlib.sha256((plugin / item["path"]).read_bytes()).hexdigest()
+
     (tmp_path / "RUNTIME_PLUGIN_MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+
     target = installed / "non-profit-hermes-demo"
     target.mkdir(parents=True)
     for path in ("__init__.py", "plugin.yaml"):
         (target / path).write_bytes((plugin / path).read_bytes())
+
     return tmp_path, installed
 
 
 def run_checker(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, str(CHECKER), "--repo-root", str(repo), *args], text=True, capture_output=True, check=False)
+    return subprocess.run(
+        [sys.executable, str(CHECKER), "--repo-root", str(repo), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 def test_json_reports_match_and_expected_bytecode_derivation(tmp_path: Path):
@@ -63,6 +79,17 @@ def test_strict_fails_for_unexplained_drift_but_checker_never_writes(tmp_path: P
     assert candidate.stat().st_mtime_ns >= before
 
 
+def test_strict_fails_for_unexpected_file(tmp_path: Path):
+    repo, installed = make_fixture(tmp_path)
+    extra = installed / "non-profit-hermes-demo" / "unexpected.txt"
+    extra.write_text("extra\n", encoding="utf-8")
+    result = run_checker(repo, "--installed-root", str(installed), "--strict", "--json")
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["plugins"][0]["classification"] == "UNEXPLAINED DRIFT"
+    assert "extra: unexpected.txt" in payload["plugins"][0]["details"]["unexplained"]
+
+
 def test_explained_mutable_state_and_untested_are_classified(tmp_path: Path):
     repo, installed = make_fixture(tmp_path)
     manifest_path = repo / "RUNTIME_PLUGIN_MANIFEST.json"
@@ -82,7 +109,8 @@ def test_explained_mutable_state_and_untested_are_classified(tmp_path: Path):
 def test_missing_plugin_is_reported(tmp_path: Path):
     repo, installed = make_fixture(tmp_path)
     for item in installed.rglob("*"):
-        if item.is_file(): item.unlink()
+        if item.is_file():
+            item.unlink()
     (installed / "non-profit-hermes-demo").rmdir()
     result = run_checker(repo, "--installed-root", str(installed), "--json")
     assert result.returncode == 0

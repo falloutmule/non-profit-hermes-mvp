@@ -1,8 +1,16 @@
 # Security and Privacy — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-12 (EVENT-004 post-capture documentation reconciliation; see `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md`)
+**Canonical security update:** 2026-07-15. `GOOGLE_RECONNECT_REPORT.md` and `CLEANUP_MILESTONE_INDEX.md` are the current recovery/cleanup evidence index. Retained EVENT material below is historical and is not a current permission.
 
-## Privacy model
+## Current recovery and inventory safety boundary
+
+- No document may contain private inventory values, credential values, client secrets, authorization codes, PKCE verifier material, raw callbacks, raw authorization URLs, or token responses. The final reports use only counts, controlled statuses, safe artifact paths, and SHA-256 fingerprints.
+- Recovery acceptance requires the exact eight source-defined scopes, deterministic candidate validation, ACL equivalence, unchanged operational baseline until promotion, and fail-closed validation before mutation.
+- The current credential loaders are not transactional durable-refresh implementations. The separate recovery promotion helper's restricted atomic swap and rollback semantics must not be attributed to them.
+- The R2 inventory used in-memory refresh only for bounded reads and recorded zero mutations. Its 180 unknown/manual records remain a human-review problem; no archive or delete is authorized.
+- Gateway restart and independently validated deployed runtime are untested. No plugin deployment, publication, push, merge, archive, or delete occurred in this documentation phase.
+
+## Retained privacy model
 
 Privacy is a hard gate, not a formatting preference. Exact locations, full names, phone numbers, addresses, medical, addiction, legal, family-crisis, immigration, police, and interpersonal-conflict details, plus identifying photos, must not appear in GitHub Pages, `docs/`, or another public surface unless a human has approved the exact safe text.
 

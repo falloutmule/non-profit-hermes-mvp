@@ -21,6 +21,28 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def git_blob_bytes(repo: Path, path: Path) -> bytes:
+    try:
+        relative = path.relative_to(repo).as_posix()
+    except ValueError:
+        return path.read_bytes()
+    result = subprocess.run(
+        ["git", "-C", str(repo), "show", f"HEAD:{relative}"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return path.read_bytes()
+    return result.stdout
+
+
+def verify_with_git_blobs(repo: Path, path: Path, expected: str) -> None:
+    if digest(path) == expected:
+        return
+    if hashlib.sha256(git_blob_bytes(repo, path)).hexdigest() != expected:
+        raise ValueError(f"manifest verification failed: {path.as_posix()}")
+
+
 def matches(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(path, pattern.replace("/**", "/*")) for pattern in patterns)
 
@@ -30,7 +52,11 @@ def verify(repo: Path, manifest: dict) -> None:
         root = repo / "runtime_plugins" / plugin["directory"]
         for entry in plugin["files"]:
             path = root / entry["path"]
-            if not path.is_file() or digest(path) != entry["sha256"]:
+            if not path.is_file():
+                raise ValueError(f"manifest verification failed: {plugin['name']}/{entry['path']}")
+            try:
+                verify_with_git_blobs(repo, path, entry["sha256"])
+            except ValueError:
                 raise ValueError(f"manifest verification failed: {plugin['name']}/{entry['path']}")
 
 
@@ -51,10 +77,16 @@ def copy_mutable(existing: Path, staging: Path, patterns: list[str]) -> None:
             shutil.copy2(item, destination)
 
 
-def build_staging(source: Path, existing: Path, parent: Path, mutable: list[str]) -> Path:
+def build_staging(source: Path, existing: Path, parent: Path, mutable: list[str], plugin: dict) -> Path:
     stage = Path(tempfile.mkdtemp(prefix=".cleanup_004_stage_", dir=parent))
     try:
         shutil.copytree(source, stage, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        repo_root = source.parent.parent
+        for entry in plugin["files"]:
+            destination = stage / entry["path"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source_file = source / entry["path"]
+            destination.write_bytes(git_blob_bytes(repo_root, source_file))
         copy_mutable(existing, stage, mutable)
         return stage
     except Exception:
@@ -62,9 +94,9 @@ def build_staging(source: Path, existing: Path, parent: Path, mutable: list[str]
         raise
 
 
-def atomic_install(source: Path, target: Path, backup_root: Path, mutable: list[str]) -> Path | None:
+def atomic_install(source: Path, target: Path, backup_root: Path, mutable: list[str], plugin: dict) -> Path | None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    stage = build_staging(source, target, target.parent, mutable)
+    stage = build_staging(source, target, target.parent, mutable, plugin)
     backup = None
     try:
         if target.exists():
@@ -91,9 +123,13 @@ def main() -> int:
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--target-root", type=Path, help="required destination plugin root for --apply")
     parser.add_argument("--apply", action="store_true", help="perform writes; omit for dry-run")
+    parser.add_argument("--dry-run", action="store_true", help="explicit no-op run; this is the default")
     parser.add_argument("--live", action="store_true", help="permit a live Hermes plugin root (never implied)")
     parser.add_argument("--allow-dirty-git", action="store_true", help="override dirty-worktree protection")
     args = parser.parse_args()
+    if args.apply and args.dry_run:
+        print("--apply and --dry-run cannot be combined", file=sys.stderr)
+        return 2
     repo = args.repo_root.resolve()
     manifest = json.loads((repo / "RUNTIME_PLUGIN_MANIFEST.json").read_text(encoding="utf-8"))
     try:
@@ -101,7 +137,9 @@ def main() -> int:
     except (ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    if not args.apply:
+    if args.apply:
+        pass
+    elif args.dry_run or not args.apply:
         print("DRY-RUN: manifest verified; no files will be written.")
         for plugin in manifest["plugins"]:
             print(f"would install {plugin['directory']}")
@@ -122,7 +160,7 @@ def main() -> int:
         return 2
     for plugin in manifest["plugins"]:
         source = repo / "runtime_plugins" / plugin["directory"]
-        backup = atomic_install(source, target_root / plugin["directory"], target_root / ".cleanup_004_backups", plugin.get("mutable_paths", []))
+        backup = atomic_install(source, target_root / plugin["directory"], target_root / ".cleanup_004_backups", plugin.get("mutable_paths", []), plugin)
         print(f"INSTALLED {plugin['directory']} backup={backup or 'none'}")
     return 0
 

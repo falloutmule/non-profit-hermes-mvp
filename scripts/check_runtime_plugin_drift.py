@@ -7,6 +7,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 
 LIVE_ROOT = Path.home() / "AppData" / "Local" / "hermes" / "plugins"
@@ -15,6 +16,30 @@ VALID = {"MATCH", "EXPECTED DERIVATION", "EXPLAINED MUTABLE STATE", "UNEXPLAINED
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def canonical_source_bytes(repo: Path, source: Path) -> bytes:
+    """Return a tracked source identity while allowing only Git's exact CRLF checkout form."""
+    checkout = source.read_bytes()
+    try:
+        relative = source.relative_to(repo).as_posix()
+    except ValueError:
+        return checkout
+    try:
+        tracked = subprocess.run(
+            ["git", "-C", str(repo), "show", f"HEAD:{relative}"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return checkout
+    if tracked.returncode != 0:
+        return checkout
+    if checkout == tracked.stdout:
+        return tracked.stdout
+    if b"\x0d" not in tracked.stdout and checkout == tracked.stdout.replace(b"\x0a", b"\x0d\x0a"):
+        return tracked.stdout
+    return checkout
 
 
 def matches(path: str, patterns: list[str]) -> bool:
@@ -37,7 +62,7 @@ def inspect_plugin(repo: Path, installed_root: Path, plugin: dict) -> dict:
         actual = installed / relative
         if not source.is_file() or not actual.is_file():
             result["details"]["missing"].append(relative)
-        elif digest(source) != wanted:
+        elif hashlib.sha256(canonical_source_bytes(repo, source)).hexdigest() != wanted:
             result["details"]["unexplained"].append(f"canonical manifest mismatch: {relative}")
         elif digest(actual) != wanted:
             result["details"]["unexplained"].append(relative)

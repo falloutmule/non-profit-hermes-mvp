@@ -1,8 +1,16 @@
 # Project Status — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-12 (EVENT-004 closeout; see `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md`)
+**Canonical status updated:** 2026-07-15 — Google recovery and CLEANUP-007 documentation closeout. See `CLEANUP_MILESTONE_INDEX.md` and `GOOGLE_RECONNECT_REPORT.md` for the current evidence boundary.
 
-## Current repository state
+## Current canonical recovery and cleanup state
+
+- Recovery repairs are integrated at `dc2ef634c4af117ebfc1c024c9608a257318384d`; GR-CHECK-001 (`t_ed2752a1`) completed PASS on the redacted recovery chain, including one successful callback/exchange, accepted exact-scope candidate, guarded promotion, and post-promotion reads.
+- CLEANUP-006C and CLEANUP-007C are integrated at the checked documentation base `af2149648b78ae2b05004b632c5b399c4b35d9d9`; their source checkers completed PASS.
+- CLEANUP-007B-R2 checker `t_51a5542e` completed PASS: 182 records, one abandoned-draft review, one evidence retain, 180 unknown/manual, five confirmed exact Calendar IDs per pass, and zero mutation.
+- Current retention decision is zero changes. No archive, delete, publication, gateway restart, plugin deployment, push, or merge is authorized by status documentation.
+- Gateway/runtime validation remains untested; durable refresh in the current loaders remains non-atomic. Query Git for the current revision rather than treating historical branch references below as live status.
+
+## Retained historical repository status
 
 | Item | Value |
 |---|---|

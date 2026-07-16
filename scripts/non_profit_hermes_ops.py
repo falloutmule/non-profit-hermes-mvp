@@ -50,6 +50,7 @@ from non_profit_hermes_schema import (
     is_public_status,
     is_terminal_status,
 )
+from google_oauth_refresh import refresh_and_persist_credential
 
 # ── Shared config ────────────────────────────────────────────────────────────
 
@@ -124,8 +125,7 @@ def _calendar_event_exists(svc_cal, title: str) -> str | None:
 def get_creds() -> Credentials:
     c = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
     if c.expired and c.refresh_token:
-        c.refresh(Request())
-        TOKEN.write_text(json.dumps(json.loads(c.to_json()), indent=2))
+        refresh_and_persist_credential(c, Request(), TOKEN, SCOPES)
     return c
 
 
