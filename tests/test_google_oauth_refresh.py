@@ -337,6 +337,30 @@ def test_concurrent_refresh_lock_prevents_any_promotion_mutation(tmp_path: Path)
     assert prepared.candidate.exists()
 
 
+def test_lock_write_failure_removes_stale_lock_and_preserves_operational_token(tmp_path: Path, monkeypatch) -> None:
+    refresh = load_module()
+    operational, prepared, credential = make_prepared(refresh, tmp_path)
+    original = operational.read_bytes()
+    lock = operational.with_name(f".{operational.name}.refresh.lock")
+
+    monkeypatch.setattr(refresh.os, "write", lambda *_args: (_ for _ in ()).throw(OSError("synthetic lock write failure")))
+
+    with pytest.raises(refresh.RefreshPersistenceError) as error:
+        refresh.promote_refresh_candidate_atomically(
+            prepared,
+            validate(refresh, prepared, credential),
+            backup_path=tmp_path / "backup.json",
+            candidate_preparer=fake_prepare,
+            snapshotter=snapshotter,
+            flusher=no_flush,
+        )
+
+    assert error.value.code == "LOCK_FAILED"
+    assert operational.read_bytes() == original
+    assert prepared.candidate.exists()
+    assert not lock.exists()
+
+
 def test_operational_token_is_unchanged_until_promotion(tmp_path: Path) -> None:
     refresh = load_module()
     operational, prepared, credential = make_prepared(refresh, tmp_path)
@@ -356,6 +380,41 @@ def test_secret_free_evidence_never_renders_credential_values(tmp_path: Path) ->
     assert sentinel not in evidence
     assert "synthetic-access-token" not in evidence
     assert "expected-client" not in evidence
+
+
+def test_integrated_replace_failure_cleans_temporary_candidate_and_lock(tmp_path: Path) -> None:
+    refresh = load_module()
+    operational = tmp_path / "google_token.json"
+    original = json.dumps({"client_id": "expected-client", "refresh_token": "original", "scopes": SCOPES}).encode("utf-8")
+    operational.write_bytes(original)
+    candidate = tmp_path / "candidate.json"
+    backup = tmp_path / "backup.json"
+
+    def fail_candidate_replace(source, destination):
+        if Path(source) == candidate:
+            raise OSError("synthetic replacement failure")
+        os.replace(source, destination)
+
+    with pytest.raises(refresh.RefreshPersistenceError) as error:
+        refresh.refresh_and_persist_credential(
+            FakeCredential(),
+            object(),
+            operational,
+            SCOPES,
+            candidate_path=candidate,
+            backup_path=backup,
+            candidate_preparer=fake_prepare,
+            snapshotter=snapshotter,
+            flusher=no_flush,
+            credential_loader=lambda _info, _scopes: FakeCredential(),
+            replacer=fail_candidate_replace,
+        )
+
+    assert error.value.code == "PROMOTION_FAILED"
+    assert operational.read_bytes() == original
+    assert not candidate.exists()
+    assert not backup.exists()
+    assert not operational.with_name(f".{operational.name}.refresh.lock").exists()
 
 
 def test_integrated_refresh_is_in_memory_until_atomic_promotion(tmp_path: Path) -> None:

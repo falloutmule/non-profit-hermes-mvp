@@ -172,6 +172,12 @@ class _RefreshLock:
         except FileExistsError as exc:
             raise RefreshPersistenceError("CONCURRENT_REFRESH") from exc
         except OSError as exc:
+            if self._descriptor is not None:
+                try:
+                    os.close(self._descriptor)
+                finally:
+                    self._descriptor = None
+                    _cleanup(self.path)
             raise RefreshPersistenceError("LOCK_FAILED") from exc
         return self
 
@@ -417,25 +423,27 @@ def refresh_and_persist_credential(
         snapshotter=snapshotter,
         flusher=flusher,
     )
-    validation = validate_refresh_candidate(
-        prepared,
-        credential,
-        credential_loader=credential_loader,
-        snapshotter=snapshotter,
-    )
-    if not validation.accepted:
+    try:
+        validation = validate_refresh_candidate(
+            prepared,
+            credential,
+            credential_loader=credential_loader,
+            snapshotter=snapshotter,
+        )
+        if not validation.accepted:
+            raise RefreshPersistenceError(validation.invariant_code)
+        promote_refresh_candidate_atomically(
+            prepared,
+            validation,
+            backup_path=backup_path,
+            candidate_preparer=candidate_preparer,
+            snapshotter=snapshotter,
+            replacer=replacer,
+            flusher=flusher,
+            post_replace_validator=post_replace_validator,
+        )
+    finally:
         _cleanup(prepared.candidate)
-        raise RefreshPersistenceError(validation.invariant_code)
-    promote_refresh_candidate_atomically(
-        prepared,
-        validation,
-        backup_path=backup_path,
-        candidate_preparer=candidate_preparer,
-        snapshotter=snapshotter,
-        replacer=replacer,
-        flusher=flusher,
-        post_replace_validator=post_replace_validator,
-    )
     return credential
 
 
