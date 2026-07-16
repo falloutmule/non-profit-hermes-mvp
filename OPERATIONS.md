@@ -1,8 +1,16 @@
 # Operations — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-12 (EVENT-004 post-capture documentation reconciliation; see `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md`)
+**Canonical operations boundary updated:** 2026-07-15. The current Google recovery/cleanup position is in `GOOGLE_RECONNECT_REPORT.md` and `CLEANUP_MILESTONE_INDEX.md`; retained EVENT sections below are historical evidence, not standing authorization.
 
-## Daily operations and publication boundary
+## Current recovery and cleanup operating boundary
+
+- Recovery evidence supports one completed guarded callback/exchange, accepted candidate, restricted atomic promotion, and bounded post-promotion reads. Do not repeat or extend it without a new authorization.
+- CLEANUP-007B-R2 is read-only and counts-only: 182 records remain unchanged; the current plan authorizes zero changes and 180 records require manual review.
+- A cancelled Calendar tombstone with zero active exact-ID matches is a completed lifecycle result, not an instruction to recreate or mutate an event.
+- Current durable-refresh loaders are non-atomic. In-memory refresh was verified only for bounded read-only work and did not change the token file.
+- Do not restart the gateway, deploy a plugin, publish, push, merge, archive, or delete under this documentation closeout. Those actions require separately scoped human authorization and verification.
+
+## Retained historical daily operations and publication boundary
 
 `/daily` is live for operations summaries. CLEANUP-003 is complete and keeps it in read-only in-memory state; it does not generate or mutate publication output.
 
