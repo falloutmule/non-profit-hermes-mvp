@@ -1,0 +1,20 @@
+model: openai-codex/gpt-5.6-sol
+compression:
+  enabled: true
+context:
+  engine: compressor
+privacy:
+  redact_pii: true
+security:
+  redact_secrets: true
+plugins:
+  enabled:
+    - non-profit-hermes
+  disabled:
+    - non-profit-hermes-daily
+    - non-profit-hermes-need
+    - non-profit-hermes-donation
+    - non-profit-hermes-report
+    - non-profit-hermes-task
+    - non-profit-hermes-inventory
+    - non-profit-hermes-event

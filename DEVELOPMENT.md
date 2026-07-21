@@ -13,13 +13,17 @@ Current source assumes:
 - Git;
 - Hermes Agent for runtime integration.
 
-The repository now has `pyproject.toml`, the importable `non_profit_hermes` package, and the canonical unified v1.0.0 plugin. Profile-distribution, runtime-doctor, clean-install, and production-migration acceptance remain later gates.
+The repository has `pyproject.toml`, the importable `non_profit_hermes` package, the canonical unified v1.0.0 plugin, and a supported root-level v1.0.0 Hermes profile distribution. Runtime-doctor, clean-machine, independent-checker, and production-migration acceptance remain later gates.
 
 ## Source layout
 
 ```text
 non_profit_hermes/                 portable package-owned runtime behavior
 plugins/non-profit-hermes/         canonical unified v1.0.0 seven-command plugin
+distribution.yaml                  supported profile-distribution manifest
+SOUL.md                            sanitized nonprofit operating identity
+config.yaml                        secret-free profile defaults
+skills/non-profit-hermes/          bundled seven-command operating skill
 scripts/
   telegram_intake_router.py        compatibility entrypoint for command routing
   non_profit_hermes_ops.py         compatibility entrypoint for operations
@@ -46,7 +50,7 @@ python -m pytest -q
 Current verified baseline:
 
 ```text
-323 passed, 69 subtests passed
+335 passed, 69 subtests passed
 ```
 
 Focused read-only daily lane:
@@ -62,6 +66,13 @@ Additional static checks:
 ```bash
 python -m py_compile scripts/*.py tests/*.py
 git diff --check
+```
+
+Focused distribution/package/plugin lane:
+
+```bash
+python -m pytest -q tests/test_profile_distribution.py tests/test_unified_plugin.py tests/test_portable_package_integration.py
+python -m py_compile non_profit_hermes/*.py plugins/non-profit-hermes/*.py tests/test_profile_distribution.py
 ```
 
 `pytest.ini` limits collection to `tests/` and excludes linked `worktrees/`. Do not weaken this policy or run an alternate lane as a substitute for the required root command.
@@ -122,6 +133,16 @@ Default installer and checker mode is `unified`; `--mode legacy` selects only th
 
 `docs/` and `docs/data/` are generated public output. Do not hand-edit them. A task that changes generation must run the generator only when production-data reads and generated-file changes are authorized, review exact source/output parity, and test the release artifact. This documentation-only reconciliation intentionally leaves `docs/` unchanged.
 
-## Packaging work in progress
+## Profile distribution development
 
-The importable `non_profit_hermes` package and unified seven-command plugin now exist in source and have offline builder verification. An installable secret-free profile distribution, deterministic doctor, clean-install acceptance, independent checker verdict, and production migration remain pending. Do not describe the unified plugin as installed, enabled, live-migrated, or production-accepted until those later gates pass.
+The repository root is the distribution root. `distribution.yaml`, `SOUL.md`, `config.yaml`, `skills/non-profit-hermes/`, and `plugins/non-profit-hermes/` are the authored payload. A `profile/` nesting layer is unsupported by the installed Hermes distribution schema and must not be introduced.
+
+Keep `distribution_owned` explicit and limited to the manifest, SOUL, safe config, bundled skill, and unified plugin. Keep environment requirements to names, descriptions, and required flags; never add real identifiers, paths, credentials, or provider secrets as defaults. `auth.json`, `.env`, user data, state, caches, backups, and `local/` remain excluded and user-owned.
+
+The profile manifest has no Python dependency-install field. The `non_profit_hermes` package must be installed separately before the profile distribution. Do not add an unsupported manifest key or installation hook to hide this prerequisite.
+
+All install, collision, update, force-config, force-install, preflight-failure, and plugin-registration tests must isolate both `Path.home()` and `HERMES_HOME` under `tmp_path`. Tests must never install, update, or delete an actual profile, enable a live plugin, start a gateway, call Telegram or Google, create a Calendar event, or generate public files.
+
+Normal updates preserve local `config.yaml`; the `--force-config` path replaces it. Both paths preserve `.env`, `auth.json`, memories, sessions, databases, logs, and `local/`. The installed core guarantees no owned-file changes on a failed compatibility preflight, but does not expose a general mid-copy transactional rollback API. Document rollback at the reviewed Git checkout, package reinstall, profile force-install, backup, and operator-verification layer rather than patching Hermes core or claiming a stronger guarantee.
+
+The profile distribution and unified plugin now exist in source and have offline builder verification. Runtime doctor, clean-machine acceptance, independent checker verdict, published tag, profile installation, gateway activation, and production migration remain pending. Do not describe the unified plugin as installed, enabled, live-migrated, or production-accepted until those later gates pass.

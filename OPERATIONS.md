@@ -22,7 +22,98 @@ python scripts/install_runtime_plugins.py --dry-run --mode legacy
 git diff --check
 ```
 
-Current expected baseline is `323 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+Current verified baseline is `335 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+
+## Install the package and profile distribution
+
+Hermes Agent `0.18.2` or newer, Python `3.11` or newer, and Git are required. The supported profile manifest cannot install Python dependencies, so install the Python package first. Profile installation does not install the Python package, configure credentials, start the gateway, or prove any integration live.
+
+From an inspected local checkout:
+
+```bash
+python -m pip install .
+hermes profile install . --name nonprofit
+hermes profile info nonprofit
+```
+
+From the published repository and release tag:
+
+```bash
+python -m pip install "git+https://github.com/falloutmule/non-profit-hermes-mvp.git@v1.0.0"
+hermes profile install https://github.com/falloutmule/non-profit-hermes-mvp.git --name nonprofit
+hermes profile info nonprofit
+```
+
+The tagged package command is valid only after `v1.0.0` is published. The Git profile command follows the repository's default branch; use a reviewed local checkout for an exact revision. Installation fails if the target profile already exists unless the operator deliberately adds `--force`. Force installation replaces distribution-owned content and shipped config while preserving Hermes user-owned state, so back up and review local config first.
+
+## Secure profile setup
+
+Keep the gateway stopped during setup. The installer writes `.env.EXAMPLE` with names and blank values; it does not write `.env`. In the installed `nonprofit` profile:
+
+1. Copy `.env.EXAMPLE` to `.env` without committing either file.
+2. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS` for the intended bot and explicit user allowlist.
+3. For Google-backed operation, set `NON_PROFIT_HERMES_CREDENTIALS_FILE` and `NON_PROFIT_HERMES_SPREADSHEET_ID`. Set the optional Calendar, directory, routing, and delivery variables only when needed. Do not print their values into logs or evidence.
+4. Configure OpenAI Codex OAuth in this profile instead of putting provider secrets in the distribution:
+
+```bash
+hermes -p nonprofit auth add openai-codex
+```
+
+5. Reinspect distribution metadata and profile state without displaying secret values:
+
+```bash
+hermes profile info nonprofit
+hermes profile show nonprofit
+```
+
+The runtime doctor is a downstream deliverable and is not present in this distribution. Until it exists and passes, treat package import, environment presence, plugin exclusivity, Google identity/access, Telegram identity, port ownership, and gateway startup as manual acceptance gates. Do not start the gateway merely because profile installation succeeded.
+
+After the downstream doctor exists, secure setup is complete, the exact bot/profile/model and unified-only plugin state are verified, and startup is separately authorized, the operator may run:
+
+```bash
+hermes -p nonprofit gateway start
+```
+
+Then perform the gateway acceptance sequence below. This packaging task did not run that command.
+
+## Update, rollback, and delete
+
+Inspect the recorded source and installed version before updating:
+
+```bash
+hermes profile info nonprofit
+hermes profile update nonprofit
+```
+
+Normal update refreshes the declared distribution-owned SOUL, skill, plugin, manifest, and other owned content while preserving local `config.yaml`, `.env`, `auth.json`, memories, sessions, databases, logs, and `local/`. It does not reinstall the Python package and does not start the gateway. Update the Python package separately when the release changes.
+
+To discard local config changes and restore the distribution's shipped safe config:
+
+```bash
+hermes profile update nonprofit --force-config
+```
+
+`--force-config` overwrites `config.yaml`; review and back it up before use. It still preserves Hermes user-owned state and secrets.
+
+The installed Hermes version guarantees that a failed compatibility preflight leaves the prior owned state unchanged, but it does not expose a transactional rollback for an arbitrary mid-copy failure. For exact rollback, stop before gateway activation, protect user-owned state, check out the reviewed Git tag or commit locally, reinstall that package revision, and force-install the local distribution:
+
+```bash
+git checkout <reviewed-tag-or-commit>
+python -m pip install .
+hermes profile install . --name nonprofit --force -y
+hermes profile info nonprofit
+```
+
+Verify the restored version, config, user-owned state, plugin exclusivity, and package import before any separately authorized gateway start. Do not treat Git rollback alone as profile or Python-package rollback.
+
+Profile deletion is destructive and removes config, credentials, memories, sessions, skills, and other profile data. Back up required user-owned data securely, stop the profile gateway, confirm the exact profile, then run only when deletion is intended:
+
+```bash
+hermes profile info nonprofit
+hermes profile delete nonprofit
+```
+
+Deletion does not uninstall the Python package or remove repository data.
 
 ## Plugin installation and drift
 

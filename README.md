@@ -13,7 +13,7 @@ Current truth captured: **2026-07-21**.
 - Model: `openai-codex/gpt-5.6-sol`
 - Current runtime state: **gateway stopped**
 
-The packaging branch is work in progress. The portable Python package, unified plugin, installable profile distribution, runtime doctor, clean-install acceptance, and `v1.0.0` release described in the packaging plan are **proposed and not implemented yet**.
+The packaging branch now contains the portable Python package, canonical unified plugin, and a supported root-level Hermes profile distribution. Runtime doctor, clean-machine acceptance, production migration, and the published `v1.0.0` tag remain downstream gates. Source availability is not evidence that the profile is installed or live.
 
 ## Canonical documentation
 
@@ -32,7 +32,7 @@ The packaging branch is work in progress. The portable Python package, unified p
 ```text
 Telegram
   -> separate nonprofit Hermes gateway and nonprofit profile
-  -> seven enabled legacy command plugins
+  -> one unified seven-command plugin after an authorized migration
   -> scripts/telegram_intake_router.py
   -> scripts/non_profit_hermes_ops.py
   -> Google Sheets / Google Calendar
@@ -44,7 +44,7 @@ Approved-safe publication (separate, explicit workflow)
   -> human review and separately authorized GitHub Pages publication
 ```
 
-The seven canonical plugin copies are tracked under `runtime_plugins/`, described by `RUNTIME_PLUGIN_MANIFEST.json`, installed with `scripts/install_runtime_plugins.py`, and checked read-only with `scripts/check_runtime_plugin_drift.py`. The installed profile-local plugin path is a Windows junction to the shared Hermes plugin root. Current strict drift inspection passed: only expected `__pycache__` derivations were present.
+The canonical source plugin is `plugins/non-profit-hermes/`. The seven entries under `runtime_plugins/` are deprecated compatibility shims retained for one release as a deterministic rollback set. `config.yaml` enables the unified plugin and disables all seven shims for a fresh distribution install; it does not alter an existing production profile until an authorized install or migration is performed.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete topology.
 
@@ -76,31 +76,31 @@ Google Sheets is the private system of record. Public output is deny-by-default.
 
 Never put credentials, OAuth payloads, raw private chat identifiers, private Google records, sensitive locations, or personal crisis details in this repository or the public site. See [SECURITY_AND_PRIVACY.md](SECURITY_AND_PRIVACY.md).
 
-## Current installation and operation
+## Package and profile installation
 
-This repository can reproduce the **seven legacy runtime plugins**, but it cannot yet install a complete Hermes profile from Git.
+Hermes Agent `0.18.2` or newer and Python `3.11` or newer are required. The Python package and the Hermes profile distribution are separate installs. A profile install does not install the Python package, configure credentials, or start the gateway.
 
-Dry-run manifest verification (no writes):
-
-```bash
-python scripts/install_runtime_plugins.py --dry-run
-```
-
-Apply to an explicit non-live or disposable plugin root:
+Local checkout:
 
 ```bash
-python scripts/install_runtime_plugins.py --apply --target-root <plugin-root>
+python -m pip install .
+hermes profile install . --name nonprofit
+hermes profile info nonprofit
 ```
 
-Writing to the live shared Hermes plugin root additionally requires `--live`. Installation does not configure credentials, enable plugins for a profile, or start the gateway; those remain manual operator steps. The installer verifies tracked manifest hashes, stages each directory, preserves declared mutable files, moves an existing directory to a timestamped backup, atomically replaces it, and restores the backup if replacement fails.
+Published Git source:
 
-The nonprofit gateway has a separate Windows Scheduled Task launcher. Profile config says port `8642`; the launcher intentionally overrides to `8643`. On 2026-07-21, `8642` was occupied by another process, `8643` was not listening, and nonprofit gateway metadata was stale. Do not treat the configured or intended port as a live binding until an authorized startup is verified.
+```bash
+python -m pip install "git+https://github.com/falloutmule/non-profit-hermes-mvp.git@v1.0.0"
+hermes profile install https://github.com/falloutmule/non-profit-hermes-mvp.git --name nonprofit
+hermes profile info nonprofit
+```
 
-See [OPERATIONS.md](OPERATIONS.md) before any live-root, gateway, Google, Calendar, or publication action.
+The tagged Python-package command is usable only after the `v1.0.0` tag is published. The Git profile command installs the current repository default branch; use an inspected local checkout when an exact rollback revision is required. Existing-profile collisions fail unless `--force` is supplied. Review [OPERATIONS.md](OPERATIONS.md) before forcing, configuring credentials, starting a gateway, updating, rolling back, deleting a profile, or touching live Google/Calendar/publication paths.
 
 ## Development and tests
 
-Prerequisites currently include Python 3.11+, Google authentication libraries, the Google API client, pytest, Git, and Hermes Agent. There is no `requirements.txt`, `pyproject.toml`, profile distribution, unified plugin, or runtime doctor yet.
+Prerequisites include Python 3.11+, Git, Hermes Agent 0.18.2+, and the project dependencies declared in `pyproject.toml`. The root `distribution.yaml`, `SOUL.md`, `config.yaml`, bundled skill, and unified plugin form the installable profile payload. Runtime doctor remains downstream work.
 
 Offline verification:
 
@@ -113,7 +113,7 @@ git diff --check
 Current verified full-suite baseline:
 
 ```text
-235 passed, 64 subtests passed
+335 passed, 69 subtests passed
 ```
 
 `python -m pytest` uses fakes and does not make live Google calls. Explicit operational modes such as `scripts/non_profit_hermes_ops.py --test-write` can mutate live data and must not be run without deliberate authorization. The generated/public `docs/` tree is source-controlled output and must not be hand-edited.
@@ -121,13 +121,13 @@ Current verified full-suite baseline:
 ## Known limitations
 
 - The nonprofit gateway is stopped; current live dispatch and human canaries are unverified.
-- Operational modules and all seven legacy plugin entrypoints contain user-specific path assumptions and `sys.path` mutation.
-- Dependencies are not packaged or pinned.
-- Seven separate legacy plugins remain; no unified plugin exists.
-- No installable profile distribution or runtime doctor exists.
+- Runtime doctor is a downstream work item, so install verification is currently the documented manual sequence.
+- Hermes records local-source provenance in the installed `distribution.yaml`; operators should avoid publishing installed profile metadata.
+- Installer preflight failures leave the prior profile untouched, but the current Hermes installer does not provide a mid-copy transactional rollback API. Exact rollback uses Git checkout plus reinstall, with user-owned state backed up and verified first.
+- The deprecated seven-plugin compatibility set remains for one release and must never be enabled alongside the unified plugin.
 - Config port `8642` differs from launcher override `8643`; runtime metadata is stale and two status-reported generated launcher/service paths are absent.
-- Public-site generation parity was intentionally not rerun during the current read-only inventory.
-- Clean-install, update, rollback, production migration, and physical-device acceptance are pending later authorized work.
+- Public-site generation parity was intentionally not rerun during this packaging task.
+- Clean-machine acceptance, production migration, published tag verification, live canaries, and physical-device acceptance remain pending later authorized work.
 
 ## License
 
