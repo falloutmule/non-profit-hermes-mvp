@@ -10,22 +10,15 @@ from pathlib import Path
 
 import pytest
 
+from non_profit_hermes import oauth_refresh
+
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "google_oauth_refresh.py"
 SCOPES = ["scope:calendar", "scope:sheets"]
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("google_oauth_refresh", MODULE_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.modules.pop(spec.name, None)
-    return module
+    return oauth_refresh
 
 
 class FakeCredential:
