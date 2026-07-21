@@ -3,29 +3,15 @@ from __future__ import annotations
 
 import builtins
 import hashlib
-import importlib.util
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from non_profit_hermes import approved_safe_sync
+from non_profit_hermes import approved_safe_sync, router
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
-
-
-def load_module(name: str, relative_path: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 class _Result:
@@ -55,7 +41,7 @@ class DailyReadOnlyTests(unittest.TestCase):
         cls.sync.TOKEN = ROOT / "synthetic-offline-credential.json"
         cls.sync.SPREADSHEET_ID = "synthetic-offline-sheet"
         cls.sync.CALENDAR_ID = "synthetic-offline-calendar"
-        cls.router = load_module("cleanup003_router", "scripts/telegram_intake_router.py")
+        cls.router = router
 
     def rows(self, tab, *mappings):
         header = self.sync.HEADERS[tab]

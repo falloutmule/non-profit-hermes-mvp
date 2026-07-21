@@ -1,8 +1,6 @@
 """EVENT-004 offline proof: exact local authorization is the only promotion path."""
 from __future__ import annotations
 
-import importlib.util
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -11,23 +9,9 @@ from unittest.mock import patch
 
 from non_profit_hermes import approved_safe_sync as sync
 from non_profit_hermes import operations as ops
+from non_profit_hermes import router as tir
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
-
-
-def load(name: str, relative: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / relative)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-tir = load("event004_router", "scripts/telegram_intake_router.py")
 ops.SPREADSHEET_ID = "synthetic-offline-sheet"
 ops.CALENDAR_ID = "synthetic-offline-calendar"
 sync.SPREADSHEET_ID = "synthetic-offline-sheet"

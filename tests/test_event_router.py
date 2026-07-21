@@ -8,7 +8,7 @@ Covers contract Tests 1-11:
      explicit id=EVT-... / event_draft_id=... accepted; free text -> EventTitle
      when title absent; ambiguous free text preserved in Notes; no NL date inference.
   3. Active event state helpers store/restore active_event_id per-source without
-     erasing other active_* ids; source_scope() preserves telegram:live mapping.
+     erasing other active_* ids; source_scope() safely preserves telegram:live.
   4. event_row_by_draft_id / open_event_drafts / resolve_event_followup_target:
      find by EventDraftID; open states needs-info/draft/new/ready; terminal
      confirmed/cancelled/rejected; ambiguity lists EVT IDs; explicit id overrides.
@@ -46,6 +46,7 @@ from pathlib import Path
 from unittest import mock
 
 from non_profit_hermes import operations as ops
+from non_profit_hermes import router as tir
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,9 +60,6 @@ def load_module(name: str, relative_path: str):
     return module
 
 
-# Load router as a normal module (no google.auth side effects at import time here
-# because we inject fakes and never call services()).
-tir = load_module("event_router_test", "scripts/telegram_intake_router.py")
 ops.SPREADSHEET_ID = "synthetic-offline-sheet"
 ops.CALENDAR_ID = "synthetic-offline-calendar"
 
@@ -258,14 +256,16 @@ class EventRouterTests(unittest.TestCase):
         # other id untouched
         self.assertEqual(tir.get_active_need_request_id(SRC), "REQ-OTHER")
 
-        # scope normalization (telegram:live -> telegram:6080816249)
-        self.assertEqual(tir.source_scope("telegram:live"), "telegram:6080816249")
+        # Without runtime configuration, the legacy placeholder remains isolated.
+        self.assertEqual(tir.source_scope("telegram:live"), "telegram:live")
         tir.set_active_event_id("telegram:live", "EVT-LIVE")
-        self.assertEqual(tir.get_active_event_id(SRC), "EVT-LIVE")
+        self.assertEqual(tir.get_active_event_id("telegram:live"), "EVT-LIVE")
+        self.assertEqual(tir.get_active_event_id(SRC), "EVT-ABC")
         self.assertEqual(tir.get_active_need_request_id(SRC), "REQ-OTHER")
 
-        tir.clear_active_event_id(SRC, "EVT-LIVE")
-        self.assertEqual(tir.get_active_event_id(SRC), "")
+        tir.clear_active_event_id("telegram:live", "EVT-LIVE")
+        self.assertEqual(tir.get_active_event_id("telegram:live"), "")
+        self.assertEqual(tir.get_active_event_id(SRC), "EVT-ABC")
         self.assertEqual(tir.get_active_need_request_id(SRC), "REQ-OTHER")  # not erased
 
     # ── Test 4: row/resolve helpers ──

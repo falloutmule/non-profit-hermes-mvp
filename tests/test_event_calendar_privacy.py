@@ -1,8 +1,6 @@
 """Focused EVENT-001 privacy-gate tests; all Calendar access is fake/local."""
 from __future__ import annotations
 
-import importlib.util
-import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +8,7 @@ from unittest.mock import patch
 
 from non_profit_hermes import approved_safe_sync as sync
 from non_profit_hermes import operations as ops
+from non_profit_hermes import router
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_SENTINEL = "PRIVATE-EVENT-LEAK-TEST-7F21"
@@ -25,22 +24,10 @@ PUBLIC_EXPORT_HEADERS = [
     "CalendarEventID", "EventTitle", "EventType", "StartDateTime",
     "EndDateTime", "Description", "Location", "Status",
 ]
-
-
-def load_module(name: str, relative_path: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 ops.SPREADSHEET_ID = "synthetic-offline-sheet"
 ops.CALENDAR_ID = "synthetic-offline-calendar"
 sync.SPREADSHEET_ID = "synthetic-offline-sheet"
 sync.CALENDAR_ID = "synthetic-offline-calendar"
-router = load_module("event_router", "scripts/telegram_intake_router.py")
 
 
 class FakeEventsResource:
