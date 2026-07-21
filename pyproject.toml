@@ -21,6 +21,9 @@ test = [
 [tool.setuptools]
 include-package-data = false
 
+[tool.setuptools.package-data]
+non_profit_hermes = ["resources/defaults.toml"]
+
 [tool.setuptools.exclude-package-data]
 "*" = ["*.env", "*.json", "*.db", "*.sqlite*", "*.log", "*.pem", "*.key", "*.token"]
 

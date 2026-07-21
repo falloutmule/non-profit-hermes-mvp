@@ -29,6 +29,19 @@ def test_package_import_exposes_version_matching_project_metadata() -> None:
     assert non_profit_hermes.__version__ == metadata["project"]["version"]
 
 
+def test_packaged_defaults_are_sanitized_shareable_constants() -> None:
+    from non_profit_hermes.config import load_packaged_defaults
+
+    defaults = load_packaged_defaults()
+
+    assert defaults == {
+        "version": "1.0.0",
+        "public_marker": "CLEAN_DOCS_DEPLOY_NON_PROFIT_HERMES_002",
+        "commands": ["daily", "need", "donation", "report", "task", "inventory", "event"],
+    }
+    assert load_packaged_defaults() == defaults
+
+
 def test_config_defaults_are_home_based_and_do_not_select_credentials(tmp_path: Path) -> None:
     from non_profit_hermes.config import resolve_config
 
@@ -173,6 +186,9 @@ def test_packaging_declares_runtime_test_and_private_data_boundaries() -> None:
     ]
     assert metadata["project"]["optional-dependencies"]["test"] == ["pytest>=8,<10"]
     assert metadata["tool"]["setuptools"]["include-package-data"] is False
+    assert metadata["tool"]["setuptools"]["package-data"] == {
+        "non_profit_hermes": ["resources/defaults.toml"]
+    }
     assert metadata["tool"]["setuptools"]["packages"]["find"]["include"] == [
         "non_profit_hermes*"
     ]
@@ -232,6 +248,9 @@ import non_profit_hermes.config
 import non_profit_hermes.models
 
 assert non_profit_hermes.__version__ == "1.0.0"
+assert non_profit_hermes.config.load_packaged_defaults()["commands"] == [
+    "daily", "need", "donation", "report", "task", "inventory", "event"
+]
 assert tuple(sys.path) == before_path
 assert dict(os.environ) == before_environment
 print("offline-import-ok")

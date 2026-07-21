@@ -16,15 +16,49 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_module(name: str, relative_path: str):
-    import sys
-    scripts_path = str(ROOT / "scripts")
-    if scripts_path not in sys.path:
-        sys.path.insert(0, scripts_path)
     spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
+
+
+SCHEMA_PUBLIC_NAMES = (
+    "HEADERS",
+    "PRIMARY_KEYS",
+    "AFFIRMATIVE_VALUES",
+    "APPROVED_PRIVACY_LEVELS",
+    "TERMINAL_STATUSES",
+    "PUBLIC_STATUS_BY_TYPE",
+    "PUBLIC_SUMMARY_ALLOWED_FIELD",
+    "PUBLIC_LISTING_ALLOWED_FIELD",
+    "PRIVACY_LEVEL_FIELD",
+    "LAST_UPDATED_FIELD",
+    "CONSENT_TO_SHARE_FIELD",
+    "CONSENT_TO_PUBLIC_THANKS_FIELD",
+    "col",
+    "get_header_range",
+    "get_full_range",
+    "get_primary_key",
+    "is_affirmative",
+    "is_approved_privacy",
+    "is_public_status",
+    "is_terminal_status",
+    "validate_schema_consistency",
+    "TAB_ORDER",
+)
+
+
+def test_legacy_schema_is_thin_identity_preserving_wrapper() -> None:
+    legacy = load_module("legacy_schema_identity", "scripts/non_profit_hermes_schema.py")
+
+    assert legacy.__all__ == list(SCHEMA_PUBLIC_NAMES)
+    for name in SCHEMA_PUBLIC_NAMES:
+        assert getattr(legacy, name) is getattr(models, name), name
+
+    source = (ROOT / "scripts" / "non_profit_hermes_schema.py").read_text(encoding="utf-8")
+    assert "sys.path" not in source
+    assert "HEADERS =" not in source
 
 
 def test_schema_is_single_source() -> None:

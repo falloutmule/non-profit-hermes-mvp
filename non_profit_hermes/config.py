@@ -7,7 +7,9 @@ No credentials or production integration identifiers are selected by default.
 from __future__ import annotations
 
 import os
+import tomllib
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import Mapping
 
@@ -42,6 +44,14 @@ class PackageConfig:
     credentials_file: Path | None = None
     spreadsheet_id: str | None = None
     calendar_id: str | None = None
+
+
+def load_packaged_defaults() -> dict[str, object]:
+    """Load the shareable, credential-free package defaults."""
+
+    defaults = resources.files("non_profit_hermes").joinpath("resources", "defaults.toml")
+    with defaults.open("rb") as stream:
+        return tomllib.load(stream)
 
 
 def resolve_config(
@@ -96,4 +106,4 @@ def resolve_config(
     )
 
 
-__all__ = ["ENVIRONMENT_NAMES", "PackageConfig", "resolve_config"]
+__all__ = ["ENVIRONMENT_NAMES", "PackageConfig", "load_packaged_defaults", "resolve_config"]
