@@ -1,5 +1,5 @@
 name: non-profit-hermes-inventory
-version: 0.1.0
-description: Live /inventory command for Non-Profit Hermes.
+version: 1.0.0
+description: Deprecated compatibility shim for the historical /inventory command; use the unified Non-Profit Hermes plugin.
 author: Hermes Agent
 kind: standalone

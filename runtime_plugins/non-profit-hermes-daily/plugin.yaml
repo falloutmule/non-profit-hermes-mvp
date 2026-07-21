@@ -1,5 +1,5 @@
 name: non-profit-hermes-daily
-version: 0.1.0
-description: Live /daily command for Non-Profit Hermes board-safe summary only.
+version: 1.0.0
+description: Deprecated compatibility shim for the historical /daily command; use the unified Non-Profit Hermes plugin.
 author: Hermes Agent
 kind: standalone
