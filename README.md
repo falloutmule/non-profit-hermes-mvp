@@ -13,7 +13,7 @@ Current truth captured: **2026-07-21**.
 - Model: `openai-codex/gpt-5.6-sol`
 - Current runtime state: **gateway stopped**
 
-The packaging branch now contains the portable Python package, canonical unified plugin, and a supported root-level Hermes profile distribution. Runtime doctor, clean-machine acceptance, production migration, and the published `v1.0.0` tag remain downstream gates. Source availability is not evidence that the profile is installed or live.
+The packaging branch now contains the portable Python package, canonical unified plugin, supported root-level Hermes profile distribution, and deterministic runtime doctor. The doctor has offline and fake-backed live-readonly verification; clean-install acceptance, an actual production live-readonly run, production migration, and the published `v1.0.0` tag remain downstream gates. Source availability is not evidence that the profile is installed or live.
 
 ## Canonical documentation
 
@@ -98,9 +98,22 @@ hermes profile info nonprofit
 
 The tagged Python-package command is usable only after the `v1.0.0` tag is published. The Git profile command installs the current repository default branch; use an inspected local checkout when an exact rollback revision is required. Existing-profile collisions fail unless `--force` is supplied. Review [OPERATIONS.md](OPERATIONS.md) before forcing, configuring credentials, starting a gateway, updating, rolling back, deleting a profile, or touching live Google/Calendar/publication paths.
 
+## Runtime doctor
+
+After installing the package and profile, run the deterministic offline checks before any gateway start:
+
+```bash
+python -m non_profit_hermes.doctor --profile nonprofit --offline --strict
+nonprofit-hermes doctor --profile nonprofit --offline --strict
+```
+
+The two entry points are equivalent. Human output is the default; add `--json` for machine-readable, redacted evidence. Exit codes are `0` healthy, `1` warning/partial, `2` configuration failure, `3` runtime failure, and `4` privacy/integrity failure. Strict mode promotes warnings to configuration failure.
+
+`--live-readonly` is a later operational gate. It reads gateway process/task/listener state, performs Telegram `getMe`, performs one minimal Sheets read and one minimal Calendar read without credential refresh, and checks local and optionally published approved-safe markers. It never starts/stops the gateway, sends Telegram messages, mutates Google, regenerates public files, or publishes. Configure the expected public bot username through `NON_PROFIT_HERMES_EXPECTED_BOT_USERNAME`; configure local and published approved-safe checks with `NON_PROFIT_HERMES_PUBLIC_DIR` and optional HTTPS `NON_PROFIT_HERMES_PUBLIC_SITE_URL`. Do not treat source/fake verification as a production PASS.
+
 ## Development and tests
 
-Prerequisites include Python 3.11+, Git, Hermes Agent 0.18.2+, and the project dependencies declared in `pyproject.toml`. The root `distribution.yaml`, `SOUL.md`, `config.yaml`, bundled skill, and unified plugin form the installable profile payload. Runtime doctor remains downstream work.
+Prerequisites include Python 3.11+, Git, Hermes Agent 0.18.2+, and the project dependencies declared in `pyproject.toml`. The root `distribution.yaml`, `SOUL.md`, `config.yaml`, bundled skill, and unified plugin form the installable profile payload. The runtime doctor is installed by the Python package.
 
 Offline verification:
 
@@ -113,7 +126,7 @@ git diff --check
 Current verified full-suite baseline:
 
 ```text
-335 passed, 69 subtests passed
+350 passed, 69 subtests passed
 ```
 
 `python -m pytest` uses fakes and does not make live Google calls. Explicit operational modes such as `scripts/non_profit_hermes_ops.py --test-write` can mutate live data and must not be run without deliberate authorization. The generated/public `docs/` tree is source-controlled output and must not be hand-edited.
@@ -121,7 +134,7 @@ Current verified full-suite baseline:
 ## Known limitations
 
 - The nonprofit gateway is stopped; current live dispatch and human canaries are unverified.
-- Runtime doctor is a downstream work item, so install verification is currently the documented manual sequence.
+- Runtime doctor source and fake-backed offline/live-readonly tests pass, but an actual production `--live-readonly --strict` run remains pending.
 - Hermes records local-source provenance in the installed `distribution.yaml`; operators should avoid publishing installed profile metadata.
 - Installer preflight failures leave the prior profile untouched, but the current Hermes installer does not provide a mid-copy transactional rollback API. Exact rollback uses Git checkout plus reinstall, with user-owned state backed up and verified first.
 - The deprecated seven-plugin compatibility set remains for one release and must never be enabled alongside the unified plugin.

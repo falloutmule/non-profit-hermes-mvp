@@ -15,6 +15,14 @@ import yaml
 
 from non_profit_hermes import __version__
 from non_profit_hermes.config import load_packaged_defaults
+from non_profit_hermes.live_diagnostics import (
+    GatewaySnapshot,
+    GoogleSnapshot,
+    LiveProbeAdapter,
+    LiveProbeError,
+    PublicSiteSnapshot,
+    TelegramSnapshot,
+)
 
 
 class Status(StrEnum):
@@ -192,6 +200,7 @@ _LEGACY_PLUGINS = (
     "non-profit-hermes-inventory",
     "non-profit-hermes-event",
 )
+_EXPECTED_COMMANDS = ("daily", "need", "donation", "report", "task", "inventory", "event")
 _EXPECTED_OWNED = (
     "distribution.yaml",
     "SOUL.md",
@@ -236,6 +245,7 @@ class DoctorRunner:
         environ: Mapping[str, str] | None = None,
         filesystem: Filesystem | None = None,
         command_adapter: CommandAdapter | None = None,
+        live_adapter: LiveProbeAdapter | None = None,
     ) -> None:
         self.profile = profile
         self._profile_root = Path(profile_root) if profile_root is not None else None
@@ -251,6 +261,7 @@ class DoctorRunner:
         self.environ = dict(os.environ if environ is None else environ)
         self.fs = filesystem or LocalFilesystem()
         self.command_adapter = command_adapter or _run_command
+        self.live_adapter = live_adapter
 
     def _resolve_profile_root(self) -> Path:
         if self._profile_root is not None:
@@ -366,6 +377,7 @@ class DoctorRunner:
             "config.py",
             "diagnostics.py",
             "doctor.py",
+            "live_diagnostics.py",
             "models.py",
             "oauth_refresh.py",
             "operations.py",
@@ -666,19 +678,256 @@ class DoctorRunner:
             "privacy.literals", "privacy", "distribution payload passes private-literal scan"
         )
 
-    def _mode_placeholders(self, mode: str) -> list[CheckResult]:
+    def _offline_skips(self) -> list[CheckResult]:
+        return [
+            self._skip(check_id, category, "offline mode: live probe intentionally skipped")
+            for check_id, category in (
+                ("gateway.live", "gateway"),
+                ("telegram.live", "telegram"),
+                ("google.live", "google"),
+                ("public_site.live", "public-site"),
+            )
+        ]
+
+    def _gateway_results(self, snapshot: GatewaySnapshot) -> list[CheckResult]:
+        if not snapshot.scheduled_task_supported:
+            scheduled_task = self._skip(
+                "gateway.scheduled_task",
+                "gateway",
+                "Scheduled Task inspection is unsupported on this platform",
+            )
+        elif not snapshot.scheduled_task_secret_free:
+            scheduled_task = self._fail(
+                "gateway.scheduled_task",
+                "gateway",
+                "Scheduled Task launcher failed the secret-safety check",
+                Severity.INTEGRITY,
+            )
+        elif snapshot.scheduled_task_count != 1 or not snapshot.scheduled_task_profile_selected:
+            scheduled_task = self._fail(
+                "gateway.scheduled_task",
+                "gateway",
+                "Scheduled Task launcher does not uniquely select the profile",
+            )
+        else:
+            scheduled_task = self._pass(
+                "gateway.scheduled_task", "gateway", "Scheduled Task launcher is uniquely configured"
+            )
+
+        singleton_ok = (
+            snapshot.process_count == 1
+            and snapshot.pid_live
+            and snapshot.process_is_gateway
+            and snapshot.served_profile_matches
+            and not snapshot.duplicate_poller
+        )
+        singleton = (
+            self._pass(
+                "gateway.singleton_profile", "gateway", "exactly one matching profile gateway is live"
+            )
+            if singleton_ok
+            else self._fail(
+                "gateway.singleton_profile",
+                "gateway",
+                "matching profile gateway runtime is absent, duplicated, or inconsistent",
+                Severity.RUNTIME,
+            )
+        )
+
+        if not snapshot.api_port_configured:
+            api_port = self._fail("gateway.api_port", "gateway", "API port is missing or invalid")
+        elif not snapshot.api_port_unique or not snapshot.api_port_owned_by_gateway:
+            api_port = self._fail(
+                "gateway.api_port",
+                "gateway",
+                "API listener is not unique to the matching gateway",
+                Severity.RUNTIME,
+            )
+        else:
+            api_port = self._pass(
+                "gateway.api_port", "gateway", "API listener belongs uniquely to the matching gateway"
+            )
+
+        restart_loop = (
+            self._fail(
+                "gateway.restart_loop",
+                "gateway",
+                "gateway restart or retry state is active",
+                Severity.RUNTIME,
+            )
+            if snapshot.restart_requested
+            or snapshot.error_retry_active
+            or snapshot.recent_start_count > 3
+            else self._pass(
+                "gateway.restart_loop", "gateway", "gateway has no active retry or repeated-start storm"
+            )
+        )
+        telegram_adapter = (
+            self._pass(
+                "gateway.telegram_adapter", "gateway", "Telegram runtime adapter is loaded and healthy"
+            )
+            if snapshot.telegram_adapter_loaded and snapshot.telegram_adapter_healthy
+            else self._fail(
+                "gateway.telegram_adapter",
+                "gateway",
+                "Telegram runtime adapter is not loaded and healthy",
+                Severity.RUNTIME,
+            )
+        )
+        if snapshot.legacy_overlap:
+            commands = self._fail(
+                "gateway.commands",
+                "gateway",
+                "unified and legacy command providers overlap",
+                Severity.INTEGRITY,
+            )
+        elif snapshot.commands != _EXPECTED_COMMANDS:
+            commands = self._fail(
+                "gateway.commands",
+                "gateway",
+                "registered unified command set does not match",
+                Severity.RUNTIME,
+            )
+        else:
+            commands = self._pass(
+                "gateway.commands", "gateway", "exactly seven unified commands are registered"
+            )
+        return [scheduled_task, singleton, api_port, restart_loop, telegram_adapter, commands]
+
+    def _telegram_results(self, snapshot: TelegramSnapshot) -> list[CheckResult]:
+        if not snapshot.expected_username_configured:
+            result = self._warn(
+                "telegram.identity", "telegram", "expected public bot username is not configured"
+            )
+        elif not snapshot.request_succeeded:
+            result = self._fail(
+                "telegram.identity", "telegram", "Telegram identity read failed", Severity.RUNTIME
+            )
+        elif not snapshot.identity_is_bot or not snapshot.username_matches:
+            result = self._fail(
+                "telegram.identity",
+                "telegram",
+                "Telegram bot identity does not match",
+                Severity.INTEGRITY,
+            )
+        else:
+            result = self._pass("telegram.identity", "telegram", "Telegram bot identity matches")
+        return [result]
+
+    def _google_results(self, snapshot: GoogleSnapshot) -> list[CheckResult]:
+        scopes = (
+            self._pass("google.scopes", "google", "Google credentials and read scopes are valid")
+            if snapshot.credentials_valid and snapshot.required_scopes_present
+            else self._fail(
+                "google.scopes", "google", "Google credentials or required read scopes are invalid"
+            )
+        )
+        sheets = (
+            self._pass("google.sheets_read", "google", "minimal Sheets read succeeded")
+            if snapshot.sheets_accessible
+            else self._fail(
+                "google.sheets_read", "google", "minimal Sheets read failed", Severity.RUNTIME
+            )
+        )
+        calendar = (
+            self._pass("google.calendar_read", "google", "minimal Calendar read succeeded")
+            if snapshot.calendar_accessible
+            else self._fail(
+                "google.calendar_read", "google", "minimal Calendar read failed", Severity.RUNTIME
+            )
+        )
+        return [scopes, sheets, calendar]
+
+    def _public_site_results(self, snapshot: PublicSiteSnapshot) -> list[CheckResult]:
+        files = (
+            self._pass(
+                "public_site.local_files", "public-site", "approved-safe local files are present"
+            )
+            if snapshot.local_root_configured and snapshot.required_files_present
+            else self._fail(
+                "public_site.local_files", "public-site", "approved-safe local root or files are missing"
+            )
+        )
+        marker = (
+            self._pass(
+                "public_site.local_marker", "public-site", "approved-safe local marker is present"
+            )
+            if snapshot.local_marker_present
+            else self._fail(
+                "public_site.local_marker",
+                "public-site",
+                "approved-safe local marker is missing",
+                Severity.INTEGRITY,
+            )
+        )
+        privacy = (
+            self._pass("public_site.privacy", "public-site", "approved-safe files pass privacy scan")
+            if snapshot.privacy_scan_clean
+            else self._fail(
+                "public_site.privacy",
+                "public-site",
+                "approved-safe files failed privacy scan",
+                Severity.INTEGRITY,
+            )
+        )
+        if not snapshot.live_url_configured:
+            publication = self._warn(
+                "public_site.publication_marker",
+                "public-site",
+                "public site URL is not configured; publication state is unverified",
+            )
+        elif snapshot.live_marker_present:
+            publication = self._pass(
+                "public_site.publication_marker", "public-site", "live publication marker matches"
+            )
+        else:
+            publication = self._fail(
+                "public_site.publication_marker",
+                "public-site",
+                "live publication marker read failed or did not match",
+                Severity.RUNTIME,
+            )
+        return [files, marker, privacy, publication]
+
+    def _live_results(self) -> list[CheckResult]:
+        if self.live_adapter is None:
+            from non_profit_hermes.live_diagnostics import DefaultLiveProbeAdapter
+
+            adapter: LiveProbeAdapter = DefaultLiveProbeAdapter(
+                profile=self.profile,
+                profile_root=self._profile(),
+                environ=self.environ,
+                filesystem=self.fs,
+                command_adapter=self.command_adapter,
+            )
+        else:
+            adapter = self.live_adapter
         results: list[CheckResult] = []
-        for check_id, category in (
-            ("gateway.live", "gateway"),
-            ("telegram.live", "telegram"),
-            ("google.live", "google"),
-            ("public_site.live", "public-site"),
+        for probe, renderer, check_id, category in (
+            (adapter.probe_gateway, self._gateway_results, "gateway.probe", "gateway"),
+            (adapter.probe_telegram, self._telegram_results, "telegram.probe", "telegram"),
+            (adapter.probe_google, self._google_results, "google.probe", "google"),
+            (adapter.probe_public_site, self._public_site_results, "public_site.probe", "public-site"),
         ):
-            if mode == "offline":
-                results.append(self._skip(check_id, category, "offline mode: live probe intentionally skipped"))
-            else:
+            try:
+                results.extend(renderer(probe()))
+            except LiveProbeError as error:
                 results.append(
-                    self._warn(check_id, category, "live-readonly probe is deferred to NPH-V1-050B")
+                    self._fail(
+                        check_id,
+                        category,
+                        f"live probe failed code={error.code} class={type(error).__name__}",
+                        Severity(error.exit_code),
+                    )
+                )
+            except Exception as error:
+                results.append(
+                    self._fail(
+                        check_id,
+                        category,
+                        f"live probe raised {type(error).__name__}",
+                        Severity.RUNTIME,
+                    )
                 )
         return results
 
@@ -717,7 +966,7 @@ class DoctorRunner:
                         Severity.RUNTIME,
                     )
                 )
-        results.extend(self._mode_placeholders(mode))
+        results.extend(self._offline_skips() if mode == "offline" else self._live_results())
         ordered = tuple(sorted(results, key=lambda result: result.id))
         highest = max((int(result.severity) for result in ordered), default=0)
         if strict and highest == int(Severity.WARNING):

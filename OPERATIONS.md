@@ -22,7 +22,7 @@ python scripts/install_runtime_plugins.py --dry-run --mode legacy
 git diff --check
 ```
 
-Current verified baseline is `335 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+Current verified baseline is `350 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
 
 ## Install the package and profile distribution
 
@@ -66,9 +66,27 @@ hermes profile info nonprofit
 hermes profile show nonprofit
 ```
 
-The runtime doctor is a downstream deliverable and is not present in this distribution. Until it exists and passes, treat package import, environment presence, plugin exclusivity, Google identity/access, Telegram identity, port ownership, and gateway startup as manual acceptance gates. Do not start the gateway merely because profile installation succeeded.
+Run the offline doctor before considering any gateway start:
 
-After the downstream doctor exists, secure setup is complete, the exact bot/profile/model and unified-only plugin state are verified, and startup is separately authorized, the operator may run:
+```bash
+python -m non_profit_hermes.doctor --profile nonprofit --offline --strict
+nonprofit-hermes doctor --profile nonprofit --offline --strict
+python -m non_profit_hermes.doctor --profile nonprofit --offline --strict --json
+```
+
+The first two commands are equivalent; JSON is redacted and stable for automation. Exit codes are `0` healthy, `1` warning/partial, `2` blocking configuration failure, `3` runtime failure, and `4` privacy/integrity failure. With `--strict`, warnings become exit `2`. Offline mode checks package, profile, distribution, plugin exclusivity, configuration metadata, and privacy inventory while explicitly skipping network/process probes. Do not start the gateway merely because profile installation or offline doctor succeeds.
+
+After secure setup and a separately authorized runtime start, configure `NON_PROFIT_HERMES_EXPECTED_BOT_USERNAME`, `NON_PROFIT_HERMES_PUBLIC_DIR`, and optionally an HTTPS `NON_PROFIT_HERMES_PUBLIC_SITE_URL`, then run:
+
+```bash
+python -m non_profit_hermes.doctor --profile nonprofit --live-readonly --strict
+```
+
+Live-readonly mode reads Scheduled Task, process, listener, runtime-status, and plugin-registration state; performs only Telegram `getMe`; loads Google credentials without refresh and performs one minimal Sheets read plus one Calendar metadata read; and reads approved-safe local/live markers. It never performs gateway lifecycle actions, Telegram sends/polling changes, Google writes, Calendar event creation, credential persistence, public generation, Git operations, or publication. Missing expected identity/publication configuration warns (and blocks strict mode); unsupported Scheduled Task inspection is reported as skipped. Probe exceptions expose only stable classification, never exception details or private payloads.
+
+The production doctor is a downstream acceptance gate: source and fake-backed checks do not establish current live health.
+
+After the offline doctor passes, secure setup is complete, the exact bot/profile/model and unified-only plugin state are verified, and startup is separately authorized, the operator may run:
 
 ```bash
 hermes -p nonprofit gateway start

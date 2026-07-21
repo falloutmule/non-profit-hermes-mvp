@@ -13,12 +13,15 @@ Current source assumes:
 - Git;
 - Hermes Agent for runtime integration.
 
-The repository has `pyproject.toml`, the importable `non_profit_hermes` package, the canonical unified v1.0.0 plugin, and a supported root-level v1.0.0 Hermes profile distribution. Runtime-doctor, clean-machine, independent-checker, and production-migration acceptance remain later gates.
+The repository has `pyproject.toml`, the importable `non_profit_hermes` package, the canonical unified v1.0.0 plugin, a supported root-level v1.0.0 Hermes profile distribution, and a deterministic offline/live-readonly runtime doctor. Clean-install, independent-checker, actual production doctor, and production-migration acceptance remain later gates.
 
 ## Source layout
 
 ```text
 non_profit_hermes/                 portable package-owned runtime behavior
+  diagnostics.py                  typed doctor checks, aggregation, redaction, exit codes
+  live_diagnostics.py             injected/default read-only integration probes
+  doctor.py                       module and console-script CLI
 plugins/non-profit-hermes/         canonical unified v1.0.0 seven-command plugin
 distribution.yaml                  supported profile-distribution manifest
 SOUL.md                            sanitized nonprofit operating identity
@@ -50,7 +53,7 @@ python -m pytest -q
 Current verified baseline:
 
 ```text
-335 passed, 69 subtests passed
+350 passed, 69 subtests passed
 ```
 
 Focused read-only daily lane:
@@ -74,6 +77,15 @@ Focused distribution/package/plugin lane:
 python -m pytest -q tests/test_profile_distribution.py tests/test_unified_plugin.py tests/test_portable_package_integration.py
 python -m py_compile non_profit_hermes/*.py plugins/non-profit-hermes/*.py tests/test_profile_distribution.py
 ```
+
+Focused doctor lane:
+
+```bash
+python -m pytest -q tests/test_doctor_live_readonly.py tests/test_doctor_offline.py tests/test_profile_distribution.py
+python -m py_compile non_profit_hermes/*.py tests/test_doctor_live_readonly.py tests/test_doctor_offline.py
+```
+
+Doctor integration tests must inject fakes or monkeypatch only the explicit process, URL, Google, Scheduled Task, and runtime-status boundaries. They must snapshot credential/profile/public files before and after probes, assert the exact read-only call ledger, and prove redaction. Do not run the default live adapter against production during ordinary development.
 
 `pytest.ini` limits collection to `tests/` and excludes linked `worktrees/`. Do not weaken this policy or run an alternate lane as a substitute for the required root command.
 
@@ -145,4 +157,4 @@ All install, collision, update, force-config, force-install, preflight-failure, 
 
 Normal updates preserve local `config.yaml`; the `--force-config` path replaces it. Both paths preserve `.env`, `auth.json`, memories, sessions, databases, logs, and `local/`. The installed core guarantees no owned-file changes on a failed compatibility preflight, but does not expose a general mid-copy transactional rollback API. Document rollback at the reviewed Git checkout, package reinstall, profile force-install, backup, and operator-verification layer rather than patching Hermes core or claiming a stronger guarantee.
 
-The profile distribution and unified plugin now exist in source and have offline builder verification. Runtime doctor, clean-machine acceptance, independent checker verdict, published tag, profile installation, gateway activation, and production migration remain pending. Do not describe the unified plugin as installed, enabled, live-migrated, or production-accepted until those later gates pass.
+The profile distribution, unified plugin, and runtime doctor now exist in source and have offline/fake-backed builder verification. Clean-install acceptance, independent checker verdict, published tag, actual profile installation, production live-readonly doctor, gateway activation, and production migration remain pending. Do not describe the unified plugin or doctor as production-accepted until those later gates pass.
