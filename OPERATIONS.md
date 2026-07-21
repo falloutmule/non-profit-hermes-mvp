@@ -18,14 +18,17 @@ Run from the repository root:
 python -m pytest -q
 python -m pytest -q tests/test_daily_read_only.py
 python scripts/install_runtime_plugins.py --dry-run
+python scripts/install_runtime_plugins.py --dry-run --mode legacy
 git diff --check
 ```
 
-Current expected baseline is `235 passed, 64 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+Current expected baseline is `323 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
 
 ## Plugin installation and drift
 
-Canonical plugin sources are under `runtime_plugins/`, with hashes in `RUNTIME_PLUGIN_MANIFEST.json`.
+The canonical v1.0.0 runtime is the unified `non-profit-hermes` plugin under `plugins/non-profit-hermes/`. `RUNTIME_PLUGIN_MANIFEST.json` v2 lists it first with role `primary` and exact source hashes. The seven directories under `runtime_plugins/` are deprecated `compatibility` shims retained for one release as a deterministic rollback set.
+
+Unified and legacy plugins expose the same seven command names and must never be enabled together. Before any gateway start, a separately authorized migration must disable the legacy set when selecting unified mode, or disable the unified plugin when selecting legacy rollback mode. The installer copies files only; it does not enable, disable, or remove plugins.
 
 Dry-run manifest verification performs no writes:
 
@@ -33,13 +36,20 @@ Dry-run manifest verification performs no writes:
 python scripts/install_runtime_plugins.py --dry-run
 ```
 
+The default is `mode=unified` and lists only `non-profit-hermes`. Inspect the legacy rollback set without writes:
+
+```bash
+python scripts/install_runtime_plugins.py --dry-run --mode legacy
+```
+
 Apply to an explicit disposable or selected plugin root:
 
 ```bash
 python scripts/install_runtime_plugins.py --apply --target-root <plugin-root>
+python scripts/install_runtime_plugins.py --apply --mode legacy --target-root <rollback-plugin-root>
 ```
 
-The live shared Hermes plugin root is refused unless `--live` is also supplied. Do not use `--allow-dirty-git` except for a deliberate, documented temporary proof.
+Each apply command selects exactly one set: the unified plugin by default, or all seven compatibility shims with `--mode legacy`. The live shared Hermes plugin root is refused unless `--live` is also supplied. Live apply requires later migration authorization; do not add `--live` during ordinary development. Do not use `--allow-dirty-git` except for a deliberate, documented disposable proof.
 
 On apply, the installer:
 
@@ -50,15 +60,17 @@ On apply, the installer:
 5. atomically replaces the target;
 6. restores the backup if staged replacement fails.
 
-The installer does not configure credentials, enable plugins for `nonprofit`, create the profile-local junction, or start the gateway. Those remain manual operations. Preserve backups until verification and an explicit retention decision.
+The installer does not configure credentials, enable or disable plugins for `nonprofit`, remove the opposite plugin set, create the profile-local junction, or start the gateway. Those remain separately authorized migration operations. Preserve backups until verification and an explicit retention decision.
 
 Read-only drift check:
 
 ```bash
 python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --json --strict
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --mode legacy --json --strict
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --mode all --json
 ```
 
-Strict mode fails for missing, unexplained, or untested state. On 2026-07-21, the installed shared root passed with only expected bytecode derivations.
+The default checker mode is `unified`; `--mode legacy` checks only the rollback shims; `--mode all` is a read-only audit of both sets. JSON identifies manifest version, selected mode, source, role, plugin identity/version, and `read_only: true`. Strict mode fails for missing, unexplained, or untested state within the selected mode. This B2 work verified disposable roots only and did not inspect or modify the installed shared root.
 
 ## Gateway acceptance sequence
 
@@ -68,7 +80,7 @@ After a separately authorized startup or restart, verify each layer rather than 
 2. exact `@HnonProfitBOT` identity using a secret-safe read;
 3. one nonprofit gateway process;
 4. effective `127.0.0.1:8643` listener when launched by the Scheduled Task;
-5. seven enabled nonprofit plugins and no nonprofit plugins enabled in `default`;
+5. exactly one unified nonprofit plugin enabled, all seven legacy shims disabled, and no nonprofit plugin enabled in `default` (or the exact inverse set during an authorized rollback; never both);
 6. all seven Telegram registry entries;
 7. human-originated `/commands` and `/daily` canaries;
 8. `/daily` zero-write evidence;

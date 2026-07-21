@@ -13,27 +13,27 @@ Current source assumes:
 - Git;
 - Hermes Agent for runtime integration.
 
-There is currently no `requirements.txt`, `pyproject.toml`, installable Python package, unified plugin, profile distribution, or runtime doctor. A developer must provide dependencies manually until later packaging work implements and verifies those artifacts.
+The repository now has `pyproject.toml`, the importable `non_profit_hermes` package, and the canonical unified v1.0.0 plugin. Profile-distribution, runtime-doctor, clean-install, and production-migration acceptance remain later gates.
 
 ## Source layout
 
 ```text
+non_profit_hermes/                 portable package-owned runtime behavior
+plugins/non-profit-hermes/         canonical unified v1.0.0 seven-command plugin
 scripts/
-  telegram_intake_router.py        command parsing, draft/follow-up routing, /daily
-  non_profit_hermes_ops.py         Sheets/Calendar mutations and AuditLog
-  non_profit_hermes_schema.py      canonical Sheet schema and publication predicates
-  sync_approved_safe_data.py       approved-safe collection and docs generation
-  google_oauth_refresh.py          atomic credential refresh persistence
-  install_runtime_plugins.py       dry-run-by-default legacy plugin installer
-  check_runtime_plugin_drift.py    read-only canonical/installed comparison
-runtime_plugins/                   seven canonical legacy plugin copies
-RUNTIME_PLUGIN_MANIFEST.json       canonical file hashes and mutable patterns
+  telegram_intake_router.py        compatibility entrypoint for command routing
+  non_profit_hermes_ops.py         compatibility entrypoint for operations
+  sync_approved_safe_data.py       compatibility entrypoint for approved-safe sync
+  install_runtime_plugins.py       unified-first, dry-run-by-default plugin installer
+  check_runtime_plugin_drift.py    source-aware, read-only canonical/installed comparison
+runtime_plugins/                   seven deprecated one-release rollback shims
+RUNTIME_PLUGIN_MANIFEST.json       v2 modes, source paths, roles, hashes, mutable patterns
 tests/                             offline fake-based regression suite
 docs/                              generated/public GitHub Pages output
 reports/                           current and historical evidence
 ```
 
-Operational modules and all seven legacy plugin entrypoints still contain user-specific path assumptions and `sys.path` mutation. Do not copy those patterns into new code. Portability is a later bounded implementation task.
+Runtime behavior belongs in `non_profit_hermes`; compatibility scripts and plugin shims must stay thin. Do not add user-specific paths or `sys.path` mutation.
 
 ## Tests
 
@@ -46,7 +46,7 @@ python -m pytest -q
 Current verified baseline:
 
 ```text
-235 passed, 64 subtests passed
+323 passed, 69 subtests passed
 ```
 
 Focused read-only daily lane:
@@ -100,18 +100,23 @@ Durable credential refresh goes through `refresh_and_persist_credential()` and i
 
 Read-only paths must opt out of durable persistence. `/daily` uses `persist_refresh=False`; sync `--dry-run` does the same. Tests for refresh persistence use synthetic files only.
 
-## Legacy plugin development
+## Unified and compatibility plugin development
 
-`runtime_plugins/` is canonical source for the seven current plugins. Any intended plugin-source change must also update `RUNTIME_PLUGIN_MANIFEST.json` and the focused parity/install tests.
+`plugins/non-profit-hermes/` is the canonical v1.0.0 runtime plugin. The seven `runtime_plugins/` entries are deprecated compatibility shims retained for one release and deterministic rollback only. Unified and legacy modes expose the same command names, so they must never be enabled together.
+
+Any intended unified or shim source change must also update its exact hashes in `RUNTIME_PLUGIN_MANIFEST.json` and the focused parity/install/drift tests. Manifest source paths must remain normalized repository-relative paths, and every manifest identity/version must match the corresponding `plugin.yaml`.
 
 Verify without writes:
 
 ```bash
 python scripts/install_runtime_plugins.py --dry-run
+python scripts/install_runtime_plugins.py --dry-run --mode legacy
 python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --json --strict
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --mode legacy --json --strict
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --mode all --json
 ```
 
-Do not edit installed plugin copies directly and then treat them as source. Do not run installer `--apply` against the live root during ordinary development.
+Default installer and checker mode is `unified`; `--mode legacy` selects only the seven rollback shims; drift `--mode all` audits both sets without writing. The installer never enables, disables, or removes plugins. Any migration must disable the opposite set before gateway start. Do not edit installed copies and then treat them as source, and do not run installer `--apply` against the live root during ordinary development. Live apply requires later migration authorization and explicit `--live`.
 
 ## Generated artifacts
 
@@ -119,4 +124,4 @@ Do not edit installed plugin copies directly and then treat them as source. Do n
 
 ## Packaging work in progress
 
-The approved later target is an importable `non_profit_hermes` package, one unified seven-command plugin, an installable secret-free profile distribution, and a deterministic doctor. None exists yet. Do not document proposed filenames, commands, or install flows as available until implementation and clean-install acceptance pass.
+The importable `non_profit_hermes` package and unified seven-command plugin now exist in source and have offline builder verification. An installable secret-free profile distribution, deterministic doctor, clean-install acceptance, independent checker verdict, and production migration remain pending. Do not describe the unified plugin as installed, enabled, live-migrated, or production-accepted until those later gates pass.

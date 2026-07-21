@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Deliberate, dry-run-by-default installer for canonical CLEANUP-004 plugins."""
+"""Deliberate, dry-run-by-default installer for manifest-selected runtime plugins."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 LIVE_ROOT = (Path.home() / "AppData" / "Local" / "hermes" / "plugins").resolve()
 
@@ -47,9 +47,56 @@ def matches(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(path, pattern.replace("/**", "/*")) for pattern in patterns)
 
 
-def verify(repo: Path, manifest: dict) -> None:
-    for plugin in manifest["plugins"]:
-        root = repo / "runtime_plugins" / plugin["directory"]
+def source_root(repo: Path, plugin: dict) -> Path:
+    source = plugin.get("source", f"runtime_plugins/{plugin['directory']}")
+    if not isinstance(source, str) or not source or "\\" in source:
+        raise ValueError(f"unsafe plugin source: {source!r}")
+    relative = PurePosixPath(source)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != source
+        or any(part in {"", ".", ".."} for part in relative.parts)
+        or (relative.parts and ":" in relative.parts[0])
+    ):
+        raise ValueError(f"unsafe plugin source: {source!r}")
+    candidate = (repo / Path(*relative.parts)).resolve()
+    try:
+        candidate.relative_to(repo.resolve())
+    except ValueError as exc:
+        raise ValueError(f"unsafe plugin source: {source!r}") from exc
+    return candidate
+
+
+def selected_plugins(manifest: dict, mode: str) -> list[dict]:
+    role = "primary" if mode == "unified" else "compatibility"
+    return [plugin for plugin in manifest["plugins"] if plugin.get("role", "compatibility") == role]
+
+
+def validate_selection(mode: str, plugins: list[dict]) -> None:
+    if not plugins:
+        raise ValueError(f"manifest contains no plugins for mode={mode}")
+    seen: set[str] = set()
+    for plugin in plugins:
+        for command in plugin.get("commands", []):
+            if command in seen:
+                raise ValueError(f"duplicate command exposure in mode={mode}: {command}")
+            seen.add(command)
+
+
+def plugin_manifest_identity(path: Path) -> tuple[str | None, str | None]:
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values.get("name"), values.get("version")
+
+
+def verify(repo: Path, plugins: list[dict]) -> None:
+    for plugin in plugins:
+        root = source_root(repo, plugin)
         for entry in plugin["files"]:
             path = root / entry["path"]
             if not path.is_file():
@@ -58,6 +105,9 @@ def verify(repo: Path, manifest: dict) -> None:
                 verify_with_git_blobs(repo, path, entry["sha256"])
             except ValueError:
                 raise ValueError(f"manifest verification failed: {plugin['name']}/{entry['path']}")
+        identity, version = plugin_manifest_identity(root / "plugin.yaml")
+        if identity != plugin.get("name") or version != plugin.get("version"):
+            raise ValueError(f"plugin manifest identity/version mismatch: {plugin.get('name', '<unknown>')}")
 
 
 def git_is_dirty(repo: Path) -> bool:
@@ -124,6 +174,7 @@ def main() -> int:
     parser.add_argument("--target-root", type=Path, help="required destination plugin root for --apply")
     parser.add_argument("--apply", action="store_true", help="perform writes; omit for dry-run")
     parser.add_argument("--dry-run", action="store_true", help="explicit no-op run; this is the default")
+    parser.add_argument("--mode", choices=("unified", "legacy"), help="plugin set (default: manifest default_mode)")
     parser.add_argument("--live", action="store_true", help="permit a live Hermes plugin root (never implied)")
     parser.add_argument("--allow-dirty-git", action="store_true", help="override dirty-worktree protection")
     args = parser.parse_args()
@@ -132,16 +183,19 @@ def main() -> int:
         return 2
     repo = args.repo_root.resolve()
     manifest = json.loads((repo / "RUNTIME_PLUGIN_MANIFEST.json").read_text(encoding="utf-8"))
+    mode = args.mode or manifest.get("default_mode", "legacy")
+    plugins = selected_plugins(manifest, mode)
     try:
-        verify(repo, manifest)
+        validate_selection(mode, plugins)
+        verify(repo, plugins)
     except (ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     if args.apply:
         pass
     elif args.dry_run or not args.apply:
-        print("DRY-RUN: manifest verified; no files will be written.")
-        for plugin in manifest["plugins"]:
+        print(f"DRY-RUN mode={mode}: manifest verified; no files will be written.")
+        for plugin in plugins:
             print(f"would install {plugin['directory']}")
         return 0
     if args.target_root is None:
@@ -158,8 +212,8 @@ def main() -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    for plugin in manifest["plugins"]:
-        source = repo / "runtime_plugins" / plugin["directory"]
+    for plugin in plugins:
+        source = source_root(repo, plugin)
         backup = atomic_install(source, target_root / plugin["directory"], target_root / ".cleanup_004_backups", plugin.get("mutable_paths", []), plugin)
         print(f"INSTALLED {plugin['directory']} backup={backup or 'none'}")
     return 0

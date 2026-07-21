@@ -1,10 +1,50 @@
 {
-  "schema": "CLEANUP-004 runtime plugin manifest",
-  "version": 1,
+  "schema": "Non-Profit Hermes runtime plugin manifest",
+  "version": 2,
+  "default_mode": "unified",
   "plugins": [
     {
-      "name": "daily",
+      "name": "non-profit-hermes",
+      "source": "plugins/non-profit-hermes",
+      "directory": "non-profit-hermes",
+      "role": "primary",
+      "version": "1.0.0",
+      "commands": [
+        "daily",
+        "need",
+        "donation",
+        "report",
+        "task",
+        "inventory",
+        "event"
+      ],
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "5153efbcae176ed3bd2fda69c0d19be1610be487bddb8156e4e836bb9fb95042"
+        },
+        {
+          "path": "commands.py",
+          "sha256": "994b5096305837128ab0582b157bc1460e3f0967b2d6a9bdc7912158f554d0bb"
+        },
+        {
+          "path": "plugin.yaml",
+          "sha256": "e5ea5851e746692b28b2bdb44c0068bb2da962205e0de0f270e065a8bb9bbd3f"
+        }
+      ],
+      "mutable_paths": [
+        "__pycache__/**"
+      ]
+    },
+    {
+      "name": "non-profit-hermes-daily",
+      "source": "runtime_plugins/non-profit-hermes-daily",
       "directory": "non-profit-hermes-daily",
+      "role": "compatibility",
+      "version": "1.0.0",
+      "commands": [
+        "daily"
+      ],
       "files": [
         {
           "path": "__init__.py",
@@ -20,8 +60,14 @@
       ]
     },
     {
-      "name": "event",
+      "name": "non-profit-hermes-event",
+      "source": "runtime_plugins/non-profit-hermes-event",
       "directory": "non-profit-hermes-event",
+      "role": "compatibility",
+      "version": "1.0.0",
+      "commands": [
+        "event"
+      ],
       "files": [
         {
           "path": "__init__.py",
@@ -37,8 +83,14 @@
       ]
     },
     {
-      "name": "need",
+      "name": "non-profit-hermes-need",
+      "source": "runtime_plugins/non-profit-hermes-need",
       "directory": "non-profit-hermes-need",
+      "role": "compatibility",
+      "version": "1.0.0",
+      "commands": [
+        "need"
+      ],
       "files": [
         {
           "path": "__init__.py",
@@ -54,8 +106,14 @@
       ]
     },
     {
-      "name": "donation",
+      "name": "non-profit-hermes-donation",
+      "source": "runtime_plugins/non-profit-hermes-donation",
       "directory": "non-profit-hermes-donation",
+      "role": "compatibility",
+      "version": "1.0.0",
+      "commands": [
+        "donation"
+      ],
       "files": [
         {
           "path": "__init__.py",
@@ -71,8 +129,14 @@
       ]
     },
     {
-      "name": "report",
+      "name": "non-profit-hermes-report",
+      "source": "runtime_plugins/non-profit-hermes-report",
       "directory": "non-profit-hermes-report",
+      "role": "compatibility",
+      "version": "1.0.0",
+      "commands": [
+        "report"
+      ],
       "files": [
         {
           "path": "__init__.py",
@@ -88,8 +152,14 @@
       ]
     },
     {
-      "name": "task",
+      "name": "non-profit-hermes-task",
+      "source": "runtime_plugins/non-profit-hermes-task",
       "directory": "non-profit-hermes-task",
+      "role": "compatibility",
+      "version": "1.0.0",
+      "commands": [
+        "task"
+      ],
       "files": [
         {
           "path": "__init__.py",
@@ -105,8 +175,14 @@
       ]
     },
     {
-      "name": "inventory",
+      "name": "non-profit-hermes-inventory",
+      "source": "runtime_plugins/non-profit-hermes-inventory",
       "directory": "non-profit-hermes-inventory",
+      "role": "compatibility",
+      "version": "1.0.0",
+      "commands": [
+        "inventory"
+      ],
       "files": [
         {
           "path": "__init__.py",

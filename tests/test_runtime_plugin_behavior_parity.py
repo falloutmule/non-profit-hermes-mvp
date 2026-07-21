@@ -17,6 +17,7 @@ LEGACY_ROOT = ROOT / "runtime_plugins"
 UNIFIED_ROOT = ROOT / "plugins" / "non-profit-hermes"
 CHECKER = ROOT / "scripts" / "check_runtime_plugin_drift.py"
 LEGACY_ORDER = ("daily", "event", "need", "donation", "report", "task", "inventory")
+UNIFIED_COMMANDS = ("daily", "need", "donation", "report", "task", "inventory", "event")
 
 
 class FakeContext:
@@ -106,20 +107,52 @@ def test_unified_and_legacy_metadata_and_delegated_outputs_match_offline(monkeyp
     assert calls == expected_calls
 
 
-def test_manifest_hashes_match_exact_git_index_sources_without_installed_plugins() -> None:
+def test_manifest_v2_is_unified_first_and_matches_exact_git_index_sources() -> None:
     manifest = json.loads((ROOT / "RUNTIME_PLUGIN_MANIFEST.json").read_text(encoding="utf-8"))
-    assert manifest["schema"] == "CLEANUP-004 runtime plugin manifest"
-    assert manifest["version"] == 1
-    assert [item["name"] for item in manifest["plugins"]] == list(LEGACY_ORDER)
+    assert manifest["schema"] == "Non-Profit Hermes runtime plugin manifest"
+    assert manifest["version"] == 2
+    assert manifest["default_mode"] == "unified"
+
+    unified, *legacy = manifest["plugins"]
+    assert {
+        key: unified[key]
+        for key in ("name", "source", "directory", "role", "version", "commands")
+    } == {
+        "name": "non-profit-hermes",
+        "source": "plugins/non-profit-hermes",
+        "directory": "non-profit-hermes",
+        "role": "primary",
+        "version": "1.0.0",
+        "commands": list(UNIFIED_COMMANDS),
+    }
+    assert [entry["path"] for entry in unified["files"]] == [
+        "__init__.py",
+        "commands.py",
+        "plugin.yaml",
+    ]
+    assert [item["commands"][0] for item in legacy] == list(LEGACY_ORDER)
+    assert [item["name"] for item in legacy] == [
+        f"non-profit-hermes-{name}" for name in LEGACY_ORDER
+    ]
 
     for plugin in manifest["plugins"]:
-        canonical = LEGACY_ROOT / plugin["directory"]
+        source_path = Path(plugin["source"])
+        assert not source_path.is_absolute()
+        assert source_path.as_posix() == plugin["source"]
+        assert ".." not in source_path.parts
+        canonical = ROOT / source_path
         assert canonical.is_dir()
-        assert [entry["path"] for entry in plugin["files"]] == ["__init__.py", "plugin.yaml"]
-        assert sorted(path.name for path in canonical.iterdir() if path.is_file()) == [
-            "__init__.py",
-            "plugin.yaml",
-        ]
+        manifest_values = dict(
+            line.split(":", 1)
+            for line in (canonical / "plugin.yaml").read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#")
+        )
+        assert manifest_values["name"].strip() == plugin["name"]
+        assert manifest_values["version"].strip() == plugin["version"]
+        if plugin["role"] == "compatibility":
+            assert plugin["source"] == f"runtime_plugins/{plugin['directory']}"
+            assert [entry["path"] for entry in plugin["files"]] == ["__init__.py", "plugin.yaml"]
+            assert len(plugin["commands"]) == 1
         for entry in plugin["files"]:
             source = canonical / entry["path"]
             tracked = index_source_bytes(source)

@@ -2,7 +2,7 @@
 
 ## Scope
 
-NPH-V1-030A freezes the canonical unified plugin interface at `plugins/non-profit-hermes` without installing, enabling, or invoking it in a live Hermes profile. The plugin registers only `/daily`, `/need`, `/donation`, `/report`, `/task`, `/inventory`, and `/event`, and delegates every handler through `non_profit_hermes.router.run_plugin_command(name, raw_args)`.
+NPH-V1-030A freezes the canonical unified plugin interface at `plugins/non-profit-hermes`. NPH-V1-030B1 converts the seven historical plugins into deprecated one-release compatibility shims. NPH-V1-030B2 makes manifest v2, installation, and drift checks unified-first while retaining a deterministic legacy-only rollback mode. None of these slices installed, enabled, or invoked a plugin in a live Hermes profile. The unified plugin registers only `/daily`, `/need`, `/donation`, `/report`, `/task`, `/inventory`, and `/event`, and delegates every handler through `non_profit_hermes.router.run_plugin_command(name, raw_args)`.
 
 ## Schema and API basis
 
@@ -48,7 +48,51 @@ python -m pytest -q tests/test_unified_plugin.py
 12 passed
 ```
 
-Required focused lane:
+## NPH-V1-030B1 compatibility shims
+
+Commit `02e2e406e950ecc57d344c31a67f56304a174afe` (`refactor: make legacy plugins compatibility shims`, parent `2cc294760b53bcfd98c97399d37ae814d9a65585`) converted all seven historical directories into v1.0.0 compatibility shims. Each shim registers one preserved command and delegates through the same package router boundary as the unified plugin. The obsolete duplicate `init.py` entrypoints were removed.
+
+B1 RED:
+
+```text
+python -m pytest -q tests/test_legacy_plugin_shims.py tests/test_runtime_plugin_behavior_parity.py
+19 failed, 2 passed
+```
+
+The failures demonstrated old manifests and handlers, duplicate entrypoints, unsafe error output, and missing deterministic offline parity. That first RED reached one old absolute-path handler and surfaced `REFRESH_PERSISTENCE_FILE_FLUSH_FAILED`; no successful external mutation was confirmed, and the old path was not repeated.
+
+B1 GREEN and verification:
+
+```text
+new shim/parity slice: 21 passed
+required focused lane: 46 passed in 3.86s
+full suite: 314 passed, 69 subtests passed in 10.79s
+```
+
+The final parity fixture imports tracked unified and shim sources under isolated names with fake contexts. Manifest parity covered seven plugins and 14 exact Git-blob files. No installed-runtime copy was used.
+
+## NPH-V1-030B2 manifest and mode TDD
+
+B2 is the scoped commit with subject `feat: make unified plugin installer default` and required parent `02e2e406e950ecc57d344c31a67f56304a174afe`.
+
+Tests were added first and observed failing for each missing contract:
+
+- manifest v2/unified-first RED: schema remained the legacy CLEANUP-004 manifest;
+- unified installer RED: source resolution still assumed `runtime_plugins/`;
+- legacy mode RED: `--mode legacy` was unrecognized;
+- source-safety RED: an unsafe absolute source was accepted;
+- identity/version RED: manifest identity mismatch was accepted;
+- duplicate-exposure RED: unified and compatibility entries could be selected together;
+- drift RED: the checker inspected only the legacy source layout.
+
+Each tracer reached GREEN before the next behavior was added. The final B2 focused lane is:
+
+```text
+python -m pytest -q tests/test_runtime_plugin_install.py tests/test_runtime_plugin_drift.py tests/test_runtime_plugin_behavior_parity.py tests/test_legacy_plugin_shims.py tests/test_unified_plugin.py
+55 passed in 7.90s
+```
+
+NPH-V1-030A required focused lane:
 
 ```text
 python -m pytest -q tests/test_unified_plugin.py tests/test_event_router.py tests/test_daily_read_only.py
@@ -81,7 +125,7 @@ The same fixture runs in a subprocess from a pytest temporary directory with onl
 - Unexpected handler exceptions return a stable command-specific message. Exception text, traceback text, paths, and private sentinel values are not returned.
 - Registration and import made zero router executions, Google calls, network calls, file writes, credential reads, or external state initialization in the verified fixtures.
 
-## Full verification
+## NPH-V1-030A full verification
 
 ```text
 python -m pytest -q
@@ -121,25 +165,81 @@ PARITY=True
 
 `git diff --check` passed.
 
+## NPH-V1-030B2 manifest, installer, and drift behavior
+
+`RUNTIME_PLUGIN_MANIFEST.json` is schema/version 2 with `default_mode: unified`. Its first entry is the v1.0.0 primary plugin at `plugins/non-profit-hermes`, with all seven commands and exact Git-blob SHA-256 values for `__init__.py`, `commands.py`, and `plugin.yaml`. Seven v1.0.0 compatibility entries follow in historical command order `daily`, `event`, `need`, `donation`, `report`, `task`, `inventory`, each with an explicit `runtime_plugins/...` source and exact hashes for `__init__.py` and `plugin.yaml`.
+
+All eight source paths were verified normalized, repository-relative, and contained by the repository root. All 17 declared hashes matched `git show HEAD:<source>/<file>`, and every manifest identity/version matched its source `plugin.yaml`.
+
+Installer behavior:
+
+- default dry-run and apply select only `non-profit-hermes` and print `mode=unified`;
+- `--mode legacy` selects only the seven compatibility directories;
+- no mode selects unified and legacy together, and duplicate command exposure fails closed;
+- unsafe/absolute/traversal/unnormalized sources and manifest identity/version/hash mismatches fail closed;
+- dirty apply, implicit targets, and the live root without `--live` remain refused;
+- atomic staging, Git-blob/CRLF handling, backup, rollback-on-failure, and declared mutable-state preservation remain intact;
+- the installer performs no configuration enable/disable or removal action.
+
+Drift behavior:
+
+- default `--mode unified` checks one primary plugin;
+- `--mode legacy` checks seven compatibility shims;
+- `--mode all` audits all eight entries read-only;
+- JSON includes manifest version, mode, source, role, plugin identity/version, and `read_only: true`;
+- strict failures are scoped to missing, unexplained, or untested state in the selected mode;
+- unsafe source values are redacted and rejected; no credential or private path is emitted.
+
+Disposable non-live integration proof used temporary roots only:
+
+```text
+MANIFEST_V2_HASH_SOURCE_IDENTITY=PASS entries=8 files=17
+DRY_RUN_DEFAULT=PASS directories=non-profit-hermes target_created=false
+DRY_RUN_LEGACY=PASS directories=7 target_created=false
+APPLY_UNIFIED=PASS directories=1
+APPLY_LEGACY=PASS directories=7 disjoint=true
+BACKUP_MUTABLE_RESTORE=PASS backups=1
+ROLLBACK_ON_FAILURE=PASS known_good_restored=true
+DRIFT_UNIFIED_STRICT=PASS plugins=1
+DRIFT_LEGACY_STRICT=PASS plugins=7
+DRIFT_ALL_AUDIT=PASS plugins=8 read_only=true
+DRIFT_MUTATION_STRICT=PASS exit=1 no_writes=true
+```
+
+B2 full verification:
+
+```text
+python -m pytest -q
+323 passed, 69 subtests passed in 15.04s
+
+python -m py_compile scripts/install_runtime_plugins.py scripts/check_runtime_plugin_drift.py tests/test_runtime_plugin_*.py tests/test_legacy_plugin_shims.py tests/test_unified_plugin.py
+PASS
+
+git diff --check
+PASS
+```
+
 ## Scans and boundaries
 
 The final verification scans cover:
 
-- exact eight-path allowlist for this slice;
-- no changes under legacy runtime plugins, runtime manifest/installers, profile/distribution inputs, public `docs/`, or live/profile paths;
+- exact B2 nine-path change set: manifest, two tooling scripts, three focused test files, two operator/developer documents, and this report;
+- no changes under canonical unified or legacy plugin source, package source, profile/distribution inputs, public `docs/`, or live/profile paths;
 - no hardcoded Windows or macOS user/repository path in the plugin/package diff;
 - no raw numeric Telegram source identifier in the plugin/package diff;
 - no `sys.path`, subprocess, `scripts` import, dynamic reload, Google import/logic, credentials read, token path, hook, or tool registration in the unified plugin;
 - no credential/token/private-ID shape added to the report;
 - manifest exact fields and v1.0.0 identity.
 
-## Limitations and deferred work
+## Compatibility state, limitations, and deferred work
 
-- Seven legacy command plugins remain unchanged. Their compatibility migration is NPH-V1-030B.
-- The canonical plugin source is not installed, enabled, or included in a profile distribution by this task. Distribution wiring and clean-install acceptance are later gates.
+- The unified v1.0.0 plugin is canonical source. Seven v1.0.0 legacy plugins remain as deprecated one-release rollback shims only.
+- Unified and legacy modes expose duplicate command names by design and must never be enabled together. Migration must disable the opposite set before gateway start.
+- The installer copies a selected set but intentionally does not enable, disable, or remove plugins.
+- The canonical plugin source is not installed, enabled, or included in a profile distribution by these slices. Distribution wiring, clean-install acceptance, independent checking, and production migration are later gates.
 - No live profile, gateway, Telegram bot, Google Sheet, Google Calendar, public site, or publication action was performed.
 - No live command canary was run. This report is local/offline builder evidence, not independent checker or production acceptance.
 
 ## No-live-action statement
 
-This task performed source edits, offline tests, compilation, static scans, and a disposable local package build only. It did not access nonprofit credentials, mutate Google or Calendar data, alter any Hermes profile or plugin installation, restart a gateway, contact Telegram, or publish the public website.
+These slices performed source edits, offline tests, compilation, static scans, a disposable local package build, and B2 installer/drift exercises under temporary non-live roots only. They did not access nonprofit credentials, mutate Google or Calendar data, alter any Hermes profile or live plugin installation, enable or disable plugins, restart a gateway, contact Telegram, or publish the public website.
