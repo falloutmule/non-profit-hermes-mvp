@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from non_profit_hermes import approved_safe_sync
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -49,7 +51,10 @@ class FakeCalendar:
 class DailyReadOnlyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.sync = load_module("cleanup003_sync", "scripts/sync_approved_safe_data.py")
+        cls.sync = approved_safe_sync
+        cls.sync.TOKEN = ROOT / "synthetic-offline-credential.json"
+        cls.sync.SPREADSHEET_ID = "synthetic-offline-sheet"
+        cls.sync.CALENDAR_ID = "synthetic-offline-calendar"
         cls.router = load_module("cleanup003_router", "scripts/telegram_intake_router.py")
 
     def rows(self, tab, *mappings):

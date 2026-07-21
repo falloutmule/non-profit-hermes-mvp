@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import os
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from non_profit_hermes import approved_safe_sync, models
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -43,8 +46,11 @@ class _Sheets:
 class ExportSafetyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.sync = load_module("cleanup_sync", "scripts/sync_approved_safe_data.py")
-        cls.schema = load_module("cleanup_schema", "scripts/non_profit_hermes_schema.py")
+        cls.sync = approved_safe_sync
+        cls.schema = models
+        cls.sync.TOKEN = ROOT / "synthetic-offline-credential.json"
+        cls.sync.SPREADSHEET_ID = "synthetic-offline-sheet"
+        cls.sync.CALENDAR_ID = "synthetic-offline-calendar"
 
     def rows(self, tab, *mappings):
         header = self.schema.HEADERS[tab]
@@ -174,7 +180,7 @@ class ExportSafetyTests(unittest.TestCase):
              patch.object(self.sync.Credentials, "from_authorized_user_file", return_value=ExpiredCredentials()), \
              patch.object(self.sync, "sheets_service", return_value=object()), \
              patch.object(self.sync, "calendar_service", return_value=object()), \
-             patch.object(self.sync, "read_sheet_rows", side_effect=lambda _svc, tab: rows[tab]), \
+             patch.object(self.sync, "read_sheet_rows", side_effect=lambda _svc, tab, **_kwargs: rows[tab]), \
              patch.object(self.sync, "safe_calendar_export", return_value=[]), \
              patch.object(Path, "write_text") as write_text, \
              patch.object(self.sync, "write_json") as write_json, \
@@ -193,7 +199,9 @@ class ExportSafetyTests(unittest.TestCase):
         build_pages.assert_not_called()
 
     def test_dry_run_help_exposes_mode(self):
-        self.assertIn("--dry-run", __import__("subprocess").run([sys.executable, "scripts/sync_approved_safe_data.py", "--help"], cwd=ROOT, capture_output=True, text=True, check=True).stdout)
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(ROOT)
+        self.assertIn("--dry-run", __import__("subprocess").run([sys.executable, "scripts/sync_approved_safe_data.py", "--help"], cwd=ROOT, env=environment, capture_output=True, text=True, check=True).stdout)
 
 
 if __name__ == "__main__":

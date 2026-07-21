@@ -10,7 +10,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from non_profit_hermes import models, operations
+from non_profit_hermes import approved_safe_sync, models, operations
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,16 +29,14 @@ def load_module(name: str, relative_path: str):
 
 def test_schema_is_single_source() -> None:
     """Both modules must import HEADERS from the canonical schema module."""
-    sync = load_module("sync_check", "scripts/sync_approved_safe_data.py")
-
     assert operations.HEADERS is models.HEADERS, "operations must use package models by identity"
-    assert sync.HEADERS == models.HEADERS, "sync.HEADERS must equal package models.HEADERS"
+    assert approved_safe_sync.HEADERS is models.HEADERS, "sync must use package models by identity"
 
 
 def test_no_duplicate_header_literals() -> None:
     """No HEADERS dict literal should exist in ops or sync modules."""
     ops_path = ROOT / "non_profit_hermes" / "operations.py"
-    sync_path = ROOT / "scripts/sync_approved_safe_data.py"
+    sync_path = ROOT / "non_profit_hermes" / "approved_safe_sync.py"
 
     for path, label in [(ops_path, "ops"), (sync_path, "sync")]:
         content = path.read_text(encoding="utf-8")

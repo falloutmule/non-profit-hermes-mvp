@@ -39,6 +39,7 @@ def test_config_defaults_are_home_based_and_do_not_select_credentials(tmp_path: 
     assert config.config_dir == home / ".config" / "non-profit-hermes"
     assert config.data_dir == home / ".local" / "share" / "non-profit-hermes"
     assert config.state_dir == home / ".local" / "state" / "non-profit-hermes"
+    assert config.public_dir == config.data_dir / "public"
     assert config.credentials_file is None
     assert config.spreadsheet_id is None
     assert config.calendar_id is None
@@ -53,6 +54,7 @@ def test_config_uses_documented_environment_over_home_defaults(
         "NON_PROFIT_HERMES_CONFIG_DIR": tmp_path / "configured" / "config",
         "NON_PROFIT_HERMES_DATA_DIR": tmp_path / "configured" / "data",
         "NON_PROFIT_HERMES_STATE_DIR": tmp_path / "configured" / "state",
+        "NON_PROFIT_HERMES_PUBLIC_DIR": tmp_path / "configured" / "public",
         "NON_PROFIT_HERMES_CREDENTIALS_FILE": tmp_path / "configured" / "credentials.json",
     }
     environ = {name: str(path) for name, path in paths.items()}
@@ -69,6 +71,7 @@ def test_config_uses_documented_environment_over_home_defaults(
     assert config.config_dir == paths["NON_PROFIT_HERMES_CONFIG_DIR"]
     assert config.data_dir == paths["NON_PROFIT_HERMES_DATA_DIR"]
     assert config.state_dir == paths["NON_PROFIT_HERMES_STATE_DIR"]
+    assert config.public_dir == paths["NON_PROFIT_HERMES_PUBLIC_DIR"]
     assert config.credentials_file == paths["NON_PROFIT_HERMES_CREDENTIALS_FILE"]
     assert config.spreadsheet_id == "test-sheet"
     assert config.calendar_id == "test-calendar"
@@ -81,6 +84,7 @@ def test_explicit_config_arguments_override_environment(tmp_path: Path) -> None:
         "NON_PROFIT_HERMES_CONFIG_DIR": str(tmp_path / "environment-config"),
         "NON_PROFIT_HERMES_DATA_DIR": str(tmp_path / "environment-data"),
         "NON_PROFIT_HERMES_STATE_DIR": str(tmp_path / "environment-state"),
+        "NON_PROFIT_HERMES_PUBLIC_DIR": str(tmp_path / "environment-public"),
         "NON_PROFIT_HERMES_CREDENTIALS_FILE": str(tmp_path / "environment-token.json"),
         "NON_PROFIT_HERMES_SPREADSHEET_ID": "environment-sheet",
         "NON_PROFIT_HERMES_CALENDAR_ID": "environment-calendar",
@@ -89,6 +93,7 @@ def test_explicit_config_arguments_override_environment(tmp_path: Path) -> None:
         "config_dir": tmp_path / "argument-config",
         "data_dir": tmp_path / "argument-data",
         "state_dir": tmp_path / "argument-state",
+        "public_dir": tmp_path / "argument-public",
         "credentials_file": tmp_path / "argument-token.json",
     }
 
@@ -103,6 +108,7 @@ def test_explicit_config_arguments_override_environment(tmp_path: Path) -> None:
     assert config.config_dir == explicit["config_dir"]
     assert config.data_dir == explicit["data_dir"]
     assert config.state_dir == explicit["state_dir"]
+    assert config.public_dir == explicit["public_dir"]
     assert config.credentials_file == explicit["credentials_file"]
     assert config.spreadsheet_id == "argument-sheet"
     assert config.calendar_id == "argument-calendar"

@@ -15,6 +15,7 @@ from typing import Mapping
 ENV_CONFIG_DIR = "NON_PROFIT_HERMES_CONFIG_DIR"
 ENV_DATA_DIR = "NON_PROFIT_HERMES_DATA_DIR"
 ENV_STATE_DIR = "NON_PROFIT_HERMES_STATE_DIR"
+ENV_PUBLIC_DIR = "NON_PROFIT_HERMES_PUBLIC_DIR"
 ENV_CREDENTIALS_FILE = "NON_PROFIT_HERMES_CREDENTIALS_FILE"
 ENV_SPREADSHEET_ID = "NON_PROFIT_HERMES_SPREADSHEET_ID"
 ENV_CALENDAR_ID = "NON_PROFIT_HERMES_CALENDAR_ID"
@@ -22,6 +23,7 @@ ENVIRONMENT_NAMES = (
     ENV_CONFIG_DIR,
     ENV_DATA_DIR,
     ENV_STATE_DIR,
+    ENV_PUBLIC_DIR,
     ENV_CREDENTIALS_FILE,
     ENV_SPREADSHEET_ID,
     ENV_CALENDAR_ID,
@@ -36,6 +38,7 @@ class PackageConfig:
     config_dir: Path
     data_dir: Path
     state_dir: Path
+    public_dir: Path
     credentials_file: Path | None = None
     spreadsheet_id: str | None = None
     calendar_id: str | None = None
@@ -46,6 +49,7 @@ def resolve_config(
     config_dir: str | Path | None = None,
     data_dir: str | Path | None = None,
     state_dir: str | Path | None = None,
+    public_dir: str | Path | None = None,
     credentials_file: str | Path | None | object = _UNSET,
     spreadsheet_id: str | None | object = _UNSET,
     calendar_id: str | None | object = _UNSET,
@@ -60,6 +64,8 @@ def resolve_config(
     default_config_dir = resolved_home / ".config" / app_name
     default_data_dir = resolved_home / ".local" / "share" / app_name
     default_state_dir = resolved_home / ".local" / "state" / app_name
+    resolved_data_dir = Path(data_dir or environment.get(ENV_DATA_DIR) or default_data_dir).expanduser()
+    default_public_dir = resolved_data_dir / "public"
     resolved_credentials = (
         environment.get(ENV_CREDENTIALS_FILE) or None
         if credentials_file is _UNSET
@@ -77,8 +83,9 @@ def resolve_config(
     )
     return PackageConfig(
         config_dir=Path(config_dir or environment.get(ENV_CONFIG_DIR) or default_config_dir).expanduser(),
-        data_dir=Path(data_dir or environment.get(ENV_DATA_DIR) or default_data_dir).expanduser(),
+        data_dir=resolved_data_dir,
         state_dir=Path(state_dir or environment.get(ENV_STATE_DIR) or default_state_dir).expanduser(),
+        public_dir=Path(public_dir or environment.get(ENV_PUBLIC_DIR) or default_public_dir).expanduser(),
         credentials_file=(
             Path(resolved_credentials).expanduser()
             if isinstance(resolved_credentials, (str, Path)) and resolved_credentials

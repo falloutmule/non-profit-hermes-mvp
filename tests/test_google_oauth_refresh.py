@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from non_profit_hermes import oauth_refresh, operations
+from non_profit_hermes import approved_safe_sync, oauth_refresh, operations
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -453,7 +453,7 @@ def _load_script(name: str, filename: str):
 
 def test_ops_and_sync_use_durable_refresh_boundary_without_live_calls(tmp_path: Path, monkeypatch) -> None:
     ops = operations
-    sync = _load_script("refresh_test_sync", "sync_approved_safe_data.py")
+    sync = approved_safe_sync
     calls: list[tuple[object, object, Path, list[str]]] = []
 
     def durable_refresh(credential, request, token, scopes):
