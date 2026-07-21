@@ -162,6 +162,20 @@ class DailyReadOnlyTests(unittest.TestCase):
         self.assertIn("REQ-SAFE-1", summary)
         self.assertNotIn("PRIVATE SENTINEL", summary)
 
+    def test_plugin_daily_boundary_stays_in_memory_and_read_only(self):
+        sheets, calendar = self.fake_services()
+        with (
+            patch.object(self.router, "daily_services", return_value=(sheets, calendar)),
+            patch.object(self.router.approved_safe_sync, "write_json", side_effect=AssertionError("plugin daily generated JSON")),
+            patch.object(self.router.approved_safe_sync, "write_page", side_effect=AssertionError("plugin daily generated HTML")),
+            patch.object(self.router.approved_safe_sync, "write_both", side_effect=AssertionError("plugin daily generated page")),
+            patch.object(self.router, "services", side_effect=AssertionError("plugin daily initialized write services")),
+        ):
+            summary = self.router.run_plugin_command("daily", "")
+
+        self.assertIn("Daily board-safe summary", summary)
+        self.assertIn("REQ-SAFE-1: Blankets", summary)
+
 
 if __name__ == "__main__":
     unittest.main()

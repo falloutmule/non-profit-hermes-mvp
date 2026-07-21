@@ -709,6 +709,59 @@ class EventRouterTests(unittest.TestCase):
         r2 = tir.route_event(sheets, cal, {"event_title": "Int", "start": "2026-07-12T09:00:00-06:00", "privacy_level": "internal"}, "", SRC, "internal")
         self.assertEqual(sheets.row_by_draft(r2.record_id)["PrivacyLevel"], "internal")
 
+    def test_plugin_boundary_preserves_ordinary_event_and_exact_promotion_dispatch(self):
+        calls: list[tuple[str, dict[str, object]]] = []
+        sentinel = object()
+
+        def fake_handle_message(message: str, **kwargs):
+            calls.append((message, kwargs))
+            return sentinel
+
+        with (
+            mock.patch.object(tir, "handle_message", side_effect=fake_handle_message),
+            mock.patch.object(tir, "_result_to_text", return_value="rendered"),
+        ):
+            ordinary = tir.run_plugin_command("event", 'id=EVT-A31A0CF8 status=ready')
+            promotion = tir.run_plugin_command(
+                "event", "event_draft_id=EVT-A31A0CF8 confirm_create=yes"
+            )
+
+        self.assertEqual(ordinary, "rendered")
+        self.assertEqual(promotion, "rendered")
+        self.assertEqual(calls[0][0], "/event id=EVT-A31A0CF8 status=ready")
+        self.assertEqual(
+            calls[1][0],
+            "event_draft_id=EVT-A31A0CF8 confirm_create=yes",
+        )
+        for _message, kwargs in calls:
+            self.assertEqual(kwargs["source_link"], "telegram:live")
+            self.assertIs(kwargs["allow_calendar_creation"], False)
+            self.assertEqual(
+                kwargs["calendar_promotion_mode"],
+                tir.ONE_SHOT_CALENDAR_PROMOTION_MODE,
+            )
+
+    def test_plugin_boundary_rejects_malformed_promotion_without_router_dispatch(self):
+        malformed = (
+            "id=EVT-A31A0CF8 create_calendar=no",
+            "confirm_create=yes",
+            "id=EVT-A31A0CF8 confirm_create=yes description=private",
+            "id=EVT-A31A0CF8 event_draft_id=EVT-11111111 confirm_create=yes",
+            'id="EVT-A31A0CF8 confirm_create=yes',
+        )
+
+        with mock.patch.object(
+            tir,
+            "handle_message",
+            side_effect=AssertionError("malformed promotion reached router"),
+        ):
+            for payload in malformed:
+                with self.subTest(payload=payload):
+                    self.assertEqual(
+                        tir.run_plugin_command("event", payload),
+                        "Promotion request rejected: promotion may include only one EVT draft ID and one create confirmation.",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

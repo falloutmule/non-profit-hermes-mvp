@@ -72,6 +72,15 @@ COMMANDS = {
     "/daily",
 }
 
+_PLUGIN_COMMAND_NAMES = {command.lstrip("/") for command in COMMANDS}
+_PROMOTION_ID_FIELDS = {"id", "eventdraftid", "event_draft_id", "eventid", "event_id"}
+_PROMOTION_CONFIRMATION_FIELDS = {"create_calendar", "confirm_create"}
+_PROMOTION_TRUTHY_VALUES = {"1", "true", "yes", "on"}
+_PROMOTION_REJECTION = (
+    "Promotion request rejected: promotion may include only one EVT draft ID "
+    "and one create confirmation."
+)
+
 
 @dataclass
 class RouterResult:
@@ -171,6 +180,81 @@ def _result_to_text(result: "RouterResult") -> str:
             f"Run /daily to see board summary, or visit the appropriate page."
         )
     return result.message
+
+
+def _plugin_event_dispatch(raw_args: str) -> tuple[str, str]:
+    """Classify plugin /event arguments without weakening promotion safeguards."""
+    raw = raw_args.strip()
+    try:
+        tokens = shlex.split(raw)
+    except ValueError:
+        promotion_shaped = re.search(
+            r"(?:^|\s)(?:create_calendar|confirm_create)\s*=",
+            raw,
+            re.IGNORECASE,
+        )
+        return ("", _PROMOTION_REJECTION) if promotion_shaped else (f"/event {raw}".rstrip(), "")
+
+    fields: list[tuple[str, str]] = []
+    free_tokens: list[str] = []
+    for token in tokens:
+        if "=" in token:
+            key, value = token.split("=", 1)
+            fields.append((key.strip().lower().replace("-", "_"), value.strip()))
+        else:
+            free_tokens.append(token)
+
+    confirmations = [
+        (key, value)
+        for key, value in fields
+        if key in _PROMOTION_CONFIRMATION_FIELDS
+    ]
+    if not confirmations:
+        return f"/event {raw}".rstrip(), ""
+
+    populated_ids = [
+        (key, value)
+        for key, value in fields
+        if key in _PROMOTION_ID_FIELDS and value
+    ]
+    truthy_confirmations = [
+        (key, value)
+        for key, value in confirmations
+        if value.lower() in _PROMOTION_TRUTHY_VALUES
+    ]
+    draft_id = populated_ids[0][1] if len(populated_ids) == 1 else ""
+    if (
+        len(populated_ids) != 1
+        or len(confirmations) != 1
+        or len(truthy_confirmations) != 1
+        or not re.fullmatch(r"EVT-[0-9A-F]{8}", draft_id)
+        or len(fields) != 2
+        or free_tokens
+    ):
+        return "", _PROMOTION_REJECTION
+    return raw, ""
+
+
+def run_plugin_command(name: str, raw_args: str = "") -> str:
+    """Run one canonical plugin command through the package-owned router boundary."""
+    command_name = (name or "").strip().lower().lstrip("/")
+    if command_name not in _PLUGIN_COMMAND_NAMES:
+        return "Unsupported Non-Profit Hermes command."
+
+    raw = (raw_args or "").strip()
+    dispatch_text = f"/{command_name} {raw}".rstrip()
+    kwargs: dict[str, object] = {"source_link": "telegram:live"}
+    if command_name == "event":
+        dispatch_text, rejection = _plugin_event_dispatch(raw)
+        if rejection:
+            return rejection
+        kwargs.update(
+            allow_calendar_creation=False,
+            calendar_promotion_mode=ONE_SHOT_CALENDAR_PROMOTION_MODE,
+        )
+
+    result = handle_message(dispatch_text, **kwargs)
+    return _result_to_text(result)
 
 
 def now_utc() -> datetime:
