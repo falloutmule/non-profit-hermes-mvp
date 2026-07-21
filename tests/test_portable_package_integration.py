@@ -89,6 +89,9 @@ def test_wheel_contains_only_package_modules_metadata_and_sanitized_defaults(
         defaults_text = archive.read(
             "non_profit_hermes/resources/defaults.toml"
         ).decode("utf-8")
+        entry_points_text = archive.read(
+            "non_profit_hermes-1.0.0.dist-info/entry_points.txt"
+        ).decode("utf-8")
 
     expected_package_members = {
         f"non_profit_hermes/{path.name}"
@@ -103,8 +106,13 @@ def test_wheel_contains_only_package_modules_metadata_and_sanitized_defaults(
     assert metadata_members
     assert all(".dist-info/" in member for member in metadata_members)
     assert all(
-        Path(member).name in {"METADATA", "WHEEL", "top_level.txt", "RECORD"}
+        Path(member).name
+        in {"METADATA", "WHEEL", "entry_points.txt", "top_level.txt", "RECORD"}
         for member in metadata_members
+    )
+    assert entry_points_text == (
+        "[console_scripts]\n"
+        "nonprofit-hermes = non_profit_hermes.doctor:main\n"
     )
     assert defaults_text == (
         'version = "1.0.0"\n'

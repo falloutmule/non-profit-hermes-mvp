@@ -183,7 +183,11 @@ def test_packaging_declares_runtime_test_and_private_data_boundaries() -> None:
     assert metadata["project"]["dependencies"] == [
         "google-auth>=2,<3",
         "google-api-python-client>=2,<3",
+        "PyYAML>=6,<7",
     ]
+    assert metadata["project"]["scripts"] == {
+        "nonprofit-hermes": "non_profit_hermes.doctor:main"
+    }
     assert metadata["project"]["optional-dependencies"]["test"] == ["pytest>=8,<10"]
     assert metadata["tool"]["setuptools"]["include-package-data"] is False
     assert metadata["tool"]["setuptools"]["package-data"] == {
