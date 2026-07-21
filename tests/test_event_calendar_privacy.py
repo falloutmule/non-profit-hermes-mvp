@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from non_profit_hermes import operations as ops
+
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_SENTINEL = "PRIVATE-EVENT-LEAK-TEST-7F21"
 EXPECTED_CALENDAR_HEADERS = [
@@ -33,7 +35,8 @@ def load_module(name: str, relative_path: str):
     return module
 
 
-ops = load_module("event_ops", "scripts/non_profit_hermes_ops.py")
+ops.SPREADSHEET_ID = "synthetic-offline-sheet"
+ops.CALENDAR_ID = "synthetic-offline-calendar"
 sync = load_module("event_sync", "scripts/sync_approved_safe_data.py")
 router = load_module("event_router", "scripts/telegram_intake_router.py")
 

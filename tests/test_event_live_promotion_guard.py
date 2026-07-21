@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from non_profit_hermes import operations as ops
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -25,7 +27,8 @@ def load(name: str, relative: str):
 
 
 tir = load("event004_router", "scripts/telegram_intake_router.py")
-ops = load("event004_ops", "scripts/non_profit_hermes_ops.py")
+ops.SPREADSHEET_ID = "synthetic-offline-sheet"
+ops.CALENDAR_ID = "synthetic-offline-calendar"
 sync = load("event004_sync", "scripts/sync_approved_safe_data.py")
 SRC = "telegram:6080816249"
 OTHER_SRC = "telegram:9999999999"

@@ -10,6 +10,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+from non_profit_hermes import models, operations
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -27,18 +29,15 @@ def load_module(name: str, relative_path: str):
 
 def test_schema_is_single_source() -> None:
     """Both modules must import HEADERS from the canonical schema module."""
-    ops = load_module("ops_check", "scripts/non_profit_hermes_ops.py")
     sync = load_module("sync_check", "scripts/sync_approved_safe_data.py")
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
 
-    # They must have the SAME CONTENT (imported from schema module)
-    assert ops.HEADERS == schema.HEADERS, "ops.HEADERS must equal schema.HEADERS"
-    assert sync.HEADERS == schema.HEADERS, "sync.HEADERS must equal schema.HEADERS"
+    assert operations.HEADERS is models.HEADERS, "operations must use package models by identity"
+    assert sync.HEADERS == models.HEADERS, "sync.HEADERS must equal package models.HEADERS"
 
 
 def test_no_duplicate_header_literals() -> None:
     """No HEADERS dict literal should exist in ops or sync modules."""
-    ops_path = ROOT / "scripts/non_profit_hermes_ops.py"
+    ops_path = ROOT / "non_profit_hermes" / "operations.py"
     sync_path = ROOT / "scripts/sync_approved_safe_data.py"
 
     for path, label in [(ops_path, "ops"), (sync_path, "sync")]:
@@ -49,7 +48,6 @@ def test_no_duplicate_header_literals() -> None:
 
 def test_all_tabs_present() -> None:
     """All expected tabs must be defined in the schema."""
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
     expected_tabs = {
         "Requests",
         "Donations",
@@ -59,7 +57,7 @@ def test_all_tabs_present() -> None:
         "CalendarLog",
         "AuditLog",
     }
-    assert set(schema.HEADERS.keys()) == expected_tabs
+    assert set(models.HEADERS.keys()) == expected_tabs
 
 
 OBSERVED_LIVE_REPORTS_HEADERS = [
@@ -89,8 +87,7 @@ OBSERVED_LIVE_REPORTS_HEADERS = [
 
 def test_reports_headers_match_observed_live_order_with_final_append() -> None:
     """Reports preserves the live order and appends only PublicSummaryAllowed."""
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
-    reports_headers = schema.HEADERS["Reports"]
+    reports_headers = models.HEADERS["Reports"]
     expected_headers = OBSERVED_LIVE_REPORTS_HEADERS + ["PublicSummaryAllowed"]
 
     assert reports_headers == expected_headers
@@ -98,8 +95,7 @@ def test_reports_headers_match_observed_live_order_with_final_append() -> None:
 
 def test_reports_header_update_is_append_only_relative_to_observed_live_header() -> None:
     """A header-only update cannot reorder or overwrite existing Reports fields."""
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
-    reports_headers = schema.HEADERS["Reports"]
+    reports_headers = models.HEADERS["Reports"]
 
     assert reports_headers[:len(OBSERVED_LIVE_REPORTS_HEADERS)] == OBSERVED_LIVE_REPORTS_HEADERS
     assert reports_headers[len(OBSERVED_LIVE_REPORTS_HEADERS):] == ["PublicSummaryAllowed"]
@@ -108,8 +104,7 @@ def test_reports_header_update_is_append_only_relative_to_observed_live_header()
 
 def test_donations_has_new_fields() -> None:
     """Donations tab must include PrivacyLevel, PublicListingAllowed, LastUpdated."""
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
-    don_headers = schema.HEADERS["Donations"]
+    don_headers = models.HEADERS["Donations"]
     assert "PrivacyLevel" in don_headers, "Donations missing PrivacyLevel"
     assert "PublicListingAllowed" in don_headers, "Donations missing PublicListingAllowed"
     assert "LastUpdated" in don_headers, "Donations missing LastUpdated"
@@ -121,16 +116,14 @@ def test_donations_has_new_fields() -> None:
 
 def test_primary_keys_defined() -> None:
     """Every tab must have a primary key defined."""
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
-    for tab in schema.HEADERS:
+    for tab in models.HEADERS:
         if tab != "AuditLog":  # AuditLog handled specially
-            assert tab in schema.PRIMARY_KEYS, f"{tab} missing PRIMARY_KEYS entry"
+            assert tab in models.PRIMARY_KEYS, f"{tab} missing PRIMARY_KEYS entry"
 
 
 def test_calendar_log_schema_unchanged_24_cols() -> None:
     """CalendarLog must remain exactly 24 columns with the expected order."""
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
-    cal_headers = schema.HEADERS["CalendarLog"]
+    cal_headers = models.HEADERS["CalendarLog"]
     assert len(cal_headers) == 24, f"CalendarLog must have 24 columns, got {len(cal_headers)}"
     expected = [
         "CalendarEventID", "EventTitle", "EventType", "StartDateTime",
@@ -145,8 +138,7 @@ def test_calendar_log_schema_unchanged_24_cols() -> None:
 
 def test_no_duplicate_headers_in_any_tab() -> None:
     """Each tab's header list must have unique column names."""
-    schema = load_module("schema_check", "scripts/non_profit_hermes_schema.py")
-    for tab, headers in schema.HEADERS.items():
+    for tab, headers in models.HEADERS.items():
         seen = set()
         for h in headers:
             assert h not in seen, f"Duplicate header '{h}' in {tab}"

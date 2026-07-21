@@ -45,6 +45,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from non_profit_hermes import operations as ops
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -60,7 +62,8 @@ def load_module(name: str, relative_path: str):
 # Load router as a normal module (no google.auth side effects at import time here
 # because we inject fakes and never call services()).
 tir = load_module("event_router_test", "scripts/telegram_intake_router.py")
-ops = load_module("event_ops_test", "scripts/non_profit_hermes_ops.py")
+ops.SPREADSHEET_ID = "synthetic-offline-sheet"
+ops.CALENDAR_ID = "synthetic-offline-calendar"
 
 
 # ── In-memory fake Google Sheets (stateful, mirrors the 24-col CalendarLog) ──
