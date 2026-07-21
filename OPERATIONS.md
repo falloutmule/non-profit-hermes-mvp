@@ -1,66 +1,141 @@
 # Operations — Non-Profit Hermes MVP
 
-**Canonical operations boundary updated:** 2026-07-15. The current Google recovery/cleanup position is in `GOOGLE_RECONNECT_REPORT.md` and `CLEANUP_MILESTONE_INDEX.md`; retained EVENT sections below are historical evidence, not standing authorization.
+**Current operating boundary captured:** 2026-07-21
 
-## Current recovery and cleanup operating boundary
+## Start with current state
 
-- Recovery evidence supports one completed guarded callback/exchange, accepted candidate, restricted atomic promotion, and bounded post-promotion reads. Do not repeat or extend it without a new authorization.
-- CLEANUP-007B-R2 is read-only and counts-only: 182 records remain unchanged; the current plan authorizes zero changes and 180 records require manual review.
-- A cancelled Calendar tombstone with zero active exact-ID matches is a completed lifecycle result, not an instruction to recreate or mutate an event.
-- Current durable-refresh loaders are non-atomic. In-memory refresh was verified only for bounded read-only work and did not change the token file.
-- Do not restart the gateway, deploy a plugin, publish, push, merge, archive, or delete under this documentation closeout. Those actions require separately scoped human authorization and verification.
+The authoritative runtime is the `nonprofit` Hermes profile for `@HnonProfitBOT`, routed to `openai-codex/gpt-5.6-sol`. The nonprofit gateway is currently **stopped**.
 
-## Retained historical daily operations and publication boundary
+A separate Windows Scheduled Task exists and is enabled, but `Ready` is not proof of a running gateway. The profile config specifies port `8642`; the Scheduled Task launcher overrides to the intended port `8643`. On 2026-07-21, `8643` was not listening, gateway metadata was stale, and no nonprofit process, PID file, or lock file was detected.
 
-`/daily` is live for operations summaries. CLEANUP-003 is complete and keeps it in read-only in-memory state; it does not generate or mutate publication output.
+Do not claim command dispatch, start/restart the gateway, or alter the Scheduled Task without a separately authorized runtime task and rollback plan.
 
-**Publication remains frozen.** Do not use `/daily` as authorization to create, commit, push, or publish an approved-safe snapshot. There is no automatic approval backfill.
+## Safe repository verification
 
-The controlled CLEANUP-002 `--dry-run` found zero approved public needs, donations, and reports in the observed live data. Four generated JSON files were inspected and restored because no public snapshot publication was authorized.
-
-## Explicit export inspection
-
-Use the explicit sync command for local generation or inspection:
+Run from the repository root:
 
 ```bash
-# Inspect live source data without filesystem writes
-python scripts/sync_approved_safe_data.py --dry-run
+python -m pytest -q
+python -m pytest -q tests/test_daily_read_only.py
+python scripts/install_runtime_plugins.py --dry-run
+git diff --check
+```
 
-# Generate a local approved-safe snapshot only when separately authorized
+Current expected baseline is `235 passed, 64 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+
+## Plugin installation and drift
+
+Canonical plugin sources are under `runtime_plugins/`, with hashes in `RUNTIME_PLUGIN_MANIFEST.json`.
+
+Dry-run manifest verification performs no writes:
+
+```bash
+python scripts/install_runtime_plugins.py --dry-run
+```
+
+Apply to an explicit disposable or selected plugin root:
+
+```bash
+python scripts/install_runtime_plugins.py --apply --target-root <plugin-root>
+```
+
+The live shared Hermes plugin root is refused unless `--live` is also supplied. Do not use `--allow-dirty-git` except for a deliberate, documented temporary proof.
+
+On apply, the installer:
+
+1. verifies the manifest;
+2. stages canonical files without bytecode;
+3. preserves declared mutable files;
+4. moves an existing plugin directory to `<plugin-root>/.cleanup_004_backups/<plugin>.<UTC timestamp>`;
+5. atomically replaces the target;
+6. restores the backup if staged replacement fails.
+
+The installer does not configure credentials, enable plugins for `nonprofit`, create the profile-local junction, or start the gateway. Those remain manual operations. Preserve backups until verification and an explicit retention decision.
+
+Read-only drift check:
+
+```bash
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --json --strict
+```
+
+Strict mode fails for missing, unexplained, or untested state. On 2026-07-21, the installed shared root passed with only expected bytecode derivations.
+
+## Gateway acceptance sequence
+
+After a separately authorized startup or restart, verify each layer rather than inferring health:
+
+1. exact `nonprofit` profile and expected model/provider;
+2. exact `@HnonProfitBOT` identity using a secret-safe read;
+3. one nonprofit gateway process;
+4. effective `127.0.0.1:8643` listener when launched by the Scheduled Task;
+5. seven enabled nonprofit plugins and no nonprofit plugins enabled in `default`;
+6. all seven Telegram registry entries;
+7. human-originated `/commands` and `/daily` canaries;
+8. `/daily` zero-write evidence;
+9. no public-file generation or publication.
+
+These checks are currently pending because no gateway lifecycle action was authorized. Historical human-originated `/daily` evidence dated 2026-07-12 is retained in `CLEANUP_003_DAILY_READ_ONLY_REPORT.md` but does not replace a current canary.
+
+## Command behavior
+
+- `/daily` reads approved-safe Sheets/Calendar data and builds the summary in memory. It performs no Google mutation, public-file generation, or durable token refresh.
+- `/need`, `/donation`, `/report`, `/task`, and `/inventory` are draft-first mutation paths when live Google services are connected. Every supported write adds an AuditLog entry.
+- `/event` writes a CalendarLog draft. It does not grant Calendar creation authority.
+- Calendar promotion requires a fresh authorization for the exact draft, preflight and guard checks, one consumed attempt, same-row event-ID persistence, and idempotence/privacy verification.
+
+The Telegram registry proves command registration only. While the gateway is stopped, no command should be described as currently live-dispatch verified.
+
+## OAuth refresh behavior
+
+Operational loaders persist an expired credential through the atomic refresh boundary:
+
+- refresh in memory;
+- write and validate a separate candidate;
+- lock the operational file;
+- create and flush an exact-byte rollback backup;
+- atomically replace and verify;
+- delete temporary state and backup on success;
+- restore exact bytes and ACL on handled post-replacement failure.
+
+Errors and evidence use status codes and hashes, not credential values. `/daily` and sync `--dry-run` intentionally request in-memory refresh only and do not persist a token.
+
+## Approved-safe generation and publication
+
+Inspect live source data without filesystem writes:
+
+```bash
+python scripts/sync_approved_safe_data.py --dry-run
+```
+
+Generate local public output only with separate authorization:
+
+```bash
 python scripts/sync_approved_safe_data.py
 ```
 
-The dry-run reads full Sheet ranges, including rows after 100, and reports acceptance/rejection and duplicate evidence. It does not create Calendar events or write public files.
+Generation writes `docs/`; it does not authorize commit, push, or publication. Required sequence:
 
-## Intake commands
+1. verify the exact authorization and data boundary;
+2. run generation;
+3. inspect all changed HTML/JSON for approved-safe content and escaped values;
+4. verify only `docs/` generated outputs changed;
+5. obtain human approval for the exact public diff;
+6. commit/push only under separate publication authorization;
+7. verify canonical GitHub Pages URLs.
 
-All write commands use draft-first intake:
+The 2026-07-21 inventory did not rerun public-generation parity and did not publish anything.
 
-| Command | Creates | Default status | Default privacy |
-|---|---|---|---|
-| `/need <text>` | Requests row | needs-info | private-review |
-| `/donation <text>` | Donations row | needs-info | private-review |
-| `/report <text>` | Reports row | needs-info | private-review |
-| `/task <text>` | Tasks row | needs-info | internal |
-| `/inventory <text>` | Inventory row (upsert) | needs-info | internal |
-| `/event <text>` | CalendarLog draft | needs-info | private-review |
+## Explicit live-write warnings
 
-Approved-safe exports are deny-by-default: requests require `ConsentToShare`, donations require `PublicListingAllowed`, and reports require `PublicSummaryAllowed` plus `PublicSummaryDraft`; all also require approved privacy and an allowed public status. Board logs are aggregate-only, and generated public HTML escapes user-controlled values.
+These paths can mutate production data and are not offline tests:
 
-## Google Sheets maintenance
+```bash
+python scripts/non_profit_hermes_ops.py --test-write
+python scripts/telegram_intake_router.py --test
+```
 
-CLEANUP-002 resolved the former row-100 read limit, canonical-schema divergence, and export deduplication gap. Header additions were append-only and preserved existing Reports and Donations data rows.
+Do not run them without deliberate live-service authorization. Never create a Calendar event without authorization for that event. Never backfill approval flags automatically.
 
-Historical test records remain data records. Do not delete, backfill, approve, or publish them without explicit authorization.
+## Failure and rollback boundary
 
-## Event operations
-
-`/event` remains draft-first. The authoritative final EVENT-004 evidence JSON supports one explicitly renewed-authorized, synthetic promotion: draft `EVT-A31A0CF8` mapped to Calendar event `cpq3e1oivn4ajb4t8ktemjuj0g` on CalendarLog row 14, with final one-event/13-row counts, authorization absent, `private-review`, `PublicCalendarAllowed=no`, and approved-calendar exclusion. A direct installed-plugin retry observed during the execution session returned `already_created`; that retry observation is not contained in the JSON, while offline tests independently cover idempotence.
-
-This exception does **not** enable general Calendar promotion. For every future promotion, require separate per-event human authorization; run preflight/guard checks; create only the named private-by-default draft; consume authorization immediately before the first external attempt (so it remains non-reusable after a failure); write the returned ID to the same row; and verify retry idempotence and privacy exclusion. Do not treat `/daily`, offline tests, or direct plugin invocation as promotion authority.
-
-A controlled local `/daily` CLI proof observed during the execution session passed with zero writes; it left docs, working-tree status, and absent token state unchanged. Direct invocation of the installed daily gateway plugin was also observed to pass with an in-memory marker and zero writes. These execution-session observations are not contained in the authoritative final evidence JSON, which records final counts, hashes, and state. Neither is a human-originated Telegram-delivered message, so neither proves Telegram transport or user-command delivery.
-
-Initial plugin-routing and sensitive-description-hold failures were contained and repaired before the successful EVENT-004 insertion. During the controlled evidence execution, no public snapshot, gateway restart, Telegram registration, deletion, SNC action, commit, staging, push, or unrelated live mutation was performed. The implementation was subsequently committed and pushed as historical commit `fb2911c8e4cdc0c2c4bcf5a67fcd948db74cf174` (`feat: add controlled event promotion authorization`); local/origin/GitHub `main` matched immediately after that push, not as a standing status claim. The documentation/evidence commit remains pending. Review and separately authorize any documentation/evidence commit, gateway work, or future live promotion. See `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md` for evidence and audit IDs.
-
-Retained EVENT-003 evidence: draft `EVT-FC5611E9` was created and updated in CalendarLog row 13 with a blank `CalendarEventID`; the required read-only Calendar search returned zero matches. This historical draft-only verification does not authorize future promotions.
+If plugin install verification fails, stop the gateway activation path, inspect the timestamped backup, and restore the prior plugin directory before retrying. If bot/profile/model/port identity differs, or duplicate/missing commands appear, stop and preserve evidence rather than continuing. A repository rollback does not by itself restore runtime plugins, profile state, or credentials; each state owner needs its own verified rollback.
