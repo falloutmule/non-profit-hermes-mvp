@@ -762,10 +762,18 @@ import socket
 import sys
 from pathlib import Path
 
+class BlockedSocket(socket.socket):
+    def connect(self, *args, **kwargs):
+        raise RuntimeError('network disabled')
+    def connect_ex(self, *args, **kwargs):
+        raise RuntimeError('network disabled')
+
 def blocked(*args, **kwargs):
     raise RuntimeError('network disabled')
 
-socket.socket = blocked
+socket.socket = BlockedSocket
+socket.create_connection = blocked
+socket.getaddrinfo = blocked
 plugin = Path(sys.argv[1])
 name = 'clean_install_non_profit_hermes_plugin'
 spec = importlib.util.spec_from_file_location(
