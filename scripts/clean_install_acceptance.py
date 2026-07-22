@@ -249,6 +249,7 @@ def build_command_plan(
     admission: Admission,
     *,
     extracted: Path,
+    install_source: Path,
     wheel: Path,
     venv_python: Path,
     console: Path,
@@ -280,7 +281,7 @@ def build_command_plan(
             "hermes",
             "profile",
             "install",
-            str(extracted),
+            str(install_source),
             "--name",
             admission.profile,
             "-y",
@@ -301,6 +302,70 @@ def build_command_plan(
         ),
         "git_diff_check": ("git", "diff", "--check"),
         "external_cwd": (str(external_cwd),),
+    }
+
+
+def build_profile_install_source(
+    archive_path: Path,
+    destination: Path,
+) -> dict[str, object]:
+    """Extract a pristine, Git-metadata-free profile-install source.
+
+    The profile-install source must be distinct from the temporary Git-index
+    inspection tree: it must contain no ``.git`` directory, no caches, no
+    runtime state, and no private material, while retaining every required
+    distribution, plugin, package, SOUL, config, and skill asset.
+    Returns a deterministic, secret-free provenance summary.
+    """
+    archive_path = archive_path.resolve()
+    destination = destination.resolve()
+    if destination.exists():
+        raise HarnessError(
+            "INSTALL_SOURCE_COLLISION",
+            "profile-install source destination already exists",
+        )
+    extracted_files = safe_extract_archive(archive_path, destination)
+    if any(
+        Path(*PurePosixPath(relative).parts).parts[0] == ".git"
+        for relative in extracted_files
+    ):
+        raise HarnessError(
+            "INSTALL_SOURCE_GIT_METADATA",
+            "profile-install source contains Git metadata",
+        )
+    required = (
+        "distribution.yaml",
+        "SOUL.md",
+        "config.yaml",
+        "skills/non-profit-hermes/SKILL.md",
+        "plugins/non-profit-hermes/plugin.yaml",
+        "plugins/non-profit-hermes/__init__.py",
+        "plugins/non-profit-hermes/commands.py",
+        "non_profit_hermes/__init__.py",
+        "non_profit_hermes/resources/defaults.toml",
+        "pyproject.toml",
+        "README.md",
+    )
+    missing = [
+        relative
+        for relative in required
+        if not (destination / Path(*PurePosixPath(relative).parts)).is_file()
+    ]
+    if missing:
+        raise HarnessError(
+            "INSTALL_SOURCE_INCOMPLETE",
+            "profile-install source is missing required assets",
+        )
+    if (destination / ".git").exists():
+        raise HarnessError(
+            "INSTALL_SOURCE_GIT_METADATA",
+            "profile-install source contains a .git directory",
+        )
+    return {
+        "archive_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+        "file_count": len(extracted_files),
+        "git_metadata_absent": True,
+        "required_assets_present": True,
     }
 
 
@@ -660,12 +725,15 @@ def _normalized_argv(
     admission: Admission,
     extracted: Path,
     wheel: Path | None = None,
+    install_source: Path | None = None,
 ) -> list[str]:
     replacements = [
         (str(extracted), "<EXTRACTED>"),
         (str(admission.output_root), "<OUTPUT>"),
         (str(admission.source), "<SOURCE>"),
     ]
+    if install_source is not None:
+        replacements.insert(0, (str(install_source), "<INSTALL_SOURCE>"))
     if wheel is not None:
         replacements.insert(0, (str(wheel), "<WHEEL>"))
     normalized: list[str] = []
@@ -733,6 +801,7 @@ def run_acceptance(
     output = admission.output_root
     archive_path = output / "source.tar"
     extracted = output / "source"
+    install_source = output / "profile-install-source"
     artifacts = output / "artifacts"
     work = output / "work"
     profile_root = admission.isolated_hermes_root / "profiles" / admission.profile
@@ -751,6 +820,7 @@ def run_acceptance(
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
         wheel: Path | None = None,
+        install_source_path: Path | None = None,
     ) -> CommandResult:
         result = runner(argv, cwd=cwd, env=env)
         commands.append(
@@ -761,6 +831,7 @@ def run_acceptance(
                     admission=admission,
                     extracted=extracted,
                     wheel=wheel,
+                    install_source=install_source_path,
                 ),
             }
         )
@@ -817,6 +888,15 @@ def run_acceptance(
         )
         passed("archive_git_index")
 
+        # Build a pristine profile-install source from the same verified
+        # archive. This tree is never contaminated by the temporary Git index
+        # created above, so the installed profile receives no .git metadata.
+        active_stage = "profile_install_source"
+        install_source_evidence = build_profile_install_source(
+            archive_path, install_source
+        )
+        passed("profile_install_source")
+
         active_stage = "build"
         selected_build_tool = build_tool or ("uv" if shutil.which("uv") else None)
         if selected_build_tool == "uv":
@@ -857,6 +937,7 @@ def run_acceptance(
         plan = build_command_plan(
             admission,
             extracted=extracted,
+            install_source=install_source,
             wheel=wheel,
             venv_python=venv_python,
             console=console,
@@ -869,7 +950,13 @@ def run_acceptance(
         passed("wheel_install")
 
         active_stage = "profile_install"
-        execute("profile_install", plan["profile_install"], cwd=work, env=environment)
+        execute(
+            "profile_install",
+            plan["profile_install"],
+            cwd=work,
+            env=environment,
+            install_source_path=install_source,
+        )
         passed("profile_install")
 
         active_stage = "profile_exclusions"
@@ -946,6 +1033,7 @@ def run_acceptance(
                 "private_finding_codes": archive_findings,
                 "tracked_files_unchanged": True,
             },
+            "profile_install_source": install_source_evidence,
             "doctor": doctor_evidence,
             "profile_inventory": profile_inventory,
             "profile_snapshot_unchanged": True,

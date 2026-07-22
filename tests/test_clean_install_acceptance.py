@@ -183,6 +183,7 @@ def test_isolated_environment_and_command_plan_never_select_host_profile(
     plan = harness.build_command_plan(
         admission,
         extracted=output / "source",
+        install_source=output / "profile-install-source",
         wheel=output / "artifacts" / "non_profit_hermes-1.0.0-py3-none-any.whl",
         venv_python=output / "venv" / "Scripts" / "python.exe",
         console=output / "venv" / "Scripts" / "nonprofit-hermes.exe",
@@ -202,7 +203,7 @@ def test_isolated_environment_and_command_plan_never_select_host_profile(
         "hermes",
         "profile",
         "install",
-        str(output / "source"),
+        str(output / "profile-install-source"),
         "--name",
         "nonprofit-v1-test-001",
         "-y",
@@ -378,6 +379,116 @@ def test_wheel_verifier_requires_exact_package_members_version_and_entrypoint(
     assert failure.value.code == "WHEEL_MEMBERS_INVALID"
 
 
+def test_profile_install_source_is_pristine_and_distinct_from_git_index_tree(
+    tmp_path: Path,
+) -> None:
+    """The tree passed to `hermes profile install` must contain no .git."""
+    harness = load_harness()
+    # Build a real archive from the candidate commit.
+    archive_path = tmp_path / "source.tar"
+    result = subprocess.run(
+        ["git", "archive", "--format=tar", "--output", str(archive_path), "HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+
+    # Simulate the Git-index inspection tree: it legitimately gains .git.
+    index_tree = tmp_path / "index-tree"
+    harness.safe_extract_archive(archive_path, index_tree)
+    (index_tree / ".git").mkdir()
+    (index_tree / ".git" / "index").write_bytes(b"temporary-index")
+    assert (index_tree / ".git").is_dir()
+
+    # The profile-install source must be a distinct, pristine extraction.
+    install_source = tmp_path / "profile-install-source"
+    evidence = harness.build_profile_install_source(archive_path, install_source)
+
+    assert evidence["git_metadata_absent"] is True
+    assert evidence["required_assets_present"] is True
+    assert evidence["archive_sha256"] == __import__("hashlib").sha256(
+        archive_path.read_bytes()
+    ).hexdigest()
+    assert not (install_source / ".git").exists()
+    for relative in (
+        "distribution.yaml",
+        "SOUL.md",
+        "config.yaml",
+        "skills/non-profit-hermes/SKILL.md",
+        "plugins/non-profit-hermes/plugin.yaml",
+        "plugins/non-profit-hermes/__init__.py",
+        "plugins/non-profit-hermes/commands.py",
+        "non_profit_hermes/__init__.py",
+        "non_profit_hermes/resources/defaults.toml",
+    ):
+        assert (install_source / relative).is_file(), relative
+    # The unchanged classifier must pass the clean tree.
+    assert harness.scan_private_material(install_source) == {}
+
+
+def test_profile_install_source_rejects_collision_and_missing_assets(tmp_path: Path) -> None:
+    harness = load_harness()
+    archive_path = tmp_path / "source.tar"
+    subprocess.run(
+        ["git", "archive", "--format=tar", "--output", str(archive_path), "HEAD"],
+        cwd=ROOT,
+        check=True,
+    )
+    destination = tmp_path / "taken"
+    destination.mkdir()
+    with pytest.raises(harness.HarnessError) as failure:
+        harness.build_profile_install_source(archive_path, destination)
+    assert failure.value.code == "INSTALL_SOURCE_COLLISION"
+
+    # An archive missing required distribution assets must fail closed.
+    stripped = tmp_path / "stripped.tar"
+    source_only = tmp_path / "only-package"
+    (source_only / "non_profit_hermes").mkdir(parents=True)
+    (source_only / "non_profit_hermes" / "__init__.py").write_text(
+        '__version__ = "1.0.0"\n', encoding="utf-8"
+    )
+    with tarfile.open(stripped, "w") as bundle:
+        bundle.add(source_only / "non_profit_hermes" / "__init__.py", arcname="non_profit_hermes/__init__.py")
+    with pytest.raises(harness.HarnessError) as failure:
+        harness.build_profile_install_source(stripped, tmp_path / "stripped-out")
+    assert failure.value.code == "INSTALL_SOURCE_INCOMPLETE"
+
+
+def test_command_plan_passes_clean_install_source_to_profile_installer(tmp_path: Path) -> None:
+    harness = load_harness()
+    output = (tmp_path / "cache" / "run-001").resolve()
+    admission = harness.Admission(
+        source=(tmp_path / "source").resolve(),
+        output_root=output,
+        profile="nonprofit-v1-test-001",
+        source_head="b" * 40,
+        allowed_cache_root=(tmp_path / "cache").resolve(),
+        active_hermes_root=(tmp_path / "active-hermes").resolve(),
+        isolated_hermes_root=output / "platform" / "hermes",
+    )
+    plan = harness.build_command_plan(
+        admission,
+        extracted=output / "source",
+        install_source=output / "profile-install-source",
+        wheel=output / "artifacts" / "non_profit_hermes-1.0.0-py3-none-any.whl",
+        venv_python=output / "venv" / "Scripts" / "python.exe",
+        console=output / "venv" / "Scripts" / "nonprofit-hermes.exe",
+        external_cwd=output / "work",
+    )
+    assert plan["profile_install"] == (
+        "hermes",
+        "profile",
+        "install",
+        str(output / "profile-install-source"),
+        "--name",
+        "nonprofit-v1-test-001",
+        "-y",
+    )
+    assert str(output / "source") not in plan["profile_install"]
+
+
 def test_built_sdist_contains_only_portable_package_and_distribution_assets(tmp_path: Path) -> None:
     harness = load_harness()
     artifacts = tmp_path / "artifacts"
@@ -538,6 +649,16 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
     monkeypatch.setattr(harness, "scan_private_material", lambda root: {})
     monkeypatch.setattr(
         harness,
+        "build_profile_install_source",
+        lambda archive_path, destination: {
+            "archive_sha256": "0" * 64,
+            "file_count": 1,
+            "git_metadata_absent": True,
+            "required_assets_present": True,
+        },
+    )
+    monkeypatch.setattr(
+        harness,
         "verify_wheel_artifact",
         lambda wheel, source: {
             "console_entrypoint": True,
@@ -576,6 +697,7 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
         "archive",
         "archive_privacy",
         "archive_git_index",
+        "profile_install_source",
         "build",
         "wheel_install",
         "profile_install",
