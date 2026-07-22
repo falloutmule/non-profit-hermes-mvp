@@ -831,18 +831,22 @@ def run_acceptance(
         install_source_path: Path | None = None,
     ) -> CommandResult:
         result = runner(argv, cwd=cwd, env=env)
-        commands.append(
-            {
-                "stage": stage,
-                "argv": _normalized_argv(
-                    tuple(str(value) for value in argv),
-                    admission=admission,
-                    extracted=extracted,
-                    wheel=wheel,
-                    install_source=install_source_path,
-                ),
-            }
-        )
+        cmd_entry = {
+            "stage": stage,
+            "argv": _normalized_argv(
+                tuple(str(value) for value in argv),
+                admission=admission,
+                extracted=extracted,
+                wheel=wheel,
+                install_source=install_source_path,
+            ),
+            "cwd": str(cwd) if cwd else None,
+            "exit_code": result.returncode,
+        }
+        # For full_tests, persist additional evidence paths (stdout/stderr written by caller if needed)
+        if stage == "full_tests":
+            cmd_entry["evidence_note"] = "full pytest output in result; see test_summary"
+        commands.append(cmd_entry)
         if result.returncode != 0:
             raise HarnessError(f"{stage.upper()}_FAILED", f"{stage} command failed")
         return result

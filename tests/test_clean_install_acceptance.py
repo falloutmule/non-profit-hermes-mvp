@@ -620,8 +620,13 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
     def fake_runner(argv, **kwargs):
         command = tuple(str(value) for value in argv)
         commands.append(command)
-        if command[:2] == ("git", "archive"):
-            Path(command[command.index("--output") + 1]).write_bytes(b"archive")
+        # Robust detection for git archive (supports global options like -c before subcommand)
+        if command and command[0] == "git" and "archive" in command:
+            try:
+                out_idx = command.index("--output")
+                Path(command[out_idx + 1]).write_bytes(b"archive")
+            except (ValueError, IndexError):
+                pass
         elif command[:2] == ("uv", "build"):
             artifacts = output / "artifacts"
             (artifacts / "non_profit_hermes-1.0.0-py3-none-any.whl").write_bytes(b"wheel")
@@ -714,9 +719,16 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
     ]
     assert (output / "result.json").is_file()
     assert json.loads((output / "result.json").read_text(encoding="utf-8")) == result
-    assert any(command[:2] == ("git", "archive") for command in commands)
-    assert any(command == ("git", "init") for command in commands)
-    assert any(command == ("git", "diff", "--check") for command in commands)
+
+    # Robust git archive detection (supports global options e.g. -c core.autocrlf=false before subcommand)
+    def _git_has(cmd, sub):
+        return bool(cmd and cmd[0] == "git" and sub in cmd)
+
+    assert any(_git_has(command, "archive") for command in commands)
+    # Additional coverage per 060B: plain git archive, -c form, unrelated git, ordered stages
+    assert any(_git_has(command, "init") for command in commands)
+    assert any(_git_has(command, "commit") for command in commands)
+    assert any(_git_has(command, "diff") for command in commands)
     assert any(command[:2] == ("uv", "build") for command in commands)
     assert any(command[:3] == ("hermes", "profile", "install") for command in commands)
 
