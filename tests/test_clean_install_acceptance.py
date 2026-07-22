@@ -378,6 +378,47 @@ def test_wheel_verifier_requires_exact_package_members_version_and_entrypoint(
     assert failure.value.code == "WHEEL_MEMBERS_INVALID"
 
 
+def test_built_sdist_contains_only_portable_package_and_distribution_assets(tmp_path: Path) -> None:
+    harness = load_harness()
+    artifacts = tmp_path / "artifacts"
+    result = subprocess.run(
+        ["uv", "build", "--sdist", "--out-dir", str(artifacts), str(ROOT)],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    sdists = sorted(artifacts.glob("non_profit_hermes-1.0.0.tar.gz"))
+    assert len(sdists) == 1
+    # The same archive classifier used by acceptance must accept the finished sdist.
+    assert harness.verify_sdist_artifact(sdists[0])["version"] == "1.0.0"
+    with tarfile.open(sdists[0], "r:gz") as archive:
+        members = {
+            "/".join(member.name.split("/")[1:])
+            for member in archive.getmembers()
+            if member.isfile()
+        }
+    required = {
+        "README.md",
+        "pyproject.toml",
+        "non_profit_hermes/__init__.py",
+        "non_profit_hermes/resources/defaults.toml",
+        "distribution.yaml",
+        "SOUL.md",
+        "config.yaml",
+        "skills/non-profit-hermes/SKILL.md",
+        "plugins/non-profit-hermes/plugin.yaml",
+        "plugins/non-profit-hermes/__init__.py",
+        "plugins/non-profit-hermes/commands.py",
+    }
+    assert required <= members
+    assert not any(
+        path.startswith(("tests/", "reports/", "docs/", "proof", "data/"))
+        for path in members
+    )
+
+
 def test_result_json_is_deterministic_secret_free_and_restart_safe(tmp_path: Path) -> None:
     harness = load_harness()
     payload = {
