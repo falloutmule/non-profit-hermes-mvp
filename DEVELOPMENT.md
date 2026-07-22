@@ -53,7 +53,7 @@ python -m pytest -q
 Current verified baseline:
 
 ```text
-362 passed, 69 subtests passed
+363 passed, 69 subtests passed
 ```
 
 Focused read-only daily lane:

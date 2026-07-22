@@ -62,8 +62,8 @@ The initial 45-turn implementation run exhausted its budget. Independent checkin
 After independent hardening for archive-index parity and source-safe runtime scanner sentinels, local verification passed:
 
 ```text
-Focused clean-install/doctor/distribution/package lane: 33 passed
-Full repository suite: 362 passed, 69 subtests passed
+Focused clean-install/doctor/distribution/package lane after the bounded archive-scan repair: 34 passed
+Full repository suite after the bounded archive-scan repair: 363 passed, 69 subtests passed
 Harness/test py_compile: passed
 CLI --help contract: passed
 git diff --check: passed
@@ -71,6 +71,8 @@ Protected package/profile/plugin/generated-public parity: passed
 ```
 
 Unit tests fake all subprocess and integration boundaries. They do not perform an actual profile install, wheel install, network call, gateway action, Google/Calendar action, public generation, or publication.
+
+The first orchestrator execution at committed harness `f4b1a43c6f9914592f1bfe71fd0adcd2d7762469` stopped fail-closed at `archive_privacy`. Its secret-free evidence reported only synthetic redaction fixtures under `tests/` plus a false positive on Python keyword arguments named `client_secret`; no credential value was reported or copied. The bounded repair keeps private-path scanning active in tests, scopes literal credential scanning to distributable/runtime material, and requires a quoted mapping-style client-secret value instead of treating ordinary Python identifiers as credentials. The failed run remains preserved as evidence and is not called a clean-install PASS.
 
 ## Evidence schema
 

@@ -139,6 +139,22 @@ def test_privacy_scan_returns_only_deterministic_codes_and_counts(tmp_path: Path
     assert "safe.txt" not in serialized
 
 
+def test_privacy_scan_excludes_only_test_fixture_literals_not_test_private_paths(
+    tmp_path: Path,
+) -> None:
+    harness = load_harness()
+    tree = tmp_path / "tree"
+    tests = tree / "tests"
+    tests.mkdir(parents=True)
+    synthetic_token = "".join(("123456789", ":", "A" * 32))
+    (tests / "fixture.py").write_text(repr(synthetic_token), encoding="utf-8")
+
+    assert harness.scan_private_material(tree) == {}
+
+    (tests / "auth.json").write_text("{}\n", encoding="utf-8")
+    assert harness.scan_private_material(tree) == {"AUTH_FILE": 1}
+
+
 def test_isolated_environment_and_command_plan_never_select_host_profile(
     tmp_path: Path,
 ) -> None:

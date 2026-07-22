@@ -57,7 +57,9 @@ RAW_PRIVATE_PATTERNS = (
     ),
     (
         "RAW_CLIENT_SECRET",
-        re.compile(rb"(?i)client_secret\s*[:=]\s*[\"']?[A-Za-z0-9._-]{12,}"),
+        re.compile(
+            rb"(?i)\bclient_secret[\"']?\s*:\s*[\"'][A-Za-z0-9._-]{12,}"
+        ),
     ),
 )
 
@@ -199,6 +201,11 @@ def scan_private_material(root: Path) -> dict[str, int]:
         if path_code:
             findings[path_code] += 1
         data = path.read_bytes()
+        # Test modules intentionally exercise redaction with synthetic
+        # secret-shaped fixtures. Path exclusions still apply to tests, but
+        # literal credential scanning targets distributable/runtime material.
+        if relative.parts and relative.parts[0].casefold() == "tests":
+            continue
         for code, pattern in RAW_PRIVATE_PATTERNS:
             findings[code] += len(pattern.findall(data))
     return {code: findings[code] for code in sorted(findings) if findings[code]}

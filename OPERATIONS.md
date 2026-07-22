@@ -22,7 +22,7 @@ python scripts/install_runtime_plugins.py --dry-run --mode legacy
 git diff --check
 ```
 
-Current verified baseline is `362 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+Current verified baseline is `363 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
 
 ## Disposable clean-install harness
 
