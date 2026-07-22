@@ -189,6 +189,7 @@ class DoctorReport:
 
 
 _EXPECTED_VERSION = "1.0.0"
+_EXPECTED_DISTRIBUTION_NAME = "nonprofit"
 _EXPECTED_MODEL = "openai-codex/gpt-5.6-sol"
 _UNIFIED_PLUGIN = "non-profit-hermes"
 _LEGACY_PLUGINS = (
@@ -207,6 +208,21 @@ _EXPECTED_OWNED = (
     "config.yaml",
     "skills/non-profit-hermes",
     "plugins/non-profit-hermes",
+)
+_EXPECTED_ENV_REQUIRES = frozenset(
+    {
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_ALLOWED_USERS",
+        "NON_PROFIT_HERMES_CREDENTIALS_FILE",
+        "NON_PROFIT_HERMES_SPREADSHEET_ID",
+        "NON_PROFIT_HERMES_CALENDAR_ID",
+        "NON_PROFIT_HERMES_CONFIG_DIR",
+        "DATA_DIR",
+        "STATE_DIR",
+        "PUBLIC_DIR",
+        "TELEGRAM_SOURCE_SCOPE",
+        "TELEGRAM_HOME_CHANNEL",
+    }
 )
 _REQUIRED_ENVIRONMENT = (
     "TELEGRAM_BOT_TOKEN",
@@ -531,28 +547,70 @@ class DoctorRunner:
         return self._yaml_mapping(self._distribution() / "distribution.yaml")
 
     def _check_distribution_manifest(self) -> CheckResult:
+        """Validate canonical v1 distribution identity, tolerating renamed installs.
+
+        Hermes officially supports ``hermes profile install --name <local>``,
+        which rewrites the installed manifest's ``name`` to the local profile
+        name. Canonical distribution identity is therefore proven by the
+        immutable contract fields — version, Hermes requirement, owned payload,
+        required environment names, and provenance — while the ``name`` field
+        must equal either the canonical distribution name or the local profile
+        name being diagnosed. Anything else fails closed.
+        """
         manifest = self._manifest()
         if manifest is None:
             return self._fail(
                 "distribution.manifest", "distribution", "distribution manifest is missing or invalid"
             )
         owned = manifest.get("distribution_owned")
-        if (
-            manifest.get("name") != "nonprofit"
-            or manifest.get("version") != _EXPECTED_VERSION
-            or manifest.get("hermes_requires") != ">=0.18.2"
-            or tuple(owned) != _EXPECTED_OWNED
-            if isinstance(owned, list)
-            else True
-        ):
+        env_names = manifest.get("env_requires")
+        env_name_set = (
+            {
+                str(entry.get("name"))
+                for entry in env_names
+                if isinstance(entry, Mapping) and entry.get("name")
+            }
+            if isinstance(env_names, list)
+            else frozenset()
+        )
+        manifest_name = manifest.get("name")
+        accepted_names = {_EXPECTED_DISTRIBUTION_NAME, self.profile}
+        identity_proven = (
+            manifest.get("version") == _EXPECTED_VERSION
+            and manifest.get("hermes_requires") == ">=0.18.2"
+            and isinstance(owned, list)
+            and tuple(owned) == _EXPECTED_OWNED
+            and env_name_set == _EXPECTED_ENV_REQUIRES
+        )
+        if not identity_proven or manifest_name not in accepted_names:
             return self._fail(
                 "distribution.manifest",
                 "distribution",
                 "distribution manifest does not match the v1 contract",
                 Severity.INTEGRITY,
             )
+        if manifest_name == self.profile and manifest_name != _EXPECTED_DISTRIBUTION_NAME:
+            provenance = manifest.get("source")
+            if not isinstance(provenance, str) or not provenance.strip():
+                return self._fail(
+                    "distribution.manifest",
+                    "distribution",
+                    "renamed install lacks distribution source provenance",
+                    Severity.INTEGRITY,
+                )
+            return self._pass(
+                "distribution.manifest",
+                "distribution",
+                "distribution manifest matches canonical contract under renamed install",
+                canonical_name=_EXPECTED_DISTRIBUTION_NAME,
+                local_name=manifest_name,
+            )
         return self._pass(
-            "distribution.manifest", "distribution", "distribution manifest matches"
+            "distribution.manifest",
+            "distribution",
+            "distribution manifest matches",
+            canonical_name=_EXPECTED_DISTRIBUTION_NAME,
+            local_name=manifest_name,
         )
 
     def _check_distribution_files(self) -> CheckResult:

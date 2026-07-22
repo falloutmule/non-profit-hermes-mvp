@@ -35,6 +35,18 @@ def create_complete_profile(root: Path) -> tuple[Path, dict[str, str]]:
         """name: nonprofit
 version: 1.0.0
 hermes_requires: ">=0.18.2"
+env_requires:
+  - name: TELEGRAM_BOT_TOKEN
+  - name: TELEGRAM_ALLOWED_USERS
+  - name: NON_PROFIT_HERMES_CREDENTIALS_FILE
+  - name: NON_PROFIT_HERMES_SPREADSHEET_ID
+  - name: NON_PROFIT_HERMES_CALENDAR_ID
+  - name: NON_PROFIT_HERMES_CONFIG_DIR
+  - name: DATA_DIR
+  - name: STATE_DIR
+  - name: PUBLIC_DIR
+  - name: TELEGRAM_SOURCE_SCOPE
+  - name: TELEGRAM_HOME_CHANNEL
 distribution_owned:
   - distribution.yaml
   - SOUL.md
@@ -201,6 +213,119 @@ def test_offline_runner_passes_complete_isolated_profile_without_writes_or_comma
         "telegram.live",
     }
     assert snapshot_tree(tmp_path) == before
+
+
+def _rename_profile_fixture(profile: Path, local_name: str, *, with_provenance: bool = True) -> Path:
+    """Simulate `hermes profile install --name <local_name>` manifest rewrite."""
+    import yaml
+
+    renamed = profile.parent / local_name
+    profile.rename(renamed)
+    manifest_path = renamed / "distribution.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["name"] = local_name
+    if with_provenance:
+        manifest["source"] = "clean-install-source"
+        manifest["installed_at"] = "2026-07-22T00:00:00+00:00"
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+    )
+    return renamed
+
+
+def test_offline_runner_passes_renamed_install_with_provenance(tmp_path: Path) -> None:
+    """A distribution installed under a disposable name remains doctor-healthy."""
+    from non_profit_hermes.diagnostics import DoctorRunner, Status
+
+    profile, environment = create_complete_profile(tmp_path / "hermes-home")
+    renamed = _rename_profile_fixture(profile, "nonprofit-v1-test-123")
+
+    report = DoctorRunner(
+        profile="nonprofit-v1-test-123",
+        profile_root=renamed,
+        package_root=REPO_ROOT / "non_profit_hermes",
+        distribution_root=renamed,
+        home=tmp_path / "home",
+        environ=environment,
+        command_adapter=lambda *args: pytest.fail("unexpected command"),
+    ).run(mode="offline", strict=True)
+
+    manifest_checks = [c for c in report.checks if c.id == "distribution.manifest"]
+    assert manifest_checks and manifest_checks[0].status is Status.PASS
+    metadata = dict(manifest_checks[0].metadata)
+    assert metadata["canonical_name"] == "nonprofit"
+    assert metadata["local_name"] == "nonprofit-v1-test-123"
+
+
+def test_offline_runner_fails_renamed_install_without_provenance(tmp_path: Path) -> None:
+    """A renamed install lacking source provenance fails rather than trusting the name."""
+    from non_profit_hermes.diagnostics import DoctorRunner, Status
+
+    profile, environment = create_complete_profile(tmp_path / "hermes-home")
+    renamed = _rename_profile_fixture(profile, "nonprofit-v1-test-124", with_provenance=False)
+
+    report = DoctorRunner(
+        profile="nonprofit-v1-test-124",
+        profile_root=renamed,
+        package_root=REPO_ROOT / "non_profit_hermes",
+        distribution_root=renamed,
+        home=tmp_path / "home",
+        environ=environment,
+        command_adapter=lambda *args: pytest.fail("unexpected command"),
+    ).run(mode="offline", strict=True)
+
+    manifest_checks = [c for c in report.checks if c.id == "distribution.manifest"]
+    assert manifest_checks and manifest_checks[0].status is Status.FAIL
+
+
+def test_offline_runner_fails_tampered_manifest_identity(tmp_path: Path) -> None:
+    """Manifest with wrong version, owned payload, or env signature must fail."""
+    import yaml
+    from non_profit_hermes.diagnostics import DoctorRunner, Status
+
+    profile, environment = create_complete_profile(tmp_path / "hermes-home")
+    manifest_path = profile / "distribution.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["version"] = "0.9.9"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+
+    report = DoctorRunner(
+        profile="nonprofit",
+        profile_root=profile,
+        package_root=REPO_ROOT / "non_profit_hermes",
+        distribution_root=profile,
+        home=tmp_path / "home",
+        environ=environment,
+        command_adapter=lambda *args: pytest.fail("unexpected command"),
+    ).run(mode="offline", strict=True)
+
+    manifest_checks = [c for c in report.checks if c.id == "distribution.manifest"]
+    assert manifest_checks and manifest_checks[0].status is Status.FAIL
+
+
+def test_offline_runner_fails_foreign_distribution_name(tmp_path: Path) -> None:
+    """A manifest whose name matches neither canonical nor local identity fails."""
+    import yaml
+    from non_profit_hermes.diagnostics import DoctorRunner, Status
+
+    profile, environment = create_complete_profile(tmp_path / "hermes-home")
+    manifest_path = profile / "distribution.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["name"] = "another-distribution"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+
+    report = DoctorRunner(
+        profile="nonprofit",
+        profile_root=profile,
+        package_root=REPO_ROOT / "non_profit_hermes",
+        distribution_root=profile,
+        home=tmp_path / "home",
+        environ=environment,
+        command_adapter=lambda *args: pytest.fail("unexpected command"),
+    ).run(mode="offline", strict=True)
+
+    manifest_checks = [c for c in report.checks if c.id == "distribution.manifest"]
+    assert manifest_checks and manifest_checks[0].status is Status.FAIL
 
 
 def test_module_and_console_cli_emit_stable_redacted_json_and_human_output(
