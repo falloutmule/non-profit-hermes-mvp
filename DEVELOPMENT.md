@@ -53,7 +53,7 @@ python -m pytest -q
 Current verified baseline:
 
 ```text
-350 passed, 69 subtests passed
+362 passed, 69 subtests passed
 ```
 
 Focused read-only daily lane:
@@ -86,6 +86,16 @@ python -m py_compile non_profit_hermes/*.py tests/test_doctor_live_readonly.py t
 ```
 
 Doctor integration tests must inject fakes or monkeypatch only the explicit process, URL, Google, Scheduled Task, and runtime-status boundaries. They must snapshot credential/profile/public files before and after probes, assert the exact read-only call ledger, and prove redaction. Do not run the default live adapter against production during ordinary development.
+
+Focused clean-install harness lane:
+
+```bash
+python -m pytest -q tests/test_clean_install_acceptance.py tests/test_doctor_offline.py tests/test_profile_distribution.py tests/test_portable_package_integration.py
+python -m py_compile scripts/clean_install_acceptance.py tests/test_clean_install_acceptance.py
+python scripts/clean_install_acceptance.py --help
+```
+
+Unit tests never execute the real harness. They fake subprocess/filesystem boundaries and verify admission refusal, archive traversal protection, secret-free inventory, isolated environment construction, exact argv, wheel/sdist rules, doctor equivalence, command registration, nonmutation, deterministic evidence, and first-failure behavior. The separately run harness recreates a disposable Git index from the already-scanned archive because parity tests require an index; it never copies the source `.git` directory.
 
 `pytest.ini` limits collection to `tests/` and excludes linked `worktrees/`. Do not weaken this policy or run an alternate lane as a substitute for the required root command.
 

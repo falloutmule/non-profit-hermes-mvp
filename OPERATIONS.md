@@ -22,7 +22,23 @@ python scripts/install_runtime_plugins.py --dry-run --mode legacy
 git diff --check
 ```
 
-Current verified baseline is `350 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+Current verified baseline is `362 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+
+## Disposable clean-install harness
+
+NPH-V1 clean-install acceptance uses a new unique directory under the Hermes cache and a profile name beginning `nonprofit-v1-test`. Run it only from an exact clean commit:
+
+```bash
+python scripts/clean_install_acceptance.py \
+  --source <clean-repository-root> \
+  --output-root <hermes-cache>/clean-install/<unique-run> \
+  --profile nonprofit-v1-test-<unique-run> \
+  --json
+```
+
+Admission fails before writes for a dirty/non-root Git source, an existing output directory, a non-disposable or existing profile name, a path outside the active Hermes cache, an active-root collision, or an unsupported profile-install CLI. The harness archives the exact commit, scans exclusions, builds wheel/sdist, creates a fresh venv, and installs into an isolated `%LOCALAPPDATA%/hermes` under the run directory. It proves the installed profile has no secrets or private state before creating a synthetic `auth.json` and synthetic credential placeholder solely for offline doctor checks. It does not create `.env`, start a gateway, call Telegram/Google, generate public files, or publish.
+
+Evidence is preserved as `result.json` in the unique run root. It contains normalized command argv, source SHA, artifact hashes, check summaries, profile booleans, and `production_touched: false`; it excludes command output and synthetic values. A harness implementation test is not clean-install acceptance—the exact committed harness must complete an actual disposable run before NPH-V1-060 can pass.
 
 ## Install the package and profile distribution
 
