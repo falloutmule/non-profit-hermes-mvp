@@ -855,6 +855,8 @@ def run_acceptance(
             "archive",
             (
                 "git",
+                "-c",
+                "core.autocrlf=false",
                 "archive",
                 "--format=tar",
                 "--output",

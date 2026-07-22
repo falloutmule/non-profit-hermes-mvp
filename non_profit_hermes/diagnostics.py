@@ -282,14 +282,30 @@ class DoctorRunner:
     def _resolve_profile_root(self) -> Path:
         if self._profile_root is not None:
             return self._profile_root
+        # First try hermes_cli; if the resolved dir exists use it (normal/production case)
+        cli_candidate = None
         try:
             from hermes_cli.profiles import get_profile_dir
-
-            return Path(get_profile_dir(self.profile))
+            cli_candidate = Path(get_profile_dir(self.profile))
+            if self.fs.is_dir(cli_candidate):
+                return cli_candidate
         except (ImportError, ModuleNotFoundError):
-            hermes_home = self.environ.get("HERMES_HOME")
-            base = Path(hermes_home) if hermes_home else self.home / ".hermes"
+            pass
+        # For isolated/acceptance renamed installs (HERMES_HOME set to custom root),
+        # construct from HERMES_HOME/profiles/<name> even if hermes_cli import succeeds
+        # and points elsewhere. This supports --name <local> without touching production.
+        hermes_home = self.environ.get("HERMES_HOME")
+        if hermes_home:
+            base = Path(hermes_home)
+            for cand in (base / "profiles" / self.profile, base / self.profile):
+                if self.fs.is_dir(cand):
+                    return cand
+            # return expected location (profile may be present after install)
             return base / "profiles" / self.profile
+        if cli_candidate is not None:
+            return cli_candidate
+        base = self.home / ".hermes"
+        return base / "profiles" / self.profile
 
     def _profile(self) -> Path:
         return self._resolve_profile_root()
@@ -547,21 +563,30 @@ class DoctorRunner:
         return self._yaml_mapping(self._distribution() / "distribution.yaml")
 
     def _check_distribution_manifest(self) -> CheckResult:
-        """Validate canonical v1 distribution identity, tolerating renamed installs.
+        """Validate canonical v1 distribution identity separately from local profile instance.
 
-        Hermes officially supports ``hermes profile install --name <local>``,
-        which rewrites the installed manifest's ``name`` to the local profile
-        name. Canonical distribution identity is therefore proven by the
-        immutable contract fields — version, Hermes requirement, owned payload,
-        required environment names, and provenance — while the ``name`` field
-        must equal either the canonical distribution name or the local profile
-        name being diagnosed. Anything else fails closed.
+        Hermes supports ``hermes profile install <source> --name <local-profile-name>``
+        which rewrites the installed distribution.yaml ``name`` to the local instance name.
+        Canonical distribution identity ("nonprofit") must be proven exclusively by the
+        immutable contract fields (version, hermes_requires, distribution_owned, env_requires).
+        The local name is NEVER used as proof of canonical identity.
+
+        Separately verify local profile instance:
+        - actual local name == requested --name (self.profile)
+        - profile directory name matches
+        - manifest name matches the local instance name
+        - for renamed installs, require "source" provenance to prove canonical origin.
+
+        Default (no --name): local name == "nonprofit".
+        Strict mode fails closed on wrong canonical, wrong local name, missing provenance,
+        tampered metadata, or missing required assets.
         """
         manifest = self._manifest()
         if manifest is None:
             return self._fail(
                 "distribution.manifest", "distribution", "distribution manifest is missing or invalid"
             )
+
         owned = manifest.get("distribution_owned")
         env_names = manifest.get("env_requires")
         env_name_set = (
@@ -573,25 +598,45 @@ class DoctorRunner:
             if isinstance(env_names, list)
             else frozenset()
         )
-        manifest_name = manifest.get("name")
-        accepted_names = {_EXPECTED_DISTRIBUTION_NAME, self.profile}
-        identity_proven = (
-            manifest.get("version") == _EXPECTED_VERSION
-            and manifest.get("hermes_requires") == ">=0.18.2"
+        manifest_name = str(manifest.get("name", "")).strip() if manifest.get("name") is not None else ""
+        version = manifest.get("version")
+        hermes_req = manifest.get("hermes_requires")
+
+        # Canonical distribution identity (proven ONLY by immutable fields; name ignored here)
+        canonical_valid = (
+            version == _EXPECTED_VERSION
+            and hermes_req == ">=0.18.2"
             and isinstance(owned, list)
             and tuple(owned) == _EXPECTED_OWNED
             and env_name_set == _EXPECTED_ENV_REQUIRES
         )
-        if not identity_proven or manifest_name not in accepted_names:
+
+        # Local profile instance identity
+        requested_local = self.profile
+        profile_dir_name = self._profile().name
+        actual_local = manifest_name or profile_dir_name
+        local_valid = (actual_local == requested_local) and (profile_dir_name == requested_local)
+
+        if not canonical_valid:
             return self._fail(
                 "distribution.manifest",
                 "distribution",
-                "distribution manifest does not match the v1 contract",
+                "canonical distribution identity does not match the v1 nonprofit contract",
                 Severity.INTEGRITY,
             )
-        if manifest_name == self.profile and manifest_name != _EXPECTED_DISTRIBUTION_NAME:
-            provenance = manifest.get("source")
-            if not isinstance(provenance, str) or not provenance.strip():
+
+        if not local_valid:
+            return self._fail(
+                "distribution.manifest",
+                "distribution",
+                f"local profile name mismatch (requested={requested_local} actual={actual_local} dir={profile_dir_name})",
+                Severity.INTEGRITY,
+            )
+
+        provenance = manifest.get("source")
+        if manifest_name != _EXPECTED_DISTRIBUTION_NAME:
+            # Renamed: require provenance so canonical is not trusted from local name
+            if not isinstance(provenance, str) or not str(provenance).strip():
                 return self._fail(
                     "distribution.manifest",
                     "distribution",
@@ -604,13 +649,36 @@ class DoctorRunner:
                 "distribution manifest matches canonical contract under renamed install",
                 canonical_name=_EXPECTED_DISTRIBUTION_NAME,
                 local_name=manifest_name,
+                profile_instance={
+                    "expected_name": requested_local,
+                    "actual_name": actual_local,
+                    "valid": True,
+                },
+                distribution_identity={
+                    "canonical_name": _EXPECTED_DISTRIBUTION_NAME,
+                    "version": _EXPECTED_VERSION,
+                    "source": provenance,
+                    "valid": True,
+                },
             )
+
+        # Default name install
         return self._pass(
             "distribution.manifest",
             "distribution",
             "distribution manifest matches",
             canonical_name=_EXPECTED_DISTRIBUTION_NAME,
             local_name=manifest_name,
+            profile_instance={
+                "expected_name": requested_local,
+                "actual_name": actual_local,
+                "valid": True,
+            },
+            distribution_identity={
+                "canonical_name": _EXPECTED_DISTRIBUTION_NAME,
+                "version": _EXPECTED_VERSION,
+                "valid": True,
+            },
         )
 
     def _check_distribution_files(self) -> CheckResult:
