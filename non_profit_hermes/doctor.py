@@ -8,14 +8,6 @@ import sys
 from typing import Any, Mapping, Sequence, TextIO
 
 from non_profit_hermes import __version__
-from non_profit_hermes.diagnostics import (
-    CheckResult,
-    DoctorReport,
-    DoctorRunner,
-    Severity,
-    Status,
-    redact,
-)
 
 
 SCHEMA_VERSION = 1
@@ -42,7 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _check_to_dict(check: CheckResult) -> dict[str, Any]:
+def _check_to_dict(check: "CheckResult") -> dict[str, Any]:
+    from non_profit_hermes.diagnostics import redact
     return {
         "id": check.id,
         "category": check.category,
@@ -53,7 +46,8 @@ def _check_to_dict(check: CheckResult) -> dict[str, Any]:
     }
 
 
-def report_to_dict(report: DoctorReport) -> dict[str, Any]:
+def report_to_dict(report: "DoctorReport") -> dict[str, Any]:
+    from non_profit_hermes.diagnostics import redact, CheckResult, Status, Severity
     payload = {
         "schema_version": SCHEMA_VERSION,
         "mode": report.mode,
@@ -96,7 +90,8 @@ def _source_root() -> Path | None:
     return None
 
 
-def _runtime_failure(profile: str, mode: str, strict: bool, error: Exception) -> DoctorReport:
+def _runtime_failure(profile: str, mode: str, strict: bool, error: Exception) -> "DoctorReport":
+    from non_profit_hermes.diagnostics import CheckResult, DoctorReport, Status, Severity
     check = CheckResult(
         id="doctor.runtime",
         category="runtime",
@@ -131,6 +126,17 @@ def main(
     if __name__ != "__main__" and raw_arguments and raw_arguments[0] == "doctor":
         raw_arguments.pop(0)
     arguments = parser.parse_args(raw_arguments)
+    # Defer heavy imports (yaml, etc.) until after CLI parsing.
+    # This allows --help and bad-arg early rejection (return code 2) to work
+    # even if optional deps like PyYAML or google are missing.
+    from non_profit_hermes.diagnostics import (
+        CheckResult,
+        DoctorReport,
+        DoctorRunner,
+        Severity,
+        Status,
+        redact,
+    )
     active_runner = runner or DoctorRunner(
         profile=arguments.profile,
         source_root=_source_root(),

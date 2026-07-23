@@ -17,9 +17,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+
+
+# Lazy/optional Google imports: the actual client libs are imported inside the
+# functions that need them (get_creds, sheets, calendar) so that basic
+# "import non_profit_hermes.operations" and --help succeed in environments
+# without google-auth / google-api-python-client / PyYAML.
+try:
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+except ImportError:
+    Request = None  # type: ignore
+    Credentials = None  # type: ignore
+    build = None  # type: ignore
 
 # ── Canonical package boundaries ─────────────────────────────────────────────
 
@@ -165,7 +176,14 @@ def get_creds(
     credentials_file: str | Path | None = None,
     scopes: list[str] | None = None,
     environ: Mapping[str, str] | None = None,
-) -> Credentials:
+) -> "Credentials":
+    # Prefer module-level name (allows tests to monkeypatch operations.Credentials etc.)
+    Credentials = globals().get("Credentials")
+    Request = globals().get("Request")
+    if Credentials is None:
+        from google.oauth2.credentials import Credentials
+    if Request is None:
+        from google.auth.transport.requests import Request
     token = _configured_credentials_file(credentials_file, environ=environ)
     expected_scopes = SCOPES if scopes is None else scopes
     try:
@@ -179,11 +197,17 @@ def get_creds(
     return credential
 
 
-def sheets(creds: Credentials):
+def sheets(creds: "Credentials"):
+    build = globals().get("build")
+    if build is None:
+        from googleapiclient.discovery import build
     return build("sheets", "v4", credentials=creds)
 
 
-def calendar(creds: Credentials):
+def calendar(creds: "Credentials"):
+    build = globals().get("build")
+    if build is None:
+        from googleapiclient.discovery import build
     return build("calendar", "v3", credentials=creds)
 
 
