@@ -27,6 +27,7 @@ import yaml
 DISPOSABLE_PROFILE_RE = re.compile(r"^nonprofit-v1-test(?:[-_][a-z0-9][a-z0-9_-]*)?$")
 RESERVED_PROFILES = frozenset({"default", "nonprofit"})
 EXPECTED_COMMANDS = ("daily", "need", "donation", "report", "task", "inventory", "event")
+HERMES_RUNTIME_DEPENDENCY = "hermes-agent==0.18.2"
 LEGACY_PLUGINS = tuple(f"non-profit-hermes-{name}" for name in EXPECTED_COMMANDS)
 EXPECTED_OWNED_PATHS = (
     "distribution.yaml",
@@ -277,6 +278,13 @@ def build_command_plan(
             "install",
             f"{wheel}[test]",
         ),
+        "hermes_runtime_install": (
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            HERMES_RUNTIME_DEPENDENCY,
+        ),
         "profile_install": (
             "hermes",
             "profile",
@@ -293,6 +301,12 @@ def build_command_plan(
             *profile_arguments,
         ),
         "doctor_console": (str(console), "doctor", *profile_arguments),
+        "full_test_runtime_import": (
+            str(venv_python),
+            "-I",
+            "-c",
+            "import hermes_cli",
+        ),
         "full_tests": (str(venv_python), "-m", "pytest", "-q"),
         "py_compile": (
             str(venv_python),
@@ -755,6 +769,17 @@ def _pytest_summary(output: str) -> str:
     return summary
 
 
+def full_test_failure_summary(result: CommandResult) -> dict[str, int]:
+    """Return bounded, secret-free full-test failure diagnostics."""
+    return {
+        "exit_code": result.returncode,
+        "stderr_char_count": len(result.stderr),
+        "stderr_line_count": result.stderr.count("\n"),
+        "stdout_char_count": len(result.stdout),
+        "stdout_line_count": result.stdout.count("\n"),
+    }
+
+
 def _plugin_verifier_code() -> str:
     return """import importlib.util
 import json
@@ -816,6 +841,7 @@ def run_acceptance(
     stages: list[dict[str, str]] = []
     commands: list[dict[str, object]] = []
     forbidden_values: tuple[str, ...] = ()
+    full_test_diagnostics: dict[str, int] | None = None
     active_stage = "archive"
     output.mkdir(parents=False, exist_ok=False)
     artifacts.mkdir()
@@ -830,6 +856,7 @@ def run_acceptance(
         wheel: Path | None = None,
         install_source_path: Path | None = None,
     ) -> CommandResult:
+        nonlocal full_test_diagnostics
         result = runner(argv, cwd=cwd, env=env)
         cmd_entry = {
             "stage": stage,
@@ -843,11 +870,10 @@ def run_acceptance(
             "cwd": str(cwd) if cwd else None,
             "exit_code": result.returncode,
         }
-        # For full_tests, persist additional evidence paths (stdout/stderr written by caller if needed)
-        if stage == "full_tests":
-            cmd_entry["evidence_note"] = "full pytest output in result; see test_summary"
         commands.append(cmd_entry)
         if result.returncode != 0:
+            if stage == "full_tests":
+                full_test_diagnostics = full_test_failure_summary(result)
             raise HarnessError(f"{stage.upper()}_FAILED", f"{stage} command failed")
         return result
 
@@ -963,6 +989,15 @@ def run_acceptance(
         execute("wheel_install", plan["wheel_install"], cwd=work, env=environment, wheel=wheel)
         passed("wheel_install")
 
+        active_stage = "hermes_runtime_install"
+        execute(
+            "hermes_runtime_install",
+            plan["hermes_runtime_install"],
+            cwd=work,
+            env=environment,
+        )
+        passed("hermes_runtime_install")
+
         active_stage = "profile_install"
         execute(
             "profile_install",
@@ -1015,6 +1050,15 @@ def run_acceptance(
         )
         registered_commands = verify_registered_commands(plugin_result.stdout.strip())
         passed("plugin_registration")
+
+        active_stage = "full_test_runtime_import"
+        execute(
+            "full_test_runtime_import",
+            plan["full_test_runtime_import"],
+            cwd=extracted,
+            env=environment,
+        )
+        passed("full_test_runtime_import")
 
         active_stage = "full_tests"
         tests_result = execute("full_tests", plan["full_tests"], cwd=extracted, env=environment)
@@ -1072,6 +1116,8 @@ def run_acceptance(
             "failure_code": error.code,
             "limitations": ["acceptance stopped at the first failed stage"],
         }
+        if full_test_diagnostics is not None:
+            failure_result["full_test_diagnostics"] = full_test_diagnostics
         result_path = output / "result.json"
         if not result_path.exists():
             write_result_json(result_path, failure_result, forbidden_values=forbidden_values)

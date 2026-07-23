@@ -223,6 +223,20 @@ def test_isolated_environment_and_command_plan_never_select_host_profile(
         "--strict",
         "--json",
     )
+    assert plan["hermes_runtime_install"] == (
+        str(output / "venv" / "Scripts" / "python.exe"),
+        "-m",
+        "pip",
+        "install",
+        "hermes-agent==0.18.2",
+    )
+    assert plan["full_test_runtime_import"] == (
+        str(output / "venv" / "Scripts" / "python.exe"),
+        "-I",
+        "-c",
+        "import hermes_cli",
+    )
+    assert "PYTHONPATH" not in environment
     assert all(isinstance(argv, tuple) for argv in plan.values())
 
 
@@ -567,6 +581,28 @@ def test_result_json_is_deterministic_secret_free_and_restart_safe(tmp_path: Pat
     assert not (tmp_path / "leak.json").exists()
 
 
+def test_full_test_failure_summary_is_bounded_and_redacted() -> None:
+    harness = load_harness()
+    stdout = "synthetic-private-output\n" * 512
+    stderr = "more-private-output\n" * 256
+
+    summary = harness.full_test_failure_summary(
+        harness.CommandResult(2, stdout, stderr)
+    )
+
+    assert summary == {
+        "exit_code": 2,
+        "stderr_char_count": len(stderr),
+        "stderr_line_count": 256,
+        "stdout_char_count": len(stdout),
+        "stdout_line_count": 512,
+    }
+    serialized = json.dumps(summary, sort_keys=True)
+    assert "synthetic-private-output" not in serialized
+    assert "more-private-output" not in serialized
+    assert len(serialized) < 512
+
+
 def test_cli_help_documents_required_safe_contract_without_running_harness() -> None:
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"],
@@ -705,6 +741,7 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
         "profile_install_source",
         "build",
         "wheel_install",
+        "hermes_runtime_install",
         "profile_install",
         "profile_exclusions",
         "synthetic_configuration",
@@ -712,6 +749,7 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
         "doctor_console",
         "doctor_equivalence",
         "plugin_registration",
+        "full_test_runtime_import",
         "full_tests",
         "py_compile",
         "git_diff_check",
@@ -731,6 +769,8 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
     assert any(_git_has(command, "diff") for command in commands)
     assert any(command[:2] == ("uv", "build") for command in commands)
     assert any(command[:3] == ("hermes", "profile", "install") for command in commands)
+    assert any(command[-1:] == ("hermes-agent==0.18.2",) for command in commands)
+    assert any(command[-3:] == ("-I", "-c", "import hermes_cli") for command in commands)
 
 
 def test_main_derives_default_cache_boundary_and_runs_only_after_admission(
