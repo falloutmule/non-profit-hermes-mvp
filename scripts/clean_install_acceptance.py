@@ -15,11 +15,13 @@ import subprocess
 import sys
 import hashlib
 import json
+import time
 import zipfile
 from collections import Counter
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Callable, NamedTuple, Sequence, TextIO
+from xml.etree import ElementTree
 
 import yaml
 
@@ -28,6 +30,36 @@ DISPOSABLE_PROFILE_RE = re.compile(r"^nonprofit-v1-test(?:[-_][a-z0-9][a-z0-9_-]
 RESERVED_PROFILES = frozenset({"default", "nonprofit"})
 EXPECTED_COMMANDS = ("daily", "need", "donation", "report", "task", "inventory", "event")
 HERMES_RUNTIME_DEPENDENCY = "hermes-agent==0.18.2"
+TEST_RUNTIME_DEPENDENCIES = ("wheel==0.47.0", "google-auth-oauthlib==1.3.1")
+TEST_FIXTURE_SPECS = (
+    (
+        "event_plugin",
+        Path("plugins/non-profit-hermes-event/__init__.py"),
+        Path("AppData/Local/hermes/plugins/non-profit-hermes-event/__init__.py"),
+    ),
+    (
+        "google_api",
+        Path("google-workspace/scripts/google_api.py"),
+        Path("AppData/Local/hermes/skills/productivity/google-workspace/scripts/google_api.py"),
+    ),
+    (
+        "hermes_home",
+        Path("google-workspace/scripts/_hermes_home.py"),
+        Path("AppData/Local/hermes/skills/productivity/google-workspace/scripts/_hermes_home.py"),
+    ),
+)
+WHEEL_BOUNDARY_PROBE = (
+    "import importlib, importlib.metadata, json, pathlib, sys; "
+    "source = pathlib.Path(sys.argv[1]).resolve(); "
+    "module = importlib.import_module('non_profit_hermes'); "
+    "location = pathlib.Path(module.__file__).resolve(); "
+    "paths = [str(pathlib.Path(value).resolve()) for value in sys.path if value]; "
+    "print(json.dumps({'cwd': str(pathlib.Path.cwd().resolve()), "
+    "'sys_path': paths, 'installed_package_location': str(location), "
+    "'python_version': sys.version.split()[0], 'pytest_version': importlib.metadata.version('pytest'), "
+    "'repository_path_absent': all(not (path == source or path.startswith(str(source) + '\\\\')) "
+    "for path in paths) and not str(location).startswith(str(source) + '\\\\')}, sort_keys=True))"
+)
 LEGACY_PLUGINS = tuple(f"non-profit-hermes-{name}" for name in EXPECTED_COMMANDS)
 EXPECTED_OWNED_PATHS = (
     "distribution.yaml",
@@ -212,6 +244,182 @@ def scan_private_material(root: Path) -> dict[str, int]:
     return {code: findings[code] for code in sorted(findings) if findings[code]}
 
 
+def _fixture_private_findings(path: Path) -> dict[str, int]:
+    """Scan a single acceptance fixture without test-tree literal exemptions."""
+    path_code = _private_path_code(Path(path.name))
+    findings: Counter[str] = Counter({path_code: 1} if path_code else {})
+    data = path.read_bytes()
+    for code, pattern in RAW_PRIVATE_PATTERNS:
+        findings[code] += len(pattern.findall(data))
+    return {code: findings[code] for code in sorted(findings) if findings[code]}
+
+
+def provision_test_fixtures(
+    fixture_root: Path,
+    home: Path,
+) -> dict[str, dict[str, object]]:
+    """Copy only audited repository test fixtures into an isolated HOME."""
+    fixture_root = fixture_root.resolve()
+    home = home.resolve()
+    evidence: dict[str, dict[str, object]] = {}
+    for name, source_relative, destination_relative in TEST_FIXTURE_SPECS:
+        source = fixture_root / source_relative
+        destination = home / destination_relative
+        if not source.is_file():
+            raise HarnessError("TEST_FIXTURE_SOURCE_MISSING", "required test fixture is missing")
+        if destination.exists():
+            raise HarnessError(
+                "TEST_FIXTURE_DESTINATION_COLLISION",
+                "isolated test fixture destination already exists",
+            )
+        findings = _fixture_private_findings(source)
+        if findings:
+            raise HarnessError(
+                "TEST_FIXTURE_PRIVATE_MATERIAL",
+                "required test fixture contains private material",
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+        destination_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
+        if source_hash != destination_hash:
+            raise HarnessError("TEST_FIXTURE_HASH_MISMATCH", "test fixture copy hash mismatch")
+        evidence[name] = {
+            "source": str(source),
+            "destination": str(destination),
+            "source_sha256": source_hash,
+            "destination_sha256": destination_hash,
+            "private_findings": findings,
+        }
+    return evidence
+
+
+def build_test_dependency_install_command(venv_python: Path) -> tuple[str, ...]:
+    """Return the exact pinned test-only dependency installation command."""
+    return (
+        str(venv_python),
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "--no-input",
+        *TEST_RUNTIME_DEPENDENCIES,
+    )
+
+
+def build_wheel_boundary_command(
+    venv_python: Path,
+    source: Path,
+    external_cwd: Path,
+) -> tuple[str, ...]:
+    """Probe that the installed wheel wins outside the repository checkout."""
+    del external_cwd  # Caller owns cwd; retaining it makes the boundary explicit at call sites.
+    return (str(venv_python), "-I", "-c", WHEEL_BOUNDARY_PROBE, str(source.resolve()))
+
+
+def _redact_evidence_text(text: str, forbidden_values: Sequence[str]) -> str:
+    data = text.encode("utf-8", errors="replace")
+    for code, pattern in RAW_PRIVATE_PATTERNS:
+        data = pattern.sub(f"<REDACTED:{code}>".encode("ascii"), data)
+    redacted = data.decode("utf-8", errors="replace")
+    for value in sorted((value for value in forbidden_values if value), key=len, reverse=True):
+        redacted = redacted.replace(value, "<SYNTHETIC_REDACTED>")
+    return redacted
+
+
+def _pytest_counts(stdout: str, junit: str) -> dict[str, int]:
+    def count(pattern: str, text: str) -> int:
+        match = re.search(pattern, text, re.IGNORECASE)
+        return int(match.group(1)) if match else 0
+
+    collected = count(r"collected\s+(\d+)\s+items?", stdout)
+    if not collected:
+        try:
+            collected = int(ElementTree.fromstring(junit).attrib.get("tests", "0"))
+        except ElementTree.ParseError:
+            collected = 0
+    return {
+        "collected": collected,
+        "passed": count(r"(\d+)\s+passed", stdout),
+        "failed": count(r"(\d+)\s+failed", stdout),
+        "skipped": count(r"(\d+)\s+skipped", stdout),
+        "subtests": count(r"(\d+)\s+subtests?\s+passed", stdout),
+    }
+
+
+def write_full_test_evidence(
+    output: Path,
+    *,
+    argv: Sequence[str],
+    cwd: Path,
+    environment: dict[str, str],
+    python_version: str,
+    pytest_version: str,
+    timeout_seconds: int,
+    duration_seconds: float,
+    result: CommandResult,
+    junit_path: Path,
+    boundary: dict[str, object],
+    forbidden_values: Sequence[str],
+    fixture_provisioning: dict[str, dict[str, object]] | None = None,
+    dependency_provisioning: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Persist detailed, redacted full-test evidence before success/failure handling."""
+    output = output.resolve()
+    junit_text = _redact_evidence_text(junit_path.read_text(encoding="utf-8", errors="replace"), forbidden_values)
+    stdout_text = _redact_evidence_text(result.stdout, forbidden_values)
+    stderr_text = _redact_evidence_text(result.stderr, forbidden_values)
+    files = {
+        "full-tests-command.json": {
+            "argv": list(argv),
+            "cwd": str(cwd.resolve()),
+            "timeout_seconds": timeout_seconds,
+        },
+        "full-tests-environment.json": {
+            "environment_names": sorted(environment),
+            "python_executable": str(argv[0]),
+            "python_version": python_version,
+            "pytest_version": pytest_version,
+            "pythonpath_present": bool(environment.get("PYTHONPATH")),
+            "wheel_boundary": boundary,
+            "fixture_provisioning": fixture_provisioning or {},
+            "dependency_provisioning": dependency_provisioning or {},
+        },
+    }
+    for filename, payload in files.items():
+        (output / filename).write_text(
+            json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n"
+        )
+    (output / "full-tests-stdout.txt").write_text(stdout_text, encoding="utf-8", newline="\n")
+    (output / "full-tests-stderr.txt").write_text(stderr_text, encoding="utf-8", newline="\n")
+    (output / "full-tests-junit.xml").write_text(junit_text, encoding="utf-8", newline="\n")
+    counts = _pytest_counts(stdout_text, junit_text)
+    failing_node_ids = re.findall(r"^FAILED\s+([^\s]+)", stdout_text, re.MULTILINE)
+    evidence_names = (
+        "full-tests-command.json",
+        "full-tests-environment.json",
+        "full-tests-stdout.txt",
+        "full-tests-stderr.txt",
+        "full-tests-junit.xml",
+    )
+    evidence_hashes = {
+        name: hashlib.sha256((output / name).read_bytes()).hexdigest() for name in evidence_names
+    }
+    summary: dict[str, object] = {
+        "exit_code": result.returncode,
+        "duration_seconds": duration_seconds,
+        "counts": counts,
+        "failing_node_ids": failing_node_ids,
+        "stdout_bytes": len((output / "full-tests-stdout.txt").read_bytes()),
+        "stderr_bytes": len((output / "full-tests-stderr.txt").read_bytes()),
+        "evidence_sha256": evidence_hashes,
+    }
+    (output / "full-tests-summary.json").write_text(
+        json.dumps(summary, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
+    return summary
+
+
 def build_isolated_environment(
     admission: Admission,
     inherited: dict[str, str],
@@ -285,6 +493,8 @@ def build_command_plan(
             "install",
             HERMES_RUNTIME_DEPENDENCY,
         ),
+        "test_dependencies_install": build_test_dependency_install_command(venv_python),
+        "pip_check": (str(venv_python), "-m", "pip", "check"),
         "profile_install": (
             "hermes",
             "profile",
@@ -307,7 +517,18 @@ def build_command_plan(
             "-c",
             "import hermes_cli",
         ),
-        "full_tests": (str(venv_python), "-m", "pytest", "-q"),
+        "wheel_boundary": build_wheel_boundary_command(
+            venv_python, extracted, external_cwd
+        ),
+        "full_tests": (
+            str(venv_python),
+            "-m",
+            "pytest",
+            "-q",
+            "--import-mode=importlib",
+            f"--junitxml={admission.output_root / 'full-tests-junit.xml'}",
+            str(extracted / "tests"),
+        ),
         "py_compile": (
             str(venv_python),
             "-m",
@@ -841,7 +1062,10 @@ def run_acceptance(
     stages: list[dict[str, str]] = []
     commands: list[dict[str, object]] = []
     forbidden_values: tuple[str, ...] = ()
-    full_test_diagnostics: dict[str, int] | None = None
+    full_test_diagnostics: dict[str, object] | None = None
+    fixture_evidence: dict[str, dict[str, object]] = {}
+    dependency_evidence: dict[str, object] = {}
+    wheel_boundary_evidence: dict[str, object] = {}
     active_stage = "archive"
     output.mkdir(parents=False, exist_ok=False)
     artifacts.mkdir()
@@ -855,6 +1079,7 @@ def run_acceptance(
         env: dict[str, str] | None = None,
         wheel: Path | None = None,
         install_source_path: Path | None = None,
+        allow_failure: bool = False,
     ) -> CommandResult:
         nonlocal full_test_diagnostics
         result = runner(argv, cwd=cwd, env=env)
@@ -871,7 +1096,7 @@ def run_acceptance(
             "exit_code": result.returncode,
         }
         commands.append(cmd_entry)
-        if result.returncode != 0:
+        if result.returncode != 0 and not allow_failure:
             if stage == "full_tests":
                 full_test_diagnostics = full_test_failure_summary(result)
             raise HarnessError(f"{stage.upper()}_FAILED", f"{stage} command failed")
@@ -998,6 +1223,34 @@ def run_acceptance(
         )
         passed("hermes_runtime_install")
 
+        active_stage = "test_dependencies_install"
+        dependency_result = execute(
+            "test_dependencies_install",
+            plan["test_dependencies_install"],
+            cwd=work,
+            env=environment,
+        )
+        passed("test_dependencies_install")
+
+        active_stage = "pip_check"
+        pip_check_result = execute("pip_check", plan["pip_check"], cwd=work, env=environment)
+        dependency_evidence = {
+            "packages": list(TEST_RUNTIME_DEPENDENCIES),
+            "installation_source": "pip index",
+            "command": list(plan["test_dependencies_install"]),
+            "exit_code": dependency_result.returncode,
+            "pip_check_command": list(plan["pip_check"]),
+            "pip_check_exit_code": pip_check_result.returncode,
+        }
+        passed("pip_check")
+
+        active_stage = "test_fixture_provision"
+        fixture_evidence = provision_test_fixtures(
+            extracted / "tests" / "fixtures" / "clean_install_acceptance",
+            output / "home",
+        )
+        passed("test_fixture_provision")
+
         active_stage = "profile_install"
         execute(
             "profile_install",
@@ -1060,8 +1313,54 @@ def run_acceptance(
         )
         passed("full_test_runtime_import")
 
+        active_stage = "wheel_boundary"
+        wheel_boundary_result = execute(
+            "wheel_boundary", plan["wheel_boundary"], cwd=work, env=environment
+        )
+        try:
+            wheel_boundary_evidence = json.loads(wheel_boundary_result.stdout)
+        except json.JSONDecodeError as error:
+            raise HarnessError("WHEEL_BOUNDARY_INVALID", "wheel boundary probe did not emit JSON") from error
+        if (
+            not isinstance(wheel_boundary_evidence, dict)
+            or wheel_boundary_evidence.get("repository_path_absent") is not True
+            or not wheel_boundary_evidence.get("installed_package_location")
+        ):
+            raise HarnessError("WHEEL_BOUNDARY_INVALID", "wheel boundary proof is incomplete")
+        passed("wheel_boundary")
+
         active_stage = "full_tests"
-        tests_result = execute("full_tests", plan["full_tests"], cwd=extracted, env=environment)
+        full_test_started = time.perf_counter()
+        tests_result = execute(
+            "full_tests", plan["full_tests"], cwd=work, env=environment, allow_failure=True
+        )
+        full_test_duration = round(time.perf_counter() - full_test_started, 3)
+        junit_path = output / "full-tests-junit.xml"
+        if not junit_path.exists():
+            junit_path.write_text(
+                '<testsuite tests="0" errors="1"><testcase name="junit-not-created">'
+                "<error>pytest did not create JUnit evidence</error></testcase></testsuite>\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        full_test_diagnostics = write_full_test_evidence(
+            output,
+            argv=plan["full_tests"],
+            cwd=work,
+            environment=environment,
+            python_version=str(wheel_boundary_evidence["python_version"]),
+            pytest_version=str(wheel_boundary_evidence["pytest_version"]),
+            timeout_seconds=900,
+            duration_seconds=full_test_duration,
+            result=tests_result,
+            junit_path=junit_path,
+            boundary=wheel_boundary_evidence,
+            forbidden_values=forbidden_values,
+            fixture_provisioning=fixture_evidence,
+            dependency_provisioning=dependency_evidence,
+        )
+        if tests_result.returncode != 0:
+            raise HarnessError("FULL_TESTS_FAILED", "full_tests command failed")
         test_summary = _pytest_summary(tests_result.stdout)
         passed("full_tests")
 
@@ -1097,6 +1396,12 @@ def run_acceptance(
             "profile_snapshot_unchanged": True,
             "registered_commands": registered_commands,
             "test_summary": test_summary,
+            "test_environment": {
+                "fixtures": fixture_evidence,
+                "dependencies": dependency_evidence,
+                "wheel_boundary": wheel_boundary_evidence,
+                "full_test_evidence": full_test_diagnostics,
+            },
             "limitations": [
                 "production profile, network integrations, gateway, and physical-device acceptance were not exercised"
             ],

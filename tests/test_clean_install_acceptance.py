@@ -603,6 +603,106 @@ def test_full_test_failure_summary_is_bounded_and_redacted() -> None:
     assert len(serialized) < 512
 
 
+def test_fixture_provisioning_is_hashed_scanned_and_fail_closed(tmp_path: Path) -> None:
+    harness = load_harness()
+    fixture_root = tmp_path / "fixtures"
+    event = fixture_root / "plugins" / "non-profit-hermes-event" / "__init__.py"
+    helpers = fixture_root / "google-workspace" / "scripts"
+    event.parent.mkdir(parents=True)
+    helpers.mkdir(parents=True)
+    event.write_text("def register(ctx): pass\n", encoding="utf-8")
+    (helpers / "google_api.py").write_text("SCOPES = []\n", encoding="utf-8")
+    (helpers / "_hermes_home.py").write_text("def get_hermes_home(): return None\n", encoding="utf-8")
+
+    home = tmp_path / "home"
+    evidence = harness.provision_test_fixtures(fixture_root, home)
+
+    assert tuple(evidence) == ("event_plugin", "google_api", "hermes_home")
+    assert all(item["source_sha256"] == item["destination_sha256"] for item in evidence.values())
+    assert all(Path(item["destination"]).is_file() for item in evidence.values())
+    assert all(Path(item["destination"]).is_relative_to(home) for item in evidence.values())
+    assert all(item["private_findings"] == {} for item in evidence.values())
+
+    with pytest.raises(harness.HarnessError) as collision:
+        harness.provision_test_fixtures(fixture_root, home)
+    assert collision.value.code == "TEST_FIXTURE_DESTINATION_COLLISION"
+
+    (helpers / "google_api.py").unlink()
+    with pytest.raises(harness.HarnessError) as missing:
+        harness.provision_test_fixtures(fixture_root, tmp_path / "other-home")
+    assert missing.value.code == "TEST_FIXTURE_SOURCE_MISSING"
+
+
+def test_test_dependency_and_wheel_boundary_plans_are_pinned_and_external(tmp_path: Path) -> None:
+    harness = load_harness()
+    python = tmp_path / "venv" / "Scripts" / "python.exe"
+    install = harness.build_test_dependency_install_command(python)
+
+    assert install == (
+        str(python),
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "--no-input",
+        "wheel==0.47.0",
+        "google-auth-oauthlib==1.3.1",
+    )
+
+    source = tmp_path / "source"
+    source.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    plan = harness.build_wheel_boundary_command(python, source, external)
+    assert plan[:4] == (str(python), "-I", "-c", harness.WHEEL_BOUNDARY_PROBE)
+    assert plan[-1] == str(source)
+
+
+def test_full_test_evidence_persists_redacted_streams_junit_and_hashes(tmp_path: Path) -> None:
+    harness = load_harness()
+    junit = tmp_path / "full-tests-junit.xml"
+    junit.write_text(
+        '<testsuite tests="3" failures="1" skipped="1"><testcase name="ok" />'
+        '<testcase name="bad"><failure message="synthetic-private">trace</failure></testcase>'
+        '<testcase name="skip"><skipped /></testcase></testsuite>',
+        encoding="utf-8",
+    )
+    result = harness.CommandResult(
+        1,
+        "collected 3 items\nFAILED tests/test_example.py::test_bad\n1 passed, 1 failed, 1 skipped, 2 subtests passed\n",
+        "authorization: synthetic-private\n",
+    )
+
+    summary = harness.write_full_test_evidence(
+        tmp_path,
+        argv=("python", "-m", "pytest", "-q"),
+        cwd=tmp_path / "external",
+        environment={"PYTHONPATH": "", "SAFE": "value"},
+        python_version="3.11.9",
+        pytest_version="9.1.1",
+        timeout_seconds=900,
+        duration_seconds=1.25,
+        result=result,
+        junit_path=junit,
+        boundary={"repository_path_absent": True},
+        forbidden_values=("synthetic-private",),
+    )
+
+    required = (
+        "full-tests-command.json",
+        "full-tests-environment.json",
+        "full-tests-stdout.txt",
+        "full-tests-stderr.txt",
+        "full-tests-junit.xml",
+        "full-tests-summary.json",
+    )
+    assert all((tmp_path / name).is_file() for name in required)
+    assert summary["counts"] == {"collected": 3, "passed": 1, "failed": 1, "skipped": 1, "subtests": 2}
+    assert summary["failing_node_ids"] == ["tests/test_example.py::test_bad"]
+    assert set(summary["evidence_sha256"]) == set(required) - {"full-tests-summary.json"}
+    assert "synthetic-private" not in (tmp_path / "full-tests-stderr.txt").read_text(encoding="utf-8")
+
+
 def test_cli_help_documents_required_safe_contract_without_running_harness() -> None:
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"],
@@ -677,6 +777,19 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
             return harness.CommandResult(0, doctor_payload, "")
         elif "plugin" in command[-1] if command else False:
             return harness.CommandResult(0, json.dumps(list(EXPECTED_COMMANDS)), "")
+        elif harness.WHEEL_BOUNDARY_PROBE in command:
+            return harness.CommandResult(
+                0,
+                json.dumps(
+                    {
+                        "repository_path_absent": True,
+                        "installed_package_location": str(output / "venv" / "site-packages" / "non_profit_hermes" / "__init__.py"),
+                        "python_version": "3.11.9",
+                        "pytest_version": "9.1.1",
+                    }
+                ),
+                "",
+            )
         elif "pytest" in command:
             return harness.CommandResult(0, "350 passed, 69 subtests passed in 1.00s\n", "")
         return harness.CommandResult(0, "", "")
@@ -723,6 +836,19 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
         "stage_synthetic_configuration",
         lambda profile_root, output_root, environment: ("synthetic-secret",),
     )
+    monkeypatch.setattr(
+        harness,
+        "provision_test_fixtures",
+        lambda fixture_root, home: {
+            "event_plugin": {
+                "source": str(fixture_root / "plugins" / "non-profit-hermes-event" / "__init__.py"),
+                "destination": str(home / "AppData" / "Local" / "hermes" / "plugins" / "non-profit-hermes-event" / "__init__.py"),
+                "source_sha256": "3" * 64,
+                "destination_sha256": "3" * 64,
+                "private_findings": {},
+            }
+        },
+    )
     monkeypatch.setattr(harness, "snapshot_tree", lambda root: {"config.yaml": {"size": 1}})
 
     result = harness.run_acceptance(
@@ -742,6 +868,9 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
         "build",
         "wheel_install",
         "hermes_runtime_install",
+        "test_dependencies_install",
+        "pip_check",
+        "test_fixture_provision",
         "profile_install",
         "profile_exclusions",
         "synthetic_configuration",
@@ -750,6 +879,7 @@ def test_run_acceptance_executes_ordered_disposable_stages_and_writes_evidence(
         "doctor_equivalence",
         "plugin_registration",
         "full_test_runtime_import",
+        "wheel_boundary",
         "full_tests",
         "py_compile",
         "git_diff_check",
