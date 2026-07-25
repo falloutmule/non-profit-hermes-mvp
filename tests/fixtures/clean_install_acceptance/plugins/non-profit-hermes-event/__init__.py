@@ -89,7 +89,7 @@ def _event(args: str = "") -> str:
         import telegram_intake_router
         result = telegram_intake_router.handle_message(
             dispatch_text,
-            source_link="telegram:6080816249",
+            source_link="telegram:test-user-12345",
             allow_calendar_creation=False,
             calendar_promotion_mode="one-shot-local-authorization",
         )

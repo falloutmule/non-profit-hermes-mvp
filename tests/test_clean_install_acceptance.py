@@ -633,6 +633,39 @@ def test_fixture_provisioning_is_hashed_scanned_and_fail_closed(tmp_path: Path) 
     assert missing.value.code == "TEST_FIXTURE_SOURCE_MISSING"
 
 
+def test_fixture_private_scan_rejects_numeric_telegram_source_id(tmp_path: Path) -> None:
+    harness = load_harness()
+    fixture_root = tmp_path / "fixtures"
+    event = fixture_root / "plugins" / "non-profit-hermes-event" / "__init__.py"
+    helpers = fixture_root / "google-workspace" / "scripts"
+    event.parent.mkdir(parents=True)
+    helpers.mkdir(parents=True)
+    numeric_user_id = "".join(("12345", "67890"))
+    event.write_text(f'source_link="telegram:{numeric_user_id}"\n', encoding="utf-8")
+    (helpers / "google_api.py").write_text("SCOPES = []\n", encoding="utf-8")
+    (helpers / "_hermes_home.py").write_text(
+        "def get_hermes_home(): return None\n",
+        encoding="utf-8",
+    )
+
+    assert harness._fixture_private_findings(event) == {
+        "RAW_TELEGRAM_NUMERIC_ID": 1,
+    }
+    with pytest.raises(harness.HarnessError) as private_material:
+        harness.provision_test_fixtures(fixture_root, tmp_path / "home")
+    assert private_material.value.code == "TEST_FIXTURE_PRIVATE_MATERIAL"
+
+
+def test_committed_acceptance_fixtures_pass_private_scan() -> None:
+    harness = load_harness()
+    fixture_root = ROOT / "tests" / "fixtures" / "clean_install_acceptance"
+
+    for name, source_relative, _ in harness.TEST_FIXTURE_SPECS:
+        source = fixture_root / source_relative
+        assert source.is_file(), name
+        assert harness._fixture_private_findings(source) == {}, name
+
+
 def test_test_dependency_and_wheel_boundary_plans_are_pinned_and_external(tmp_path: Path) -> None:
     harness = load_harness()
     python = tmp_path / "venv" / "Scripts" / "python.exe"

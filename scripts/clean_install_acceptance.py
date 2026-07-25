@@ -95,6 +95,12 @@ RAW_PRIVATE_PATTERNS = (
         ),
     ),
 )
+FIXTURE_PRIVATE_PATTERNS = RAW_PRIVATE_PATTERNS + (
+    (
+        "RAW_TELEGRAM_NUMERIC_ID",
+        re.compile(rb"(?i)(?<![A-Za-z0-9_])telegram:\d+(?!\d)"),
+    ),
+)
 
 
 class HarnessError(RuntimeError):
@@ -249,7 +255,7 @@ def _fixture_private_findings(path: Path) -> dict[str, int]:
     path_code = _private_path_code(Path(path.name))
     findings: Counter[str] = Counter({path_code: 1} if path_code else {})
     data = path.read_bytes()
-    for code, pattern in RAW_PRIVATE_PATTERNS:
+    for code, pattern in FIXTURE_PRIVATE_PATTERNS:
         findings[code] += len(pattern.findall(data))
     return {code: findings[code] for code in sorted(findings) if findings[code]}
 
