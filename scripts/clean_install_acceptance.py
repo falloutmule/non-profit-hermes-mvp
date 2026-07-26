@@ -141,8 +141,11 @@ def run_command(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         shell=False,
     )
+
     return CommandResult(completed.returncode, completed.stdout, completed.stderr)
 
 
@@ -455,6 +458,7 @@ def build_isolated_environment(
             "TEMP": str(output / "tmp"),
             "PYTHONNOUSERSITE": "1",
             "PYTHONDONTWRITEBYTECODE": "1",
+            "NON_PROFIT_HERMES_TEST_EVENT_SOURCE_LINK": "telegram:test-user-12345",
         }
     )
     return environment, {}

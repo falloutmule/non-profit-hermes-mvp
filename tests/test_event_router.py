@@ -39,6 +39,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import builtins
+import os
 import sys
 import types
 import unittest
@@ -49,6 +50,9 @@ from non_profit_hermes import operations as ops
 from non_profit_hermes import router as tir
 
 ROOT = Path(__file__).resolve().parents[1]
+EVENT_PLUGIN_SOURCE_LINK = os.environ.get(
+    "NON_PROFIT_HERMES_TEST_EVENT_SOURCE_LINK", "telegram:6080816249"
+)
 
 
 def load_module(name: str, relative_path: str):
@@ -466,7 +470,7 @@ class EventRouterTests(unittest.TestCase):
         # registers /event
         self.assertTrue('register_command("event"' in src or "register_command('event'" in src)
         # passes source_link telegram:6080816249
-        self.assertIn("telegram:6080816249", src)
+        self.assertIn(EVENT_PLUGIN_SOURCE_LINK, src)
         # never calls calendar create functions directly
         self.assertNotIn("create_calendar_event(", src)
         self.assertNotIn("create_calendar_event_from_draft(", src)
@@ -514,7 +518,7 @@ class EventRouterTests(unittest.TestCase):
             text = plugin._event('event_title="Offline only"')
 
         self.assertEqual(captured["message"], '/event event_title="Offline only"')
-        self.assertEqual(captured["source_link"], "telegram:6080816249")
+        self.assertEqual(captured["source_link"], EVENT_PLUGIN_SOURCE_LINK)
         self.assertIs(captured["allow_calendar_creation"], False)
         self.assertEqual(captured["calendar_promotion_mode"], "one-shot-local-authorization")
         self.assertEqual(text, rendered)
@@ -577,7 +581,7 @@ class EventRouterTests(unittest.TestCase):
         self.assertEqual(text, "fake renderer")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "event_draft_id=EVT-A31A0CF8 confirm_create=yes")
-        self.assertEqual(calls[0][1]["source_link"], "telegram:6080816249")
+        self.assertEqual(calls[0][1]["source_link"], EVENT_PLUGIN_SOURCE_LINK)
         self.assertIs(calls[0][1]["allow_calendar_creation"], False)
         self.assertEqual(calls[0][1]["calendar_promotion_mode"], "one-shot-local-authorization")
 

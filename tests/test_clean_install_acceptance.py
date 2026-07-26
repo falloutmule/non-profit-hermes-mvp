@@ -198,6 +198,7 @@ def test_isolated_environment_and_command_plan_never_select_host_profile(
     assert "HERMES_ACTIVE_PROFILE" not in environment
     assert "TELEGRAM_BOT_TOKEN" not in environment
     assert "GOOGLE_APPLICATION_CREDENTIALS" not in environment
+    assert environment["NON_PROFIT_HERMES_TEST_EVENT_SOURCE_LINK"] == "telegram:test-user-12345"
     assert synthetic_values == {}
     assert plan["profile_install"] == (
         "hermes",
@@ -238,6 +239,22 @@ def test_isolated_environment_and_command_plan_never_select_host_profile(
     )
     assert "PYTHONPATH" not in environment
     assert all(isinstance(argv, tuple) for argv in plan.values())
+
+
+def test_run_command_replaces_non_utf8_output() -> None:
+    harness = load_harness()
+
+    result = harness.run_command(
+        (
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(b'out\\x97put'); sys.stderr.buffer.write(b'err\\x97or')",
+        )
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "out\ufffdput"
+    assert result.stderr == "err\ufffdor"
 
 
 def test_full_test_plan_keeps_sibling_test_modules_importable(tmp_path: Path) -> None:
