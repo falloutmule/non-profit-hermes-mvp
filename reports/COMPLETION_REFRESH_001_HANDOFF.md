@@ -51,8 +51,8 @@ Close the preserved atomic-refresh branch with offline, disposable synthetic-fil
 
 The red tests ran exclusively in pytest-managed disposable Windows temporary directories:
 
-- `C:\Users\fallo\AppData\Local\Temp\pytest-of-fallo\pytest-372\test_lock_write_failure_remove0`
-- `C:\Users\fallo\AppData\Local\Temp\pytest-of-fallo\pytest-374\test_integrated_replace_failur0`
+- `[USER_HOME]\AppData\Local\Temp\pytest-of-fallo\pytest-372\test_lock_write_failure_remove0`
+- `[USER_HOME]\AppData\Local\Temp\pytest-of-fallo\pytest-374\test_integrated_replace_failur0`
 
 Those directories contained only synthetic JSON and pytest artifacts. No production token path was opened.
 
@@ -103,7 +103,7 @@ Post-change verification:
 
 ## Privacy and runtime boundary
 
-All tests use `FakeCredential`, synthetic request objects, injected candidate writers, injected snapshotters, injected flushers, and injected replacers. No test reads `C:\Users\fallo\AppData\Local\hermes\google_token.json`, invokes a Google endpoint, or uses a real OAuth credential. The report intentionally contains no credential values, token values, or production hashes.
+All tests use `FakeCredential`, synthetic request objects, injected candidate writers, injected snapshotters, injected flushers, and injected replacers. No test reads `[USER_HOME]\AppData\Local\hermes\google_token.json`, invokes a Google endpoint, or uses a real OAuth credential. The report intentionally contains no credential values, token values, or production hashes.
 
 ## Limitations and risks
 

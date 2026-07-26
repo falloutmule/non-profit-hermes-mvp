@@ -3,10 +3,10 @@
 ## What was done
 
 - Inspected the existing Non-Profit Hermes skill:
-  - `C:\Users\fallo\AppData\Local\hermes\skills\productivity\non-profit-hermes\SKILL.md`
+  - `[USER_HOME]\AppData\Local\hermes\skills\productivity\non-profit-hermes\SKILL.md`
 
 - Inspected the repo:
-  - `C:\Users\fallo\non-profit-hermes-mvp`
+  - `[USER_HOME]\non-profit-hermes-mvp`
 
 - Inspected the tested backend write module:
   - `scripts/non_profit_hermes_ops.py`
@@ -53,8 +53,8 @@
   - `python scripts/telegram_intake_router.py --test`
 
 - Added live `/daily` plugin files outside the repo in the active Hermes profile:
-  - `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-daily\plugin.yaml`
-  - `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py`
+  - `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-daily\plugin.yaml`
+  - `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py`
 
 - Enabled only the `/daily` plugin:
   - `hermes plugins enable non-profit-hermes-daily`
@@ -196,27 +196,27 @@ Then test in Telegram:
 ## Evidence paths/files/URLs
 
 - Router:
-  - `C:\Users\fallo\non-profit-hermes-mvp\scripts\telegram_intake_router.py`
+  - `[USER_HOME]\non-profit-hermes-mvp\scripts\telegram_intake_router.py`
 
 - Backend write module:
-  - `C:\Users\fallo\non-profit-hermes-mvp\scripts\non_profit_hermes_ops.py`
+  - `[USER_HOME]\non-profit-hermes-mvp\scripts\non_profit_hermes_ops.py`
 
 - Sync script:
-  - `C:\Users\fallo\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
+  - `[USER_HOME]\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
 
 - Report:
-  - `C:\Users\fallo\non-profit-hermes-mvp\TELEGRAM_INTAKE_ROUTER_REPORT.md`
+  - `[USER_HOME]\non-profit-hermes-mvp\TELEGRAM_INTAKE_ROUTER_REPORT.md`
 
 - Live `/daily` plugin:
-  - `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-daily\plugin.yaml`
-  - `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py`
+  - `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-daily\plugin.yaml`
+  - `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py`
 
 - Approved-safe exports:
-  - `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_needs.json`
-  - `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_donations.json`
-  - `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_reports.json`
-  - `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_calendar.json`
-  - `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_board_log.json`
+  - `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_needs.json`
+  - `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_donations.json`
+  - `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_reports.json`
+  - `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_calendar.json`
+  - `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_board_log.json`
 
 - GitHub Pages:
   - `https://falloutmule.github.io/non-profit-hermes-mvp/`

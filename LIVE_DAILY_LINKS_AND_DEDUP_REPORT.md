@@ -12,8 +12,8 @@ Make `/daily` board-useful by adding website links and fixing calendar duplicate
 
 ## What Was Done
 1. **Inspected live /daily path**  
-   - Plugin: `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py` calls `telegram_intake_router.run_daily_summary()`.
-   - Router: `C:\Users\fallo\non-profit-hermes-mvp\scripts\telegram_intake_router.py` builds the summary.
+   - Plugin: `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py` calls `telegram_intake_router.run_daily_summary()`.
+   - Router: `[USER_HOME]\non-profit-hermes-mvp\scripts\telegram_intake_router.py` builds the summary.
 
 2. **Added Website links section** to `run_daily_summary()`:
    ```
@@ -49,7 +49,7 @@ Make `/daily` board-useful by adding website links and fixing calendar duplicate
 
 ## Current Exact State
 - Repo: main at `7891b45`, synced to origin/main.
-- Plugin file retained at path: `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py`
+- Plugin file retained at path: `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-daily\__init__.py`
 - Router script: `non-profit-hermes-mvp/scripts/telegram_intake_router.py` includes website links, title dedup, and version marker.
 - Backend script: `non-profit-hermes-mvp/scripts/non_profit_hermes_ops.py` has prior idempotency patches; no additional backend changes were needed for this task.
 - Historical AuditLog unchanged; no rows deleted.

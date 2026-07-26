@@ -34,7 +34,7 @@ python -m pytest -q
 ...................................                           [100%]
 35 passed, 11 subtests passed in 0.23s
 
-python -m py_compile scripts/telegram_intake_router.py tests/test_event_router.py C:/Users/fallo/AppData/Local/hermes/plugins/non-profit-hermes-event/__init__.py
+python -m py_compile scripts/telegram_intake_router.py tests/test_event_router.py [USER_HOME]/AppData/Local/hermes/plugins/non-profit-hermes-event/__init__.py
 (exit 0; no output)
 
 git diff --check
@@ -50,7 +50,7 @@ git diff --check
 External plugin path:
 
 ```text
-C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-event\
+[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-event\
 ```
 
 Files:
@@ -120,6 +120,6 @@ EVENT-004 is a separate milestone and has not begun. Its remaining work is:
 scripts/telegram_intake_router.py
 tests/test_event_router.py
 LIVE_EVENT_COMMAND_REPORT.md
-C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-event\__init__.py
-C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-event\plugin.yaml
+[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-event\__init__.py
+[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-event\plugin.yaml
 ```

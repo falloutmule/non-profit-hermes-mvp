@@ -29,7 +29,7 @@ Wire Telegram `/report` as a live command using the same draft-first pattern as 
 - Updated `_result_to_text()` to be command-aware ("Draft Report created" vs generic)
 
 ### Plugin
-- Created `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-report\`
+- Created `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-report\`
   - `plugin.yaml` (kind: standalone)
   - `__init__.py` (register /report, calls telegram_intake_router)
 - Enabled via `hermes plugins enable non-profit-hermes-report`

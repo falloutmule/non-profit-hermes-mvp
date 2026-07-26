@@ -44,11 +44,11 @@
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\root.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\current-needs.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\calendar.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\reports.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-canonical-live-fetch-2\today.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-canonical-live-fetch-2\root.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-canonical-live-fetch-2\current-needs.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-canonical-live-fetch-2\calendar.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-canonical-live-fetch-2\reports.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-canonical-live-fetch-2\today.html`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/current-needs`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/calendar`

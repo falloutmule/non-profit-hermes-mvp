@@ -23,7 +23,7 @@ This acceptance is offline and source-based. It is not evidence that Google auth
 - No token, candidate token, auth code, client secret, or raw credential content is included here.
 - No gateway was restarted; no plugin was deployed; nothing was published or released.
 - No commit, push, or merge was performed or authorized.
-- CRLF/path recovery is closed for this handoff: the intended repository/worktree path is `C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-records`, and the authorized artifact is the single Markdown file named above. No alternate path, line-ending repair, or recovery write is part of this task.
+- CRLF/path recovery is closed for this handoff: the intended repository/worktree path is `[USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-records`, and the authorized artifact is the single Markdown file named above. No alternate path, line-ending repair, or recovery write is part of this task.
 
 The existing token facts referenced by the handoff are **historical supplied state only**. They were not re-checked by this task.
 

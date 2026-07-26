@@ -53,12 +53,12 @@
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\Users\fallo\non-profit-hermes-mvp\LIVE_SITE_SYNC_MISMATCH_REPORT.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\index.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\today.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\current-needs.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\calendar.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\reports.md`
+- `[USER_HOME]\non-profit-hermes-mvp\LIVE_SITE_SYNC_MISMATCH_REPORT.md`
+- `[USER_HOME]\non-profit-hermes-mvp\index.md`
+- `[USER_HOME]\non-profit-hermes-mvp\today.md`
+- `[USER_HOME]\non-profit-hermes-mvp\current-needs.md`
+- `[USER_HOME]\non-profit-hermes-mvp\calendar.md`
+- `[USER_HOME]\non-profit-hermes-mvp\reports.md`
 - `https://raw.githubusercontent.com/falloutmule/non-profit-hermes-mvp/main/index.md`
 - `https://raw.githubusercontent.com/falloutmule/non-profit-hermes-mvp/main/today.md`
 - `https://raw.githubusercontent.com/falloutmule/non-profit-hermes-mvp/main/current-needs.md`

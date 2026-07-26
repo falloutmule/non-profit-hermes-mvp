@@ -7,7 +7,7 @@
 
 ### Evidence from state file
 
-`C:\Users\fallo\AppData\Local\hermes\state\telegram_active_need_drafts.json`:
+`[USER_HOME]\AppData\Local\hermes\state\telegram_active_need_drafts.json`:
 
 ```json
 "telegram:live": {

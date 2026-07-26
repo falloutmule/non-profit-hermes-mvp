@@ -31,7 +31,7 @@
 ### 1. Historical expired-token failure and protected baseline
 
 - **VERIFIED (supplied recovery premise):** the recovery sequence began after the old operational token could not be refreshed. This closeout does not re-run or inspect that failed refresh.
-- **VERIFIED (redacted evidence):** `C:/Users/fallo/AppData/Local/Temp/GR_OAUTH_002_EXCHANGE_RESULT.json` records a PASS, one attempted exchange, accepted completion, no raw callback/code/token-response recording, and a pre-promotion operational baseline fingerprint. `C:/Users/fallo/AppData/Local/Temp/GR_OAUTH_003_CANDIDATE_ACCEPTANCE.json` records a PASS/accepted candidate assessment against the same pre-promotion baseline fingerprint and records no credential values.
+- **VERIFIED (redacted evidence):** `[USER_HOME]/AppData/Local/Temp/GR_OAUTH_002_EXCHANGE_RESULT.json` records a PASS, one attempted exchange, accepted completion, no raw callback/code/token-response recording, and a pre-promotion operational baseline fingerprint. `[USER_HOME]/AppData/Local/Temp/GR_OAUTH_003_CANDIDATE_ACCEPTANCE.json` records a PASS/accepted candidate assessment against the same pre-promotion baseline fingerprint and records no credential values.
 - **VERIFIED (source):** the guarded runner captures an operational baseline hash before its flow and checks it before and after the one exchange/candidate preparation path (`scripts/google_oauth_live_runner.py` at recovery revision `dc2ef634c4af117ebfc1c024c9608a257318384d`, lines 247–267 and 361–400).
 - **INFERRED:** the unchanged baseline recorded before both exchange and acceptance, combined with the runner's before/after guard, supports the conclusion that candidate acceptance did not silently overwrite the operational credential.
 - **UNTESTED:** this task did not repeat the old refresh failure or compare the actual operational file bytes after an actual promotion. It therefore does not claim a live credential replacement occurred.
@@ -133,11 +133,11 @@ No scope reduction or re-consent is authorized by this documentation task.
 
 **Redacted external evidence references**
 
-- `C:/Users/fallo/AppData/Local/Temp/GR_OAUTH_002_EXCHANGE_RESULT.json`
-- `C:/Users/fallo/AppData/Local/Temp/GR_OAUTH_003_CANDIDATE_ACCEPTANCE.json`
-- `C:/Users/fallo/AppData/Local/Temp/CLEANUP_007B_R2_RUNNER.py`
-- `C:/Users/fallo/AppData/Local/hermes/CLEANUP_007B_LIVE_INVENTORY_PRIVATE_R2.json`
-- `C:/Users/fallo/AppData/Local/Temp/CLEANUP_007B_LIVE_INVENTORY_SUMMARY_R2.json`
+- `[USER_HOME]/AppData/Local/Temp/GR_OAUTH_002_EXCHANGE_RESULT.json`
+- `[USER_HOME]/AppData/Local/Temp/GR_OAUTH_003_CANDIDATE_ACCEPTANCE.json`
+- `[USER_HOME]/AppData/Local/Temp/CLEANUP_007B_R2_RUNNER.py`
+- `[USER_HOME]/AppData/Local/hermes/CLEANUP_007B_LIVE_INVENTORY_PRIVATE_R2.json`
+- `[USER_HOME]/AppData/Local/Temp/CLEANUP_007B_LIVE_INVENTORY_SUMMARY_R2.json`
 
 - **VERIFIED (parent checker):** the R2 runner, private evidence, and redacted summary were present with verified hashes; the independent check passed the no-write/read-only and reconciliation gates. The private record was not printed by the checker.
 - **QUARANTINED / NON-AUTHORITATIVE:** legacy failed/insecure Temp URL-evidence artifacts matching `GR_OAUTH_001_URL_EVIDENCE*.json` are not used to authorize exchange, acceptance, promotion, reload, or release. They must not be copied into repository history, logs, chat, or public evidence; this report intentionally omits their content and any raw URL.

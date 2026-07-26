@@ -131,7 +131,7 @@ No further EVENT-004 closeout action is required. Obtain separate authorization 
 
 ## Evidence paths and IDs
 
-- Authoritative evidence file: `C:/Users/fallo/AppData/Local/Temp/EVENT_004_LIVE_EVIDENCE.json`
+- Authoritative evidence file: `[USER_HOME]/AppData/Local/Temp/EVENT_004_LIVE_EVIDENCE.json`
 - Evidence provenance: the final JSON supports final one-event/one-row counts, authorization-absent state, and privacy facts; controlled local CLI, direct installed-plugin, and retry observations are execution-session observations, not JSON contents.
 - Captured-at UTC: `2026-07-12T13:47:05.709393+00:00`
 - Draft: `EVT-A31A0CF8`
