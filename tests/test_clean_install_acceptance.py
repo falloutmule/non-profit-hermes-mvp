@@ -240,6 +240,33 @@ def test_isolated_environment_and_command_plan_never_select_host_profile(
     assert all(isinstance(argv, tuple) for argv in plan.values())
 
 
+def test_full_test_plan_keeps_sibling_test_modules_importable(tmp_path: Path) -> None:
+    harness = load_harness()
+    output = (tmp_path / "cache" / "run-001").resolve()
+    admission = harness.Admission(
+        source=(tmp_path / "source").resolve(),
+        output_root=output,
+        profile="nonprofit-v1-test-001",
+        source_head="b" * 40,
+        allowed_cache_root=(tmp_path / "cache").resolve(),
+        active_hermes_root=(tmp_path / "active-hermes").resolve(),
+        isolated_hermes_root=output / "platform" / "hermes",
+    )
+
+    plan = harness.build_command_plan(
+        admission,
+        extracted=output / "source",
+        install_source=output / "profile-install-source",
+        wheel=output / "artifacts" / "non_profit_hermes-1.0.0-py3-none-any.whl",
+        venv_python=output / "venv" / "Scripts" / "python.exe",
+        console=output / "venv" / "Scripts" / "nonprofit-hermes.exe",
+        external_cwd=output / "work",
+    )
+
+    assert "--import-mode=importlib" not in plan["full_tests"]
+    assert plan["full_tests"][-1] == str(output / "source" / "tests")
+
+
 def test_doctor_reports_must_match_remain_redacted_and_leave_profile_unchanged(
     tmp_path: Path,
 ) -> None:

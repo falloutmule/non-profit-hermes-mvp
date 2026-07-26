@@ -531,7 +531,6 @@ def build_command_plan(
             "-m",
             "pytest",
             "-q",
-            "--import-mode=importlib",
             f"--junitxml={admission.output_root / 'full-tests-junit.xml'}",
             str(extracted / "tests"),
         ),
