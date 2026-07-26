@@ -1,8 +1,8 @@
 # Project Status — Non-Profit Hermes MVP
 
-**Canonical status captured:** 2026-07-21
+**Canonical status reconciled:** 2026-07-26
 
-Source precedence for this status is current direct runtime inspection, then current Git/GitHub, passing tests, current reports, historical documentation, and finally inference. Historical reports remain evidence of what was tested at the time; they are not proof of present runtime state or standing authorization.
+Source precedence for this status is current direct runtime inspection, then current Git/GitHub, passing tests, accepted clean-install evidence, current reports, historical documentation, and finally inference. Historical reports remain evidence of what was tested at the time; they are not proof of present runtime state or standing authorization.
 
 ## Exact repository state
 
@@ -10,11 +10,11 @@ Source precedence for this status is current direct runtime inspection, then cur
 |---|---|
 | Repository | `falloutmule/non-profit-hermes-mvp` |
 | Production branch | `main` |
-| Production GitHub `main` SHA | `91143b3bacb46f799292027f1697376932b55403` |
+| Last inspected GitHub `main` SHA | `91143b3bacb46f799292027f1697376932b55403` |
 | Packaging branch | `packaging/non-profit-hermes-v1` |
-| Current-state evidence commit | `2276aa8f04b787e66d9eefd382fb32912660c7bb` |
-| Open pull requests at inventory time | none |
-| Release tags at inventory time | none |
+| Local release-candidate SHA | `754c2b8625653f845451b8a97186a6e23cb176dc` |
+| Candidate version | `1.0.0` |
+| GitHub PR/tag/release | not yet created |
 | GitHub Pages source | `main /docs` |
 
 The production SHA and packaging-branch commits are intentionally distinct. Packaging work is in progress and is not production `main`, a release, or `v1.0.0`.
@@ -77,21 +77,18 @@ Historical evidence is retained but labeled precisely: `CLEANUP_003_DAILY_READ_O
 
 The `/daily` path and sync `--dry-run` intentionally refresh credentials in memory only. Operational backend loaders and an explicitly writing sync use the atomic durable-refresh boundary when persistence is needed.
 
-## Test state
+## Test and package acceptance state
 
-Current verified baseline from the 2026-07-21 inventory:
+Accepted clean-install evidence for the release candidate:
 
 ```text
-python -m pytest -q tests/test_daily_read_only.py
-5 passed
-
-python -m pytest -q
-235 passed, 64 subtests passed
+NPH-V1-060N-20260726073936
+23/23 acceptance stages passed
+379 tests passed, 69 subtests passed
+production_touched: false
 ```
 
-Installer dry-run passed with seven manifest entries and no writes. Strict runtime plugin drift passed with all differences classified as expected derivations.
-
-Older counts in CLEANUP and EVENT reports are historical point-in-time results, not the current suite baseline.
+The package, unified plugin, secret-free profile distribution, deterministic doctor, and repository-only clean install are therefore **verified in the disposable acceptance environment**. This does not establish present production runtime health, tag/release publication, or profile migration.
 
 ## Privacy and mutation state
 
@@ -102,19 +99,14 @@ Older counts in CLEANUP and EVENT reports are historical point-in-time results, 
 - Public sync is separate from `/daily`; generation and publication require explicit approval and review.
 - No Google write, Calendar write, Telegram send, public generation/publication, gateway lifecycle action, profile/plugin edit, or Hermes update occurred during the current inventory.
 
-## Not implemented or not accepted
+## Pending release and migration gates
 
-The following packaging targets remain proposed:
-
-- importable `non_profit_hermes` Python package
-- dependency manifest (`pyproject.toml` or requirements file)
-- unified plugin replacing the seven legacy plugins
-- installable, secret-free Hermes profile distribution
-- deterministic runtime doctor
-- clean install from repository alone
-- update/uninstall/rollback acceptance for a profile distribution
-- production migration to the unified plugin
-- `v1.0.0` tag and release
+- Push the release-candidate branch, review it in a pull request, and pass GitHub CI.
+- Merge to `main`, create annotated tag `v1.0.0`, publish the GitHub release, and reinstall release artifacts in a fresh disposable environment.
+- Inventory and back up the current manual `nonprofit` profile.
+- Install and verify the tagged distribution in a staging profile; migrate only user-owned private configuration.
+- Obtain explicit live-cutover approval, migrate the live profile, and perform human-originated `/commands` and read-only `/daily` canaries.
+- Retain rollback through the observation window.
 
 ## Untested and known limitations
 

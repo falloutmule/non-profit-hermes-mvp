@@ -145,14 +145,14 @@ Publication gates include:
 
 Generation is not publication. An operator must review generated changes and obtain explicit publication authorization before commit or push. The 2026-07-21 inventory did not rerun generation parity.
 
-## Current versus proposed architecture
+## Current production versus release candidate
 
-Current production is still script-based and uses seven separate legacy plugins. The following packaging architecture is approved for later work but is not present yet:
+The current production profile remains script-based and uses seven separate legacy plugins. The local `packaging/non-profit-hermes-v1` release candidate now contains:
 
 - importable `non_profit_hermes` package;
 - one unified plugin registering all seven commands;
 - secret-free installable profile distribution;
-- runtime doctor;
-- repository-only clean install and verified migration.
+- deterministic runtime doctor;
+- disposable repository-only clean-install acceptance (23/23 stages, 379 tests, 69 subtests, production untouched).
 
-Operational modules and legacy entrypoints still contain user-specific paths and `sys.path` mutation. These are portability defects to be addressed by later bounded implementation work, not hidden by the current diagram.
+Those candidate capabilities are not yet GitHub-released or migrated into the live profile. Production migration, human Telegram canaries, and live-readonly doctor verification remain separate gates. Historical operational modules may retain user-specific paths, but the candidate publication boundary is now audited and redacted.

@@ -50,10 +50,12 @@ Run the exact repository lane:
 python -m pytest -q
 ```
 
-Current verified baseline:
+Current accepted clean-install baseline:
 
 ```text
-363 passed, 69 subtests passed
+23/23 acceptance stages passed
+379 tests passed, 69 subtests passed
+production_touched: false
 ```
 
 Focused read-only daily lane:

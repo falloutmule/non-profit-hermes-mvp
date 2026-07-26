@@ -22,7 +22,7 @@ python scripts/install_runtime_plugins.py --dry-run --mode legacy
 git diff --check
 ```
 
-Current verified baseline is `363 passed, 69 subtests passed`; the focused `/daily` suite has 5 tests. Pytest is fake-based and offline.
+Current accepted clean-install baseline is `379 passed, 69 subtests passed` across 23/23 acceptance stages; `production_touched: false`. Pytest is fake-based and offline.
 
 ## Disposable clean-install harness
 
@@ -38,7 +38,7 @@ python scripts/clean_install_acceptance.py \
 
 Admission fails before writes for a dirty/non-root Git source, an existing output directory, a non-disposable or existing profile name, a path outside the active Hermes cache, an active-root collision, or an unsupported profile-install CLI. The harness archives the exact commit, scans exclusions, builds wheel/sdist, creates a fresh venv, and installs into an isolated `%LOCALAPPDATA%/hermes` under the run directory. It proves the installed profile has no secrets or private state before creating a synthetic `auth.json` and synthetic credential placeholder solely for offline doctor checks. It does not create `.env`, start a gateway, call Telegram/Google, generate public files, or publish.
 
-Evidence is preserved as `result.json` in the unique run root. It contains normalized command argv, source SHA, artifact hashes, check summaries, profile booleans, and `production_touched: false`; it excludes command output and synthetic values. A harness implementation test is not clean-install acceptance—the exact committed harness must complete an actual disposable run before NPH-V1-060 can pass.
+Evidence is preserved as `result.json` in the unique run root. It contains normalized command argv, source SHA, artifact hashes, check summaries, profile booleans, and `production_touched: false`; it excludes command output and synthetic values. The accepted release-candidate run `NPH-V1-060N-20260726073936` completed all 23 stages (379 tests and 69 subtests) without touching production. A harness implementation test alone is not clean-install acceptance; each future release candidate requires its own successful disposable run.
 
 ## Install the package and profile distribution
 

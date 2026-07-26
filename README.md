@@ -2,18 +2,16 @@
 
 Non-Profit Hermes is a Telegram-first operations assistant for a small nonprofit, mutual-aid group, or volunteer-run charity. It turns conversational intake into structured Google Sheets records, uses Google Calendar only for explicitly authorized dated commitments, and can generate a human-reviewed approved-safe snapshot for GitHub Pages.
 
-Current truth captured: **2026-07-21**.
+Release-candidate truth captured: **2026-07-26**.
 
 - Production GitHub branch: `main`
-- Production GitHub `main` SHA: `91143b3bacb46f799292027f1697376932b55403`
-- Public site: <https://falloutmule.github.io/non-profit-hermes-mvp/> (generated from `main /docs`; not regenerated in the current inventory)
-- Packaging branch evidence base: `2276aa8f04b787e66d9eefd382fb32912660c7bb`
-- Telegram identity verified read-only: `@HnonProfitBOT`
-- Hermes profile: `nonprofit`
-- Model: `openai-codex/gpt-5.6-sol`
-- Current runtime state: **gateway stopped**
+- Last inspected GitHub `main` SHA: `91143b3bacb46f799292027f1697376932b55403`
+- Release-candidate branch: `packaging/non-profit-hermes-v1`
+- Release-candidate SHA: `754c2b8625653f845451b8a97186a6e23cb176dc`
+- Candidate version: `1.0.0` — local-only; not yet pushed, merged, tagged, or released
+- Telegram identity/profile/runtime statements below are historical 2026-07-21 inventory evidence; they are not current live proof.
 
-The packaging branch now contains the portable Python package, canonical unified plugin, supported root-level Hermes profile distribution, and deterministic runtime doctor. The doctor has offline and fake-backed live-readonly verification; clean-install acceptance, an actual production live-readonly run, production migration, and the published `v1.0.0` tag remain downstream gates. Source availability is not evidence that the profile is installed or live.
+The release candidate contains the portable Python package, canonical unified plugin, supported root-level Hermes profile distribution, and deterministic runtime doctor. Clean-install acceptance passed in a disposable environment: 23/23 stages, 379 tests, and 69 subtests, with `production_touched: false`. An actual production live-readonly doctor, profile migration, human Telegram canaries, GitHub release/tag, and published-release install verification remain downstream gates. Source availability and clean-install acceptance are not evidence that the profile is installed or live.
 
 ## Canonical documentation
 
@@ -25,6 +23,7 @@ The packaging branch now contains the portable Python package, canonical unified
 - [Reports index and supersession map](reports/README.md) — current evidence versus historical reports
 - [Cleanup milestone index](CLEANUP_MILESTONE_INDEX.md) — milestone history and current authority boundary
 - [Documentation reconciliation](reports/NPH_V1_DOCUMENTATION_RECONCILIATION.md) — historical documentation correction record
+- [v1.0.0 release-candidate notes](RELEASE_NOTES_v1.0.0.md) — release scope, verification, installation, and known production limits
 
 ## Current architecture
 
@@ -49,17 +48,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete topology.
 
 ## Commands
 
-| Command | Purpose | Current verified state |
-|---|---|---|
-| `/daily` | Board-safe operations summary | Registered; local read-only path tested; current live dispatch untested while gateway is stopped |
-| `/need` | Draft-first request intake | Registered; legacy plugin enabled |
-| `/donation` | Draft-first donation intake | Registered; legacy plugin enabled |
-| `/report` | Draft-first activity report intake | Registered; legacy plugin enabled |
-| `/task` | Draft-first internal task intake | Registered; legacy plugin enabled |
-| `/inventory` | Draft-first inventory upsert | Registered; legacy plugin enabled |
-| `/event` | Draft-first CalendarLog intake | Registered; legacy plugin enabled; Calendar promotion remains per-event authorized |
+The release candidate unified plugin registers these seven commands. The live legacy-registry observations below are historical 2026-07-21 evidence, not current packaged-profile proof:
 
-The Telegram Bot API command registry and bot identity were verified read-only on 2026-07-21. Registry presence does not prove current command dispatch because the nonprofit gateway is stopped. Historical evidence in `CLEANUP_003_DAILY_READ_ONLY_REPORT.md` records a human-originated `/daily` response dated **2026-07-12**; it is historical acceptance, not present runtime proof. Current human-originated `/commands` and `/daily` canaries remain untested.
+| Command | Purpose | Release-candidate / historical state |
+|---|---|---|
+| `/daily` | Board-safe operations summary | Unified plugin registered in offline acceptance; historical legacy registry observed; current live dispatch untested |
+| `/need` | Draft-first request intake | Unified plugin registered in offline acceptance; historical legacy registry observed |
+| `/donation` | Draft-first donation intake | Unified plugin registered in offline acceptance; historical legacy registry observed |
+| `/report` | Draft-first activity report intake | Unified plugin registered in offline acceptance; historical legacy registry observed |
+| `/task` | Draft-first internal task intake | Unified plugin registered in offline acceptance; historical legacy registry observed |
+| `/inventory` | Draft-first inventory upsert | Unified plugin registered in offline acceptance; historical legacy registry observed |
+| `/event` | Draft-first CalendarLog intake | Unified plugin registered in offline acceptance; Calendar promotion remains per-event authorized |
+
+Current human-originated `/commands` and `/daily` canaries remain untested until the separately authorized live migration.
 
 ## Privacy and public boundary
 
@@ -122,10 +123,12 @@ python -m py_compile scripts/*.py tests/*.py
 git diff --check
 ```
 
-Current verified full-suite baseline:
+Current accepted clean-install baseline:
 
 ```text
-350 passed, 69 subtests passed
+23/23 acceptance stages passed
+379 tests passed, 69 subtests passed
+production_touched: false
 ```
 
 `python -m pytest` uses fakes and does not make live Google calls. Explicit operational modes such as `scripts/non_profit_hermes_ops.py --test-write` can mutate live data and must not be run without deliberate authorization. The generated/public `docs/` tree is source-controlled output and must not be hand-edited.
@@ -139,7 +142,7 @@ Current verified full-suite baseline:
 - The deprecated seven-plugin compatibility set remains for one release and must never be enabled alongside the unified plugin.
 - Config port `8642` differs from launcher override `8643`; runtime metadata is stale and two status-reported generated launcher/service paths are absent.
 - Public-site generation parity was intentionally not rerun during this packaging task.
-- Clean-machine acceptance, production migration, published tag verification, live canaries, and physical-device acceptance remain pending later authorized work.
+- Production migration, published tag verification, live canaries, and physical-device acceptance remain pending later authorized work.
 
 ## License
 
