@@ -32,6 +32,10 @@ workspace/
 home/
 local/
 
+# Machine-local Non-Profit Hermes inventory evidence (never publish)
+reports/NPH_V1_000_CURRENT_STATE.json
+reports/NPH_V1_000_CURRENT_STATE.md
+
 # Caches, checkpoints, and backups
 image_cache/
 audio_cache/

@@ -130,4 +130,4 @@ The following packaging targets remain proposed:
 
 ## Supersession
 
-This file and `reports/NPH_V1_000_CURRENT_STATE.md` supersede prior canonical-status claims as of 2026-07-21. Historical reports remain authoritative only for their bounded, dated evidence. See [reports/README.md](reports/README.md) for the full supersession map.
+This file supersedes prior canonical-status claims. Historical reports remain authoritative only for their bounded, dated evidence. See [reports/README.md](reports/README.md) for the public-report policy and supersession map.

@@ -11,12 +11,11 @@ Use these sources in order:
 1. current direct runtime inspection;
 2. current Git and GitHub state;
 3. current passing tests;
-4. [NPH-V1-000 current-state report](NPH_V1_000_CURRENT_STATE.md) and its [machine-readable companion](NPH_V1_000_CURRENT_STATE.json);
-5. [PROJECT_STATUS.md](../PROJECT_STATUS.md);
-6. historical reports;
-7. inference.
+4. [PROJECT_STATUS.md](../PROJECT_STATUS.md);
+5. historical reports;
+6. inference.
 
-The current-state report was captured on 2026-07-21 and committed on the packaging branch at `2276aa8f04b787e66d9eefd382fb32912660c7bb`. Production GitHub `main` remains `91143b3bacb46f799292027f1697376932b55403`. The documentation reconciliation report is [NPH_V1_DOCUMENTATION_RECONCILIATION.md](NPH_V1_DOCUMENTATION_RECONCILIATION.md).
+Machine-local runtime inventories are deliberately excluded from Git. They belong in the operator's local Hermes evidence root and never establish public release or runtime status.
 
 ## Supersession map
 
@@ -34,11 +33,16 @@ The current-state report was captured on 2026-07-21 and committed on the packagi
 
 ## Current verification evidence
 
-- [NPH_V1_000_CURRENT_STATE.md](NPH_V1_000_CURRENT_STATE.md) — current Git/GitHub, repository, profile, plugin, command registry, launcher/port, and test inventory
-- [NPH_V1_000_CURRENT_STATE.json](NPH_V1_000_CURRENT_STATE.json) — machine-readable companion; restricted evidence may contain additional safe-for-internal-inventory metadata and is not a public status summary
-- [NPH_V1_DOCUMENTATION_RECONCILIATION.md](NPH_V1_DOCUMENTATION_RECONCILIATION.md) — canonical documentation changes and validation
+- [PROJECT_STATUS.md](../PROJECT_STATUS.md) — current release, Git, runtime, and limitation state
+- [NPH_V1_DOCUMENTATION_RECONCILIATION.md](NPH_V1_DOCUMENTATION_RECONCILIATION.md) — dated historical documentation correction record
 - [COMPLETION_REFRESH_001_HANDOFF.md](COMPLETION_REFRESH_001_HANDOFF.md) — atomic refresh closeout using synthetic files
 - [COMPLETION_INSTALLER_001_HANDOFF.md](COMPLETION_INSTALLER_001_HANDOFF.md) — disposable plugin install, backup, rollback, and strict drift closeout
+
+## Publication policy
+
+Keep a report in Git only when it is intentionally maintained, useful outside the operator machine, and contains no user-home path, runtime inventory, PID, token fingerprint, credential reference, raw private identifier, or mutable machine state. Historical technical reports under `reports/v1.0.0/` are curated public documentation; read them as dated implementation evidence, not current release or production acceptance.
+
+Machine-local inventory outputs belong under the operator's local Hermes reports directory. The `.gitignore` rules for `NPH_V1_000_CURRENT_STATE.*` prevent those outputs from re-entering the GitHub publication surface.
 
 ## Historical command evidence
 

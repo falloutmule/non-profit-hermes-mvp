@@ -2,7 +2,7 @@
 
 **Current index captured:** 2026-07-21
 
-This file preserves cleanup history. It is no longer the primary current-system status page. Use [PROJECT_STATUS.md](PROJECT_STATUS.md) and [reports/NPH_V1_000_CURRENT_STATE.md](reports/NPH_V1_000_CURRENT_STATE.md) for current Git/runtime truth, and [reports/README.md](reports/README.md) for supersession.
+This file preserves cleanup history. It is no longer the primary current-system status page. Use [PROJECT_STATUS.md](PROJECT_STATUS.md) for current Git/runtime truth, and [reports/README.md](reports/README.md) for supersession.
 
 ## Current repository and runtime boundary
 

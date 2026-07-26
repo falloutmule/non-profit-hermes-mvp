@@ -24,8 +24,7 @@ The packaging branch now contains the portable Python package, canonical unified
 - [Security and privacy](SECURITY_AND_PRIVACY.md) — private/public boundaries and mutation safeguards
 - [Reports index and supersession map](reports/README.md) — current evidence versus historical reports
 - [Cleanup milestone index](CLEANUP_MILESTONE_INDEX.md) — milestone history and current authority boundary
-- [Current-state evidence](reports/NPH_V1_000_CURRENT_STATE.md) — read-only inventory captured 2026-07-21
-- [Documentation reconciliation](reports/NPH_V1_DOCUMENTATION_RECONCILIATION.md) — claims corrected by this documentation pass
+- [Documentation reconciliation](reports/NPH_V1_DOCUMENTATION_RECONCILIATION.md) — historical documentation correction record
 
 ## Current architecture
 
