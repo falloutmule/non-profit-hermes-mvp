@@ -1,0 +1,125 @@
+name: Non-Profit Hermes CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: non-profit-hermes-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publication-boundary:
+    name: publication-boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test tooling
+        run: python -m pip install --disable-pip-version-check "pytest>=8,<10"
+      - name: Scan tracked publication surface
+        run: python scripts/check_publication_boundary.py --repo . --revision HEAD --json
+      - name: Test publication-boundary scanner
+        run: python -m pytest tests/test_publication_boundary.py -q
+
+  test:
+    name: test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONNOUSERSITE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package, test extras, and pinned Hermes runtime
+        run: python -m pip install ".[test]" "hermes-agent==0.18.2"
+      - name: Check resolved dependencies
+        run: python -m pip check
+      - name: Run complete test suite
+        run: python -m pytest -q --junitxml="junit-python-${{ matrix.python-version }}.xml"
+      - name: Upload JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-python-${{ matrix.python-version }}
+          path: junit-python-${{ matrix.python-version }}.xml
+          if-no-files-found: error
+
+  build:
+    name: build-and-inspect
+    runs-on: ubuntu-latest
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONNOUSERSITE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+      - name: Check package metadata
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import tomllib
+          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+          assert project["name"] == "non-profit-hermes"
+          assert project["version"] == "1.0.0"
+          assert project["requires-python"] == ">=3.11"
+          PY
+      - name: Build wheel and source distribution
+        run: uv build --out-dir dist
+      - name: Hash and inspect package inventories
+        run: |
+          sha256sum dist/* > dist/SHA256SUMS.txt
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import tarfile
+          import zipfile
+
+          roots = ("reports/", "credentials", "auth.json", ".env", "cache/", "backup/", "runtime_state")
+          inventories = {}
+          for artifact in sorted(Path("dist").iterdir()):
+              if artifact.suffix == ".whl":
+                  members = zipfile.ZipFile(artifact).namelist()
+              elif artifact.name.endswith(".tar.gz"):
+                  members = tarfile.open(artifact).getnames()
+              else:
+                  continue
+              forbidden = [member for member in members if any(root in member.lower() for root in roots)]
+              if forbidden:
+                  raise SystemExit(f"forbidden package members in {artifact.name}: {forbidden}")
+              inventories[artifact.name] = sorted(members)
+          Path("dist/inventories.json").write_text(
+              json.dumps(inventories, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          sha256sum --check dist/SHA256SUMS.txt
+      - name: Upload build artifacts and inventories
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-build-python-3.11
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+            dist/inventories.json
+          if-no-files-found: error
