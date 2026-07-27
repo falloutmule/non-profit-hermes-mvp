@@ -37,7 +37,7 @@ The acceptance run did not touch production. It is not proof of a live Telegram,
 ## Requirements and installation
 
 - Hermes Agent `>=0.18.2`
-- Python `>=3.11`
+- Python `>=3.11,<3.14` (Python 3.11–3.13). Python 3.14 is not supported because Hermes Agent 0.18.2 requires Python <3.14.
 
 After the future `v1.0.0` tag is published:
 

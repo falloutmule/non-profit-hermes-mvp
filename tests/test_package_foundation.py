@@ -179,7 +179,7 @@ def test_packaging_declares_runtime_test_and_private_data_boundaries() -> None:
     metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert metadata["build-system"]["build-backend"] == "setuptools.build_meta"
-    assert metadata["project"]["requires-python"] == ">=3.11"
+    assert metadata["project"]["requires-python"] == ">=3.11,<3.14"
     assert metadata["project"]["dependencies"] == [
         "google-auth>=2,<3",
         "google-api-python-client>=2,<3",

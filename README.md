@@ -78,7 +78,7 @@ Never put credentials, OAuth payloads, raw private chat identifiers, private Goo
 
 ## Package and profile installation
 
-Hermes Agent `0.18.2` or newer and Python `3.11` or newer are required. The Python package and the Hermes profile distribution are separate installs. A profile install does not install the Python package, configure credentials, or start the gateway.
+Hermes Agent `0.18.2` or newer is required. Non-Profit Hermes v1.0.0 supports Python 3.11–3.13. Python 3.14 is not supported because Hermes Agent 0.18.2 requires Python <3.14. The Python package and the Hermes profile distribution are separate installs. A profile install does not install the Python package, configure credentials, or start the gateway.
 
 Local checkout:
 
@@ -113,7 +113,7 @@ The two entry points are equivalent. Human output is the default; add `--json` f
 
 ## Development and tests
 
-Prerequisites include Python 3.11+, Git, Hermes Agent 0.18.2+, and the project dependencies declared in `pyproject.toml`. The root `distribution.yaml`, `SOUL.md`, `config.yaml`, bundled skill, and unified plugin form the installable profile payload. The runtime doctor is installed by the Python package.
+Prerequisites include Python 3.11–3.13, Git, Hermes Agent 0.18.2+, and the project dependencies declared in `pyproject.toml`. The root `distribution.yaml`, `SOUL.md`, `config.yaml`, bundled skill, and unified plugin form the installable profile payload. The runtime doctor is installed by the Python package.
 
 Offline verification:
 
