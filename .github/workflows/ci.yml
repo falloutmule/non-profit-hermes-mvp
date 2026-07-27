@@ -75,8 +75,8 @@ jobs:
           path: junit/
           if-no-files-found: warn
 
-  python-3.14-unsupported-contract:
-    name: python-3.14-unsupported-contract
+  python-3-14-unsupported-contract:
+    name: Python 3.14 unsupported contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
