@@ -100,6 +100,18 @@ def test_metadata_and_workflow_truthfully_encode_supported_runtime_versions() ->
     assert "contents: read" in workflow
     assert "${{ secrets." not in workflow
     assert "hermes gateway" not in workflow.lower()
+    assert 'python -m pip install --disable-pip-version-check --no-input "pytest>=8,<10"' in workflow
+    assert "import setuptools.build_meta, wheel" in workflow
+    assert 'setuptools>=77' in workflow
+    assert "wheel==0.47.0" in workflow
+    assert 'dist.glob("*.whl")' in workflow
+    assert 'dist.glob("*.tar.gz")' in workflow
+    assert "build-evidence" in workflow
+    assert "wheel-inventory.txt" in workflow
+    assert "sdist-inventory.txt" in workflow
+    assert "dist.iterdir()" not in workflow
+    assert "for artifact in sorted(dist.iterdir())" not in workflow
+    assert 'Path("build-evidence")' in workflow or "build-evidence/" in workflow
 
     metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'requires-python = ">=3.11,<3.14"' in metadata

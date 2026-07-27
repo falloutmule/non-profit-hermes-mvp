@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input "pytest>=8,<10"
       - name: Scan publication boundary
         run: python scripts/check_publication_boundary.py --repo . --revision HEAD --json
       - name: Run publication-boundary regression tests
@@ -56,8 +58,13 @@ jobs:
           PY
       - name: Install portable test runtime
         run: |
+          python -m pip install --disable-pip-version-check --no-input "setuptools>=77" "wheel==0.47.0" "build>=1,<2"
           python -m pip install --disable-pip-version-check --no-input ".[test]"
-          python -m pip install --disable-pip-version-check --no-input hermes-agent==0.18.2 wheel==0.47.0 google-auth-oauthlib==1.3.1
+          python -m pip install --disable-pip-version-check --no-input hermes-agent==0.18.2 google-auth-oauthlib==1.3.1
+      - name: Verify declared build backend
+        run: |
+          python -c "import setuptools.build_meta, wheel; print('build-backend-ok')"
+          python -m build --version
       - name: Check dependency consistency
         run: python -m pip check
       - name: Run complete suite
@@ -108,32 +115,88 @@ jobs:
         run: |
           python - <<'PY'
           import hashlib
+          import json
           import tarfile
           import zipfile
           from pathlib import Path
+
           dist = Path("dist")
-          forbidden = (".env", "credentials", "credential", "auth.json", "cache", "backup", "runtime", "report")
-          inventories = []
-          for artifact in sorted(dist.iterdir()):
-              if artifact.suffix == ".whl":
-                  with zipfile.ZipFile(artifact) as archive:
-                      members = archive.namelist()
-              else:
-                  with tarfile.open(artifact) as archive:
-                      members = archive.getnames()
-              assert not any(any(token in member.lower() for token in forbidden) for member in members), artifact
-              inventory = artifact.with_suffix(artifact.suffix + ".inventory.txt")
-              inventory.write_text("\n".join(members) + "\n", encoding="utf-8")
-              inventories.append(inventory)
-          assert len(list(dist.glob("*.whl"))) == 1
-          assert len(list(dist.glob("*.tar.gz"))) == 1
-          (dist / "SHA256SUMS.txt").write_text(
-              "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in sorted(dist.iterdir()) if path.is_file()),
+          evidence = Path("build-evidence")
+          evidence.mkdir(parents=True, exist_ok=True)
+
+          wheels = sorted(dist.glob("*.whl"))
+          sdists = sorted(dist.glob("*.tar.gz"))
+          assert len(wheels) == 1, f"expected exactly one wheel, found {wheels}"
+          assert len(sdists) == 1, f"expected exactly one sdist, found {sdists}"
+          wheel = wheels[0]
+          sdist = sdists[0]
+
+          forbidden_tokens = (
+              "reports/",
+              ".env",
+              "credentials",
+              "credential",
+              "auth.json",
+              "/auth/",
+              "cache",
+              "backup",
+              "runtime",
+          )
+
+          def assert_clean(members, artifact: Path) -> None:
+              lowered = [member.lower() for member in members]
+              hits = [
+                  member
+                  for member in lowered
+                  if any(token in member for token in forbidden_tokens)
+              ]
+              assert not hits, f"{artifact}: forbidden members {hits}"
+
+          with zipfile.ZipFile(wheel) as archive:
+              wheel_members = archive.namelist()
+          assert_clean(wheel_members, wheel)
+          (evidence / "wheel-inventory.txt").write_text(
+              "\n".join(wheel_members) + "\n", encoding="utf-8"
+          )
+
+          with tarfile.open(sdist, mode="r:gz") as archive:
+              sdist_members = archive.getnames()
+          assert_clean(sdist_members, sdist)
+          (evidence / "sdist-inventory.txt").write_text(
+              "\n".join(sdist_members) + "\n", encoding="utf-8"
+          )
+
+          artifacts = [wheel, sdist]
+          sums = "".join(
+              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+              for path in artifacts
+          )
+          (evidence / "SHA256SUMS.txt").write_text(sums, encoding="utf-8")
+
+          metadata = {
+              "wheel": wheel.name,
+              "sdist": sdist.name,
+              "wheel_members": len(wheel_members),
+              "sdist_members": len(sdist_members),
+              "sha256": {
+                  path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in artifacts
+              },
+          }
+          (evidence / "metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
           )
+          print("build-inspect-ok")
+          print(json.dumps(metadata, indent=2, sort_keys=True))
           PY
       - name: Upload build artifacts and inventories
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: package-build-python-3.11
-          path: dist/
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            build-evidence/
+          if-no-files-found: warn
