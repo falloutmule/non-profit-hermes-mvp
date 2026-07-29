@@ -1,0 +1,202 @@
+name: Non-Profit Hermes CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publication-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input "pytest>=8,<10"
+      - name: Scan publication boundary
+        run: python scripts/check_publication_boundary.py --repo . --revision HEAD --json
+      - name: Run publication-boundary regression tests
+        run: python -m pytest tests/test_publication_boundary.py -q
+
+  test:
+    name: test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v5
+      - name: Prepare isolated secret-free test runtime
+        run: |
+          python scripts/prepare_ci_test_environment.py --destination "$RUNNER_TEMP/nph-ci" --json > "$RUNNER_TEMP/nph-ci-preparation.json"
+          python - "$RUNNER_TEMP/nph-ci-preparation.json" <<'PY' >> "$GITHUB_ENV"
+          import json
+          import sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(f"HOME={data['home']}")
+          print(f"USERPROFILE={data['home']}")
+          print(f"HERMES_HOME={data['hermes_home']}")
+          print(f"HERMES_GOOGLE_WORKSPACE_SCRIPTS={data['google_workspace_scripts']}")
+          print(f"NON_PROFIT_HERMES_TEST_EVENT_SOURCE_LINK={data['event_source_link']}")
+          PY
+      - name: Install portable test runtime
+        run: |
+          python -m pip install --disable-pip-version-check --no-input "setuptools>=77" "wheel==0.47.0" "build>=1,<2"
+          python -m pip install --disable-pip-version-check --no-input ".[test]"
+          python -m pip install --disable-pip-version-check --no-input hermes-agent==0.18.2 google-auth-oauthlib==1.3.1
+      - name: Verify declared build backend
+        run: |
+          python -c "import setuptools.build_meta, wheel; print('build-backend-ok')"
+          python -m build --version
+      - name: Check dependency consistency
+        run: python -m pip check
+      - name: Run complete suite
+        env:
+          PYTHONPATH: ""
+        run: |
+          mkdir -p junit
+          cp "$RUNNER_TEMP/nph-ci-preparation.json" junit/ci-test-environment.json
+          python -m pytest -q --junitxml=junit/pytest-${{ matrix.python-version }}.xml
+      - name: Upload JUnit and preparation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-python-${{ matrix.python-version }}
+          path: junit/
+          if-no-files-found: warn
+
+  python-3-14-unsupported-contract:
+    name: Python 3.14 unsupported contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Verify metadata excludes Python 3.14
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          requires_python = metadata["project"]["requires-python"]
+          assert requires_python == ">=3.11,<3.14", requires_python
+          print("python-3.14-unsupported-contract-ok")
+          PY
+
+  build-and-inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+      - name: Build isolated distribution artifacts
+        run: uv build
+      - name: Inspect package inventories and metadata
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          dist = Path("dist")
+          evidence = Path("build-evidence")
+          evidence.mkdir(parents=True, exist_ok=True)
+
+          wheels = sorted(dist.glob("*.whl"))
+          sdists = sorted(dist.glob("*.tar.gz"))
+          assert len(wheels) == 1, f"expected exactly one wheel, found {wheels}"
+          assert len(sdists) == 1, f"expected exactly one sdist, found {sdists}"
+          wheel = wheels[0]
+          sdist = sdists[0]
+
+          forbidden_tokens = (
+              "reports/",
+              ".env",
+              "credentials",
+              "credential",
+              "auth.json",
+              "/auth/",
+              "cache",
+              "backup",
+              "runtime",
+          )
+
+          def assert_clean(members, artifact: Path) -> None:
+              lowered = [member.lower() for member in members]
+              hits = [
+                  member
+                  for member in lowered
+                  if any(token in member for token in forbidden_tokens)
+              ]
+              assert not hits, f"{artifact}: forbidden members {hits}"
+
+          with zipfile.ZipFile(wheel) as archive:
+              wheel_members = archive.namelist()
+          assert_clean(wheel_members, wheel)
+          (evidence / "wheel-inventory.txt").write_text(
+              "\n".join(wheel_members) + "\n", encoding="utf-8"
+          )
+
+          with tarfile.open(sdist, mode="r:gz") as archive:
+              sdist_members = archive.getnames()
+          assert_clean(sdist_members, sdist)
+          (evidence / "sdist-inventory.txt").write_text(
+              "\n".join(sdist_members) + "\n", encoding="utf-8"
+          )
+
+          artifacts = [wheel, sdist]
+          sums = "".join(
+              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+              for path in artifacts
+          )
+          (evidence / "SHA256SUMS.txt").write_text(sums, encoding="utf-8")
+
+          metadata = {
+              "wheel": wheel.name,
+              "sdist": sdist.name,
+              "wheel_members": len(wheel_members),
+              "sdist_members": len(sdist_members),
+              "sha256": {
+                  path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in artifacts
+              },
+          }
+          (evidence / "metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print("build-inspect-ok")
+          print(json.dumps(metadata, indent=2, sort_keys=True))
+          PY
+      - name: Upload build artifacts and inventories
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-build-python-3.11
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            build-evidence/
+          if-no-files-found: warn

@@ -6,7 +6,7 @@
 ## Preconditions and source capture
 
 - Before edits, `main`, `HEAD`, and `origin/main` were all `5b533fcbfa18df6846ebf7a5a14ba5802a4b70de`; `git status --porcelain=v1` was empty.
-- Installed source was read from `C:\Users\fallo\AppData\Local\hermes\plugins` only for: `daily`, `event`, `need`, `donation`, `report`, `task`, and `inventory`.
+- Installed source was read from `[USER_HOME]\AppData\Local\hermes\plugins` only for: `daily`, `event`, `need`, `donation`, `report`, `task`, and `inventory`.
 - Canonical sources exclude `__pycache__` and contain only source/metadata files: daily 3, event 2, need 2, donation 3, report 2, task 2, inventory 2.
 - A marker-only review found no actual secret-bearing source. One event-source token reference was classified as a non-secret reference; no secret value was read or recorded.
 
@@ -19,9 +19,9 @@
 
 ## Evidence and temporary-target proof
 
-- Read-only comparison evidence: `C:\Users\fallo\AppData\Local\Temp\CLEANUP_004_COMPARISON_EVIDENCE.json`.
-- Installed non-bytecode hashes were captured before at `2026-07-12T15:31:03.035722Z` in `C:\Users\fallo\AppData\Local\Temp\CLEANUP_004_INSTALLED_HASHES_BEFORE.json` and after at `2026-07-12T15:31:44.892891Z` in `C:\Users\fallo\AppData\Local\Temp\CLEANUP_004_INSTALLED_HASHES_AFTER.json`. The seven plugin hash maps were identical.
-- Successful temporary-only reinstall proof: `C:\Users\fallo\AppData\Local\Temp\CLEANUP_004_PLUGIN_REINSTALL\mutable_20260712T153144Z`.
+- Read-only comparison evidence: `[USER_HOME]\AppData\Local\Temp\CLEANUP_004_COMPARISON_EVIDENCE.json`.
+- Installed non-bytecode hashes were captured before at `2026-07-12T15:31:03.035722Z` in `[USER_HOME]\AppData\Local\Temp\CLEANUP_004_INSTALLED_HASHES_BEFORE.json` and after at `2026-07-12T15:31:44.892891Z` in `[USER_HOME]\AppData\Local\Temp\CLEANUP_004_INSTALLED_HASHES_AFTER.json`. The seven plugin hash maps were identical.
+- Successful temporary-only reinstall proof: `[USER_HOME]\AppData\Local\Temp\CLEANUP_004_PLUGIN_REINSTALL\mutable_20260712T153144Z`.
   - The daily target began with a declared mutable `__pycache__/retained.pyc`.
   - The installer created a backup before overwrite and retained that declared mutable bytecode file.
   - Strict drift check returned only `EXPECTED DERIVATION` for that retained bytecode and `MATCH` for the remaining temporary targets; strict mode exited zero.

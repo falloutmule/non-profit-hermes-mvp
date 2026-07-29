@@ -7,12 +7,12 @@ This closeout proves a real installer apply against a fresh disposable target on
 - Required starting commit: `d2fcbacce04c41f8b63ff3327233797aca0b80e5`
 - Starting branch: `completion-installer-001`
 - Final closeout commit SHA: recorded in the Kanban handoff after the focused report commit
-- Repository: `C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs`
-- Live root: `C:\Users\fallo\AppData\Local\hermes\plugins`
-- Disposable root: `C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp`
-- Disposable target: `C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp\target`
-- Disposable backup root: `C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp\target\.cleanup_004_backups`
-- Rollback target: `C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp\rollback_target`
+- Repository: `[USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs`
+- Live root: `[USER_HOME]\AppData\Local\hermes\plugins`
+- Disposable root: `[USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp`
+- Disposable target: `[USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp\target`
+- Disposable backup root: `[USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp\target\.cleanup_004_backups`
+- Rollback target: `[USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp\rollback_target`
 
 The preflight branch, starting SHA, and clean worktree matched the contract. The installer and drift checker were unchanged; no focused test or implementation defect was found.
 
@@ -55,20 +55,20 @@ The target was fresh except for controlled stale state in `non-profit-hermes-dai
 Exact installer command (no `--live`):
 
 ```text
-C:\Python314\python.exe C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\install_runtime_plugins.py --repo-root C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --apply --target-root C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp\target
+C:\Python314\python.exe [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\install_runtime_plugins.py --repo-root [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --apply --target-root [USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp\target
 ```
 
 - Exit: `0`
 - All seven plugins reported `INSTALLED`.
 - The daily backup was created at:
-  `C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp\target\.cleanup_004_backups\non-profit-hermes-daily.20260716T172055Z`
+  `[USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp\target\.cleanup_004_backups\non-profit-hermes-daily.20260716T172055Z`
 - Backup evidence: the backup retained `STALE = True\n`; its SHA-256 was `92f906a0d769998328892bb473ed61ba4583c266f90d847aacacf072a013b702`.
 - Mutable bytecode remained at `target\non-profit-hermes-daily\__pycache__\retained.pyc`.
 
 Exact strict disposable drift command:
 
 ```text
-C:\Python314\python.exe C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\check_runtime_plugin_drift.py --repo-root C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --installed-root C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp\target --strict --json
+C:\Python314\python.exe [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\check_runtime_plugin_drift.py --repo-root [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --installed-root [USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp\target --strict --json
 ```
 
 - Exit: `0`
@@ -84,7 +84,7 @@ A disposable `rollback_target` was seeded with old daily plugin files. A control
 Recovery then used the real installer:
 
 ```text
-C:\Python314\python.exe C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\install_runtime_plugins.py --repo-root C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --apply --target-root C:\Users\fallo\AppData\Local\Temp\cleanup004_closeout_frah57jp\rollback_target
+C:\Python314\python.exe [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\install_runtime_plugins.py --repo-root [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --apply --target-root [USER_HOME]\AppData\Local\Temp\cleanup004_closeout_frah57jp\rollback_target
 ```
 
 - Exit: `0`
@@ -108,7 +108,7 @@ non-profit-hermes-inventory               9d15d873b88b69fea588c6c11a6d2d5821edab
 Exact strict live drift command (read-only; no installer apply):
 
 ```text
-C:\Python314\python.exe C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\check_runtime_plugin_drift.py --repo-root C:\Users\fallo\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --installed-root C:\Users\fallo\AppData\Local\hermes\plugins --strict --json
+C:\Python314\python.exe [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs\scripts\check_runtime_plugin_drift.py --repo-root [USER_HOME]\non-profit-hermes-mvp\worktrees\nonprofit-cleanup-docs --installed-root [USER_HOME]\AppData\Local\hermes\plugins --strict --json
 ```
 
 - Exit before/after: `0`.

@@ -1,5 +1,5 @@
 name: non-profit-hermes-task
-version: 0.1.0
-description: Live /task command for Non-Profit Hermes.
+version: 1.0.0
+description: Deprecated compatibility shim for the historical /task command; use the unified Non-Profit Hermes plugin.
 author: Hermes Agent
 kind: standalone

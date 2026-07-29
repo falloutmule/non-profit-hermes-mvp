@@ -1,0 +1,46 @@
+name: nonprofit
+version: 1.0.0
+description: Sanitized Telegram-first nonprofit operations profile with approval and privacy safeguards.
+hermes_requires: ">=0.18.2"
+author: falloutmule
+license: MIT
+env_requires:
+  - name: TELEGRAM_BOT_TOKEN
+    description: Telegram bot token for this profile.
+    required: true
+  - name: TELEGRAM_ALLOWED_USERS
+    description: Comma-separated Telegram user IDs permitted to use the bot.
+    required: true
+  - name: NON_PROFIT_HERMES_CREDENTIALS_FILE
+    description: Google OAuth credential file required for Google-backed operation.
+    required: true
+  - name: NON_PROFIT_HERMES_SPREADSHEET_ID
+    description: Google Sheets document ID required for Google-backed operation.
+    required: true
+  - name: NON_PROFIT_HERMES_CALENDAR_ID
+    description: Optional Google Calendar ID used only for explicitly authorized event promotion.
+    required: false
+  - name: NON_PROFIT_HERMES_CONFIG_DIR
+    description: Optional directory containing nonprofit integration configuration.
+    required: false
+  - name: DATA_DIR
+    description: Optional private operational data directory override.
+    required: false
+  - name: STATE_DIR
+    description: Optional private runtime state directory override.
+    required: false
+  - name: PUBLIC_DIR
+    description: Optional approved-safe output directory override.
+    required: false
+  - name: TELEGRAM_SOURCE_SCOPE
+    description: Optional source-scope label for draft follow-up routing.
+    required: false
+  - name: TELEGRAM_HOME_CHANNEL
+    description: Optional Telegram delivery destination configured by the operator.
+    required: false
+distribution_owned:
+  - distribution.yaml
+  - SOUL.md
+  - config.yaml
+  - skills/non-profit-hermes
+  - plugins/non-profit-hermes

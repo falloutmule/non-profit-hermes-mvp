@@ -28,7 +28,7 @@ CLEANUP-007B-R2 independent checker `t_51a5542e` completed PASS against recovery
 
 ## Evidence references
 
-The checked counts-only artifact is `C:/Users/fallo/AppData/Local/Temp/CLEANUP_007B_LIVE_INVENTORY_SUMMARY_R2.json` with SHA-256 `78c81a5591d0fe710a2acbaff7dbb76a1c15e0e30cf5c1cf82fc08c84cfcc1fb`.
+The checked counts-only artifact is `[USER_HOME]/AppData/Local/Temp/CLEANUP_007B_LIVE_INVENTORY_SUMMARY_R2.json` with SHA-256 `78c81a5591d0fe710a2acbaff7dbb76a1c15e0e30cf5c1cf82fc08c84cfcc1fb`.
 
 The R2 checker also verified the external runner and protected private evidence without printing private contents. This report intentionally omits their paths and hashes because they are not needed to make the counts-only decision.
 

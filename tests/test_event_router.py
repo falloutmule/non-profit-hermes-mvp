@@ -8,7 +8,7 @@ Covers contract Tests 1-11:
      explicit id=EVT-... / event_draft_id=... accepted; free text -> EventTitle
      when title absent; ambiguous free text preserved in Notes; no NL date inference.
   3. Active event state helpers store/restore active_event_id per-source without
-     erasing other active_* ids; source_scope() preserves telegram:live mapping.
+     erasing other active_* ids; source_scope() safely preserves telegram:live.
   4. event_row_by_draft_id / open_event_drafts / resolve_event_followup_target:
      find by EventDraftID; open states needs-info/draft/new/ready; terminal
      confirmed/cancelled/rejected; ambiguity lists EVT IDs; explicit id overrides.
@@ -39,13 +39,20 @@ from __future__ import annotations
 import importlib.util
 import re
 import builtins
+import os
 import sys
 import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from non_profit_hermes import operations as ops
+from non_profit_hermes import router as tir
+
 ROOT = Path(__file__).resolve().parents[1]
+EVENT_PLUGIN_SOURCE_LINK = os.environ.get(
+    "NON_PROFIT_HERMES_TEST_EVENT_SOURCE_LINK", "telegram:6080816249"
+)
 
 
 def load_module(name: str, relative_path: str):
@@ -57,10 +64,8 @@ def load_module(name: str, relative_path: str):
     return module
 
 
-# Load router as a normal module (no google.auth side effects at import time here
-# because we inject fakes and never call services()).
-tir = load_module("event_router_test", "scripts/telegram_intake_router.py")
-ops = load_module("event_ops_test", "scripts/non_profit_hermes_ops.py")
+ops.SPREADSHEET_ID = "synthetic-offline-sheet"
+ops.CALENDAR_ID = "synthetic-offline-calendar"
 
 
 # ── In-memory fake Google Sheets (stateful, mirrors the 24-col CalendarLog) ──
@@ -255,14 +260,16 @@ class EventRouterTests(unittest.TestCase):
         # other id untouched
         self.assertEqual(tir.get_active_need_request_id(SRC), "REQ-OTHER")
 
-        # scope normalization (telegram:live -> telegram:6080816249)
-        self.assertEqual(tir.source_scope("telegram:live"), "telegram:6080816249")
+        # Without runtime configuration, the legacy placeholder remains isolated.
+        self.assertEqual(tir.source_scope("telegram:live"), "telegram:live")
         tir.set_active_event_id("telegram:live", "EVT-LIVE")
-        self.assertEqual(tir.get_active_event_id(SRC), "EVT-LIVE")
+        self.assertEqual(tir.get_active_event_id("telegram:live"), "EVT-LIVE")
+        self.assertEqual(tir.get_active_event_id(SRC), "EVT-ABC")
         self.assertEqual(tir.get_active_need_request_id(SRC), "REQ-OTHER")
 
-        tir.clear_active_event_id(SRC, "EVT-LIVE")
-        self.assertEqual(tir.get_active_event_id(SRC), "")
+        tir.clear_active_event_id("telegram:live", "EVT-LIVE")
+        self.assertEqual(tir.get_active_event_id("telegram:live"), "")
+        self.assertEqual(tir.get_active_event_id(SRC), "EVT-ABC")
         self.assertEqual(tir.get_active_need_request_id(SRC), "REQ-OTHER")  # not erased
 
     # ── Test 4: row/resolve helpers ──
@@ -463,7 +470,7 @@ class EventRouterTests(unittest.TestCase):
         # registers /event
         self.assertTrue('register_command("event"' in src or "register_command('event'" in src)
         # passes source_link telegram:6080816249
-        self.assertIn("telegram:6080816249", src)
+        self.assertIn(EVENT_PLUGIN_SOURCE_LINK, src)
         # never calls calendar create functions directly
         self.assertNotIn("create_calendar_event(", src)
         self.assertNotIn("create_calendar_event_from_draft(", src)
@@ -511,7 +518,7 @@ class EventRouterTests(unittest.TestCase):
             text = plugin._event('event_title="Offline only"')
 
         self.assertEqual(captured["message"], '/event event_title="Offline only"')
-        self.assertEqual(captured["source_link"], "telegram:6080816249")
+        self.assertEqual(captured["source_link"], EVENT_PLUGIN_SOURCE_LINK)
         self.assertIs(captured["allow_calendar_creation"], False)
         self.assertEqual(captured["calendar_promotion_mode"], "one-shot-local-authorization")
         self.assertEqual(text, rendered)
@@ -574,7 +581,7 @@ class EventRouterTests(unittest.TestCase):
         self.assertEqual(text, "fake renderer")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "event_draft_id=EVT-A31A0CF8 confirm_create=yes")
-        self.assertEqual(calls[0][1]["source_link"], "telegram:6080816249")
+        self.assertEqual(calls[0][1]["source_link"], EVENT_PLUGIN_SOURCE_LINK)
         self.assertIs(calls[0][1]["allow_calendar_creation"], False)
         self.assertEqual(calls[0][1]["calendar_promotion_mode"], "one-shot-local-authorization")
 
@@ -705,6 +712,59 @@ class EventRouterTests(unittest.TestCase):
         # internal privacy when privacy_level=internal
         r2 = tir.route_event(sheets, cal, {"event_title": "Int", "start": "2026-07-12T09:00:00-06:00", "privacy_level": "internal"}, "", SRC, "internal")
         self.assertEqual(sheets.row_by_draft(r2.record_id)["PrivacyLevel"], "internal")
+
+    def test_plugin_boundary_preserves_ordinary_event_and_exact_promotion_dispatch(self):
+        calls: list[tuple[str, dict[str, object]]] = []
+        sentinel = object()
+
+        def fake_handle_message(message: str, **kwargs):
+            calls.append((message, kwargs))
+            return sentinel
+
+        with (
+            mock.patch.object(tir, "handle_message", side_effect=fake_handle_message),
+            mock.patch.object(tir, "_result_to_text", return_value="rendered"),
+        ):
+            ordinary = tir.run_plugin_command("event", 'id=EVT-A31A0CF8 status=ready')
+            promotion = tir.run_plugin_command(
+                "event", "event_draft_id=EVT-A31A0CF8 confirm_create=yes"
+            )
+
+        self.assertEqual(ordinary, "rendered")
+        self.assertEqual(promotion, "rendered")
+        self.assertEqual(calls[0][0], "/event id=EVT-A31A0CF8 status=ready")
+        self.assertEqual(
+            calls[1][0],
+            "event_draft_id=EVT-A31A0CF8 confirm_create=yes",
+        )
+        for _message, kwargs in calls:
+            self.assertEqual(kwargs["source_link"], "telegram:live")
+            self.assertIs(kwargs["allow_calendar_creation"], False)
+            self.assertEqual(
+                kwargs["calendar_promotion_mode"],
+                tir.ONE_SHOT_CALENDAR_PROMOTION_MODE,
+            )
+
+    def test_plugin_boundary_rejects_malformed_promotion_without_router_dispatch(self):
+        malformed = (
+            "id=EVT-A31A0CF8 create_calendar=no",
+            "confirm_create=yes",
+            "id=EVT-A31A0CF8 confirm_create=yes description=private",
+            "id=EVT-A31A0CF8 event_draft_id=EVT-11111111 confirm_create=yes",
+            'id="EVT-A31A0CF8 confirm_create=yes',
+        )
+
+        with mock.patch.object(
+            tir,
+            "handle_message",
+            side_effect=AssertionError("malformed promotion reached router"),
+        ):
+            for payload in malformed:
+                with self.subTest(payload=payload):
+                    self.assertEqual(
+                        tir.run_plugin_command("event", payload),
+                        "Promotion request rejected: promotion may include only one EVT draft ID and one create confirmation.",
+                    )
 
 
 if __name__ == "__main__":

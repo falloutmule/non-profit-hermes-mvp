@@ -45,16 +45,16 @@
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch\\root.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch\\current-needs.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch\\calendar.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch\\reports.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch\\today.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\root.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\current-needs.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\calendar.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\reports.html`
-- `C:\\Users\\fallo\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\today.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch\\root.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch\\current-needs.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch\\calendar.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch\\reports.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch\\today.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\root.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\current-needs.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\calendar.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\reports.html`
+- `[USER_HOME]\\non-profit-hermes-mvp\\proof-live-fetch-cachebust\\today.html`
 - Raw GitHub proof URLs:
   - `https://raw.githubusercontent.com/falloutmule/non-profit-hermes-mvp/main/proof-live-fetch/root.html`
   - `https://raw.githubusercontent.com/falloutmule/non-profit-hermes-mvp/main/proof-live-fetch/current-needs.html`

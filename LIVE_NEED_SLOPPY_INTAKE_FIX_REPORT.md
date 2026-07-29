@@ -10,7 +10,7 @@ Make `/need` follow-up handling attach the next plain message in the same Telegr
 
 1. **Added per-chat active draft tracking**
    - Implemented local active-draft state at:
-     - `C:\Users\fallo\AppData\Local\hermes\state\telegram_active_need_drafts.json`
+     - `[USER_HOME]\AppData\Local\hermes\state\telegram_active_need_drafts.json`
    - `/need` now stores `active_need_request_id` for the chat/session scope when it creates a `needs-info` draft.
    - When the draft becomes `ready`, the active pointer is cleared.
 
@@ -96,8 +96,8 @@ Verified after sync:
 
 ## Evidence Paths
 
-- `C:\Users\fallo\non-profit-hermes-mvp\scripts\telegram_intake_router.py`
-- `C:\Users\fallo\non-profit-hermes-mvp\scripts\non_profit_hermes_ops.py`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_needs.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs\index.html`
+- `[USER_HOME]\non-profit-hermes-mvp\scripts\telegram_intake_router.py`
+- `[USER_HOME]\non-profit-hermes-mvp\scripts\non_profit_hermes_ops.py`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_needs.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\current-needs.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\current-needs\index.html`

@@ -61,8 +61,145 @@ def make_fixture(tmp_path: Path, *, autocrlf: bool = False, checkout_newline: by
     return repo
 
 
+def make_v2_fixture(tmp_path: Path) -> Path:
+    repo = make_fixture(tmp_path)
+    unified = repo / "plugins" / "non-profit-hermes"
+    unified.mkdir(parents=True)
+    unified_files = {
+        "plugin.yaml": "name: non-profit-hermes\nversion: 1.0.0\n",
+        "__init__.py": "VALUE = 'unified'\n",
+        "commands.py": "COMMANDS = ('demo',)\n",
+    }
+    for name, body in unified_files.items():
+        (unified / name).write_text(body, encoding="utf-8")
+
+    legacy = repo / "runtime_plugins" / "non-profit-hermes-demo"
+    (legacy / "plugin.yaml").write_text(
+        "name: non-profit-hermes-demo\nversion: 1.0.0\n",
+        encoding="utf-8",
+    )
+    run_git(["git", "add", "plugins", "runtime_plugins"], repo)
+    run_git(["git", "commit", "-m", "add unified fixture source"], repo)
+
+    def files_for(source: str, names: tuple[str, ...]) -> list[dict[str, str]]:
+        return [
+            {
+                "path": name,
+                "sha256": hashlib.sha256(
+                    subprocess.check_output(["git", "-C", str(repo), "show", f"HEAD:{source}/{name}"])
+                ).hexdigest(),
+            }
+            for name in names
+        ]
+
+    manifest = {
+        "schema": "Non-Profit Hermes runtime plugin manifest",
+        "version": 2,
+        "default_mode": "unified",
+        "plugins": [
+            {
+                "name": "non-profit-hermes",
+                "source": "plugins/non-profit-hermes",
+                "directory": "non-profit-hermes",
+                "role": "primary",
+                "version": "1.0.0",
+                "commands": ["demo"],
+                "files": files_for(
+                    "plugins/non-profit-hermes",
+                    ("__init__.py", "commands.py", "plugin.yaml"),
+                ),
+                "mutable_paths": ["state.json"],
+            },
+            {
+                "name": "non-profit-hermes-demo",
+                "source": "runtime_plugins/non-profit-hermes-demo",
+                "directory": "non-profit-hermes-demo",
+                "role": "compatibility",
+                "version": "1.0.0",
+                "commands": ["demo"],
+                "files": files_for(
+                    "runtime_plugins/non-profit-hermes-demo",
+                    ("__init__.py", "plugin.yaml"),
+                ),
+                "mutable_paths": ["state.json"],
+            },
+        ],
+    }
+    (repo / "RUNTIME_PLUGIN_MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+    run_git(["git", "add", "RUNTIME_PLUGIN_MANIFEST.json"], repo)
+    run_git(["git", "commit", "-m", "upgrade fixture manifest"], repo)
+    return repo
+
+
 def run_installer(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, str(INSTALLER), "--repo-root", str(repo), *args], text=True, capture_output=True, check=False)
+
+
+def test_v2_default_dry_run_selects_only_unified_source(tmp_path: Path):
+    repo = make_v2_fixture(tmp_path)
+    target = tmp_path / "target"
+    result = run_installer(repo, "--target-root", str(target))
+    assert result.returncode == 0, result.stderr
+    assert "mode=unified" in result.stdout
+    assert "would install non-profit-hermes" in result.stdout
+    assert "non-profit-hermes-demo" not in result.stdout
+    assert not target.exists()
+
+
+def test_legacy_mode_dry_run_selects_only_compatibility_sources(tmp_path: Path):
+    repo = make_v2_fixture(tmp_path)
+    target = tmp_path / "target"
+    result = run_installer(repo, "--mode", "legacy", "--target-root", str(target))
+    assert result.returncode == 0, result.stderr
+    assert "mode=legacy" in result.stdout
+    assert "would install non-profit-hermes-demo" in result.stdout
+    assert "would install non-profit-hermes\n" not in result.stdout
+    assert not target.exists()
+
+
+def test_manifest_rejects_unsafe_absolute_traversal_or_unnormalized_source(tmp_path: Path):
+    repo = make_v2_fixture(tmp_path)
+    manifest_path = repo / "RUNTIME_PLUGIN_MANIFEST.json"
+    original = json.loads(manifest_path.read_text(encoding="utf-8"))
+    unsafe_sources = (
+        str((repo / "plugins" / "non-profit-hermes").resolve()),
+        "plugins/../plugins/non-profit-hermes",
+        "plugins\\non-profit-hermes",
+    )
+
+    for source in unsafe_sources:
+        manifest = json.loads(json.dumps(original))
+        manifest["plugins"][0]["source"] = source
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = run_installer(repo, "--dry-run")
+        assert result.returncode == 2
+        assert "unsafe plugin source" in result.stderr
+
+
+def test_manifest_identity_and_version_must_match_plugin_yaml(tmp_path: Path):
+    repo = make_v2_fixture(tmp_path)
+    manifest_path = repo / "RUNTIME_PLUGIN_MANIFEST.json"
+    original = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    for key, value in (("name", "wrong-plugin"), ("version", "9.9.9")):
+        manifest = json.loads(json.dumps(original))
+        manifest["plugins"][0][key] = value
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = run_installer(repo, "--dry-run")
+        assert result.returncode == 2
+        assert "plugin manifest identity/version mismatch" in result.stderr
+
+
+def test_mode_selection_fails_closed_for_duplicate_command_exposure(tmp_path: Path):
+    repo = make_v2_fixture(tmp_path)
+    manifest_path = repo / "RUNTIME_PLUGIN_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["plugins"][1]["role"] = "primary"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = run_installer(repo, "--dry-run")
+    assert result.returncode == 2
+    assert "duplicate command exposure" in result.stderr
 
 
 def test_default_is_dry_run_and_does_not_create_target(tmp_path: Path):

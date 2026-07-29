@@ -51,11 +51,11 @@
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-live-fetch\root.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-live-fetch\current-needs.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-live-fetch\calendar.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-live-fetch\reports.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\proof-live-fetch\today.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-live-fetch\root.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-live-fetch\current-needs.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-live-fetch\calendar.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-live-fetch\reports.html`
+- `[USER_HOME]\non-profit-hermes-mvp\proof-live-fetch\today.html`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/current-needs`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/calendar`

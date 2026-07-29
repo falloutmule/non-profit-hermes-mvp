@@ -1,50 +1,102 @@
 # Security and Privacy — Non-Profit Hermes MVP
 
-**Canonical security update:** 2026-07-15. `GOOGLE_RECONNECT_REPORT.md` and `CLEANUP_MILESTONE_INDEX.md` are the current recovery/cleanup evidence index. Retained EVENT material below is historical and is not a current permission.
+**Current security boundary captured:** 2026-07-21
 
-## Current recovery and inventory safety boundary
+Privacy is a hard gate. Google Sheets is the private system of record; GitHub Pages is a filtered public surface. Runtime/profile secrets and private records are never documentation evidence.
 
-- No document may contain private inventory values, credential values, client secrets, authorization codes, PKCE verifier material, raw callbacks, raw authorization URLs, or token responses. The final reports use only counts, controlled statuses, safe artifact paths, and SHA-256 fingerprints.
-- Recovery acceptance requires the exact eight source-defined scopes, deterministic candidate validation, ACL equivalence, unchanged operational baseline until promotion, and fail-closed validation before mutation.
-- The current credential loaders are not transactional durable-refresh implementations. The separate recovery promotion helper's restricted atomic swap and rollback semantics must not be attributed to them.
-- The R2 inventory used in-memory refresh only for bounded reads and recorded zero mutations. Its 180 unknown/manual records remain a human-review problem; no archive or delete is authorized.
-- Gateway restart and independently validated deployed runtime are untested. No plugin deployment, publication, push, merge, archive, or delete occurred in this documentation phase.
+## Never commit or publish
 
-## Retained privacy model
+- Telegram tokens or token fingerprints
+- bot numeric identifiers
+- raw private chat or user identifiers
+- OAuth access/refresh tokens, authorization codes, callback payloads, PKCE material, client secrets, or authorization headers
+- private Google Sheet rows or Calendar details
+- exact private locations, addresses, phone numbers, or identifying photos
+- medical, addiction, legal, family-crisis, immigration, police, or interpersonal-conflict details
+- credential files, `.env`, `auth.json`, sessions, memories, state databases, or logs
 
-Privacy is a hard gate, not a formatting preference. Exact locations, full names, phone numbers, addresses, medical, addiction, legal, family-crisis, immigration, police, and interpersonal-conflict details, plus identifying photos, must not appear in GitHub Pages, `docs/`, or another public surface unless a human has approved the exact safe text.
+Documentation uses placeholders such as `<hermes-home>`, `<nonprofit-profile>`, and `<plugin-root>` instead of local secret-bearing paths.
 
-`SensitiveDetails` in Reports remains empty for automated writes and is never exported. Reports export only the approved `PublicSummaryDraft`, never raw `Summary` or `SensitiveDetails`.
+## Profile isolation
 
-## Implemented deny-by-default publication gates
+The authoritative profile is `nonprofit`, with bot identity `@HnonProfitBOT` and model route `openai-codex/gpt-5.6-sol`. The seven nonprofit plugins are enabled only in that profile and disabled in `default`. Different profiles are separate trust domains; do not copy or compare credentials across them in public evidence.
 
-CLEANUP-002 implemented the following controls in approved-safe exports:
+Read-only identity and command-registry checks may emit only allowlisted fields such as bot username and command names. Current documentation intentionally omits token-derived fingerprints, numeric bot IDs, and raw chat IDs even if older restricted evidence contains them.
 
-- Requests require approved privacy (`board-visible`, `public-safe`, or `board-visible-test`), an exact public status, and affirmative `ConsentToShare`.
-- Donations require approved privacy, an exact public status, and affirmative `PublicListingAllowed`.
-- Reports require approved privacy, an exact public status, affirmative `PublicSummaryAllowed`, and a non-empty `PublicSummaryDraft`.
-- Affirmative values are limited to `yes`, `true`, `1`, and `approved` after normalization; blank and non-affirmative values deny export.
-- Newest-record deduplication occurs before gates, so a newer private or `needs-info` duplicate suppresses an older public candidate.
-- Tasks and Inventory remain internal-only and have no public export status.
-- Public HTML escapes user-controlled values.
-- Board-log output is aggregate-only and excludes internal Task, Inventory, Event, and audit IDs.
+## Private intake and audit
 
-These controls resolve the former schema divergence, row-100 truncation, missing donation gate, report-consent persistence gap, HTML-escaping gap, board-log identifier exposure, and missing export deduplication.
+The write commands are draft-first and private by default:
 
-## Calendar policy and EVENT-004 boundary
+- Requests, Donations, Reports, and Events begin in private review.
+- Tasks and Inventory are internal-only.
+- Automated report writes keep sensitive-detail fields empty.
+- Every supported Google mutation writes an AuditLog entry.
+- Missing facts remain unknown; they are not inferred.
 
-Calendar creation is exception-only, not a general consequence of `/event`. The authoritative final EVENT-004 evidence JSON supports one renewed-explicitly-authorized promotion of the synthetic `private-review` draft `EVT-A31A0CF8`: one confirmed Calendar event (`cpq3e1oivn4ajb4t8ktemjuj0g`) with empty location and attendees, `PublicCalendarAllowed=no`, approved-calendar exclusion (`approved_calendar_count=0`), and authorization absent after success.
+A command being registered does not authorize or prove a live write. The nonprofit gateway is currently stopped.
 
-Future Calendar creation requires separate per-event human authorization, a scoped promotion guard, preflight, authorization consumption immediately before the first external attempt (non-reusable after a failed attempt), same-row Calendar ID persistence, and idempotent-retry verification. The EVENT-004 result does not authorize public-calendar inclusion, another promotion, plugin/gateway activation, Telegram registration, or public publication.
+## Deny-by-default public exports
 
-The direct installed-plugin daily invocation used for controlled verification was observed during the execution session to pass with an in-memory marker and zero writes, but it was not a human-originated Telegram-delivered message. The controlled local `/daily` CLI zero-write observation was likewise an execution-session observation. Neither observation is contained in the authoritative final evidence JSON, and neither proves Telegram transport or human delivery. Offline tests independently cover idempotence. See `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md` for the evidence boundary and audit IDs.
+Approved-safe export requires all applicable gates:
 
-## Remaining concerns
+- Requests: approved privacy, allowed public status, affirmative consent
+- Donations: approved privacy, allowed public status, affirmative listing permission
+- Reports: approved privacy, allowed public status, affirmative summary permission, non-empty approved public summary
+- Calendar: approved CalendarLog record and matching live event
+- Board log: aggregate-only output
+- Tasks and Inventory: never public
 
-- CLEANUP-003 is complete and keeps `/daily` in read-only in-memory state; it does not generate a public snapshot. Publication remains frozen, and no automatic approval backfill is authorized.
-- The current OAuth token requests broader scopes than necessary (Gmail, Drive, Contacts, Documents, Sheets, Calendar). Least-privilege scope reduction remains a separate CLEANUP-005 concern.
-- `google_token.json`, `.env`, and credentials must never be committed. Machine-specific paths remain a configuration concern for CLEANUP-005.
+Newest-record deduplication occurs before public gates, so a newer private/draft duplicate suppresses an older public candidate. Public HTML escapes user-controlled values.
 
-## Test safety
+## `/daily` boundary
 
-The project’s fake-based test suite does not make network calls. Explicit live-write operational modes remain separate from offline tests and require deliberate operator use. The one EVENT-004 live create was narrowly authorized, recorded, and is not a reusable authorization.
+`/daily` collects the approved-safe snapshot in memory. It does not:
+
+- write Sheets or Calendar;
+- generate or modify `docs/`;
+- commit, push, or publish;
+- persist an OAuth refresh.
+
+The focused fake-based read-only tests pass. Historical human-originated `/daily` evidence dated 2026-07-12 is retained, but current live transport/zero-write acceptance is untested because the gateway is stopped.
+
+## Calendar boundary
+
+`/event` creates or updates a CalendarLog draft. Calendar creation requires a separate authorization for the exact draft, preflight and scope guards, authorization consumption immediately before the external attempt, same-row event-ID persistence, idempotent retry behavior, and privacy exclusion verification.
+
+Historical EVENT-004 evidence records one controlled promotion. It is not reusable authority for another event, public-calendar inclusion, gateway activation, or publication.
+
+## OAuth credential persistence
+
+Operational loaders use atomic and recoverable durable refresh:
+
+1. refresh only the in-memory credential;
+2. serialize a separate candidate;
+3. validate credential, scope, client identity, JSON shape, hash, and ACL invariants;
+4. acquire an exclusive lock;
+5. create and flush an exact-byte backup;
+6. atomically replace the operational token;
+7. verify the promoted hash and ACL;
+8. remove backup/temporary state on success or restore exact bytes and ACL on handled post-swap failure.
+
+`/daily` and sync `--dry-run` use in-memory refresh only. Error evidence contains stable codes and hashes, never credential values.
+
+## Plugin installation and backups
+
+The plugin installer verifies canonical hashes, requires explicit `--apply` and `--target-root`, and requires a second `--live` consent for the live shared root. It creates a timestamped backup before replacing an existing plugin directory and restores that backup if staged replacement fails.
+
+Plugin backups are source/runtime artifacts, not credential backups. Do not place secrets in plugin directories or copy profile state into installer backups. Retention and deletion require a separate decision.
+
+## Publication boundary
+
+`sync_approved_safe_data.py --dry-run` reads and classifies but does not write public files. Running without `--dry-run` generates `docs/`; it does not authorize publication. Human review and explicit authorization are required for the exact generated diff before commit or push.
+
+The 2026-07-21 inventory did not regenerate or publish the site. Public-generation parity remains untested in that inventory.
+
+## Current risks and pending work
+
+- The gateway is stopped; current live dispatch and human canaries are unverified.
+- Port config and launcher override differ, and gateway metadata is stale.
+- Operational scripts and legacy plugin entrypoints contain user-specific paths and `sys.path` mutation.
+- Dependencies and profile installation are not packaged.
+- The unified plugin, profile distribution, runtime doctor, and clean-install acceptance do not exist yet.
+- Historical reports can contain bounded identifiers or obsolete permissions; use the current canonical docs and reports supersession map before relying on them.

@@ -10,22 +10,15 @@ from pathlib import Path
 
 import pytest
 
+from non_profit_hermes import approved_safe_sync, oauth_refresh, operations
+
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "google_oauth_refresh.py"
 SCOPES = ["scope:calendar", "scope:sheets"]
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("google_oauth_refresh", MODULE_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.modules.pop(spec.name, None)
-    return module
+    return oauth_refresh
 
 
 class FakeCredential:
@@ -459,8 +452,8 @@ def _load_script(name: str, filename: str):
 
 
 def test_ops_and_sync_use_durable_refresh_boundary_without_live_calls(tmp_path: Path, monkeypatch) -> None:
-    ops = _load_script("refresh_test_ops", "non_profit_hermes_ops.py")
-    sync = _load_script("refresh_test_sync", "sync_approved_safe_data.py")
+    ops = operations
+    sync = approved_safe_sync
     calls: list[tuple[object, object, Path, list[str]]] = []
 
     def durable_refresh(credential, request, token, scopes):

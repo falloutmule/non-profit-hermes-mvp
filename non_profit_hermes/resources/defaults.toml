@@ -1,0 +1,3 @@
+version = "1.0.0"
+public_marker = "CLEAN_DOCS_DEPLOY_NON_PROFIT_HERMES_002"
+commands = ["daily", "need", "donation", "report", "task", "inventory", "event"]

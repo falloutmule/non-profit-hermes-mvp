@@ -1,0 +1,28 @@
+# Portable runtime and profile-distribution payload only.
+include README.md
+include pyproject.toml
+include distribution.yaml
+include SOUL.md
+include config.yaml
+recursive-include non_profit_hermes *.py *.toml
+recursive-include plugins/non-profit-hermes *.py *.yaml
+recursive-include skills/non-profit-hermes *.md
+
+# Repository-only verification, reports, public-site output, and proof evidence never ship.
+prune tests
+prune docs
+prune reports
+prune data
+prune proof-browser-screenshots
+prune proof-browser-source
+prune proof-canonical-live-fetch-2
+prune proof-external-mismatch-diagnosis
+prune proof-live-fetch
+prune proof-live-fetch-cachebust
+exclude proof-*.html
+exclude *.md.orig
+
+# Defense in depth for private runtime state and credential-shaped files.
+global-exclude .env
+recursive-exclude * .env.* auth.json token.json credentials.json client_secret.json
+recursive-exclude * *.db *.sqlite *.sqlite3 *.db-shm *.db-wal *.log *.pem *.key *.token

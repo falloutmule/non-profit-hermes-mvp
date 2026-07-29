@@ -128,9 +128,9 @@ See `CLEANUP_007B_RECORD_INVENTORY_SUMMARY.md` for the counts-only result: 182 r
 
 Only safe, redacted/counts-only artifact references and fingerprints are retained here:
 
-- `C:/Users/fallo/AppData/Local/Temp/GR_OAUTH_002_EXCHANGE_RESULT.json` — SHA-256 `f624711c04e8987228580e012220d9625e023a6ee825668b0f3d4aff833cba66`.
-- `C:/Users/fallo/AppData/Local/Temp/GR_OAUTH_003_CANDIDATE_ACCEPTANCE.json` — SHA-256 `c1df2237229920683860cf2cc7fd711226eb8841b9c33883186ea0ddd7792be5`.
-- `C:/Users/fallo/AppData/Local/Temp/CLEANUP_007B_LIVE_INVENTORY_SUMMARY_R2.json` — SHA-256 `78c81a5591d0fe710a2acbaff7dbb76a1c15e0e30cf5c1cf82fc08c84cfcc1fb`.
+- `[USER_HOME]/AppData/Local/Temp/GR_OAUTH_002_EXCHANGE_RESULT.json` — SHA-256 `f624711c04e8987228580e012220d9625e023a6ee825668b0f3d4aff833cba66`.
+- `[USER_HOME]/AppData/Local/Temp/GR_OAUTH_003_CANDIDATE_ACCEPTANCE.json` — SHA-256 `c1df2237229920683860cf2cc7fd711226eb8841b9c33883186ea0ddd7792be5`.
+- `[USER_HOME]/AppData/Local/Temp/CLEANUP_007B_LIVE_INVENTORY_SUMMARY_R2.json` — SHA-256 `78c81a5591d0fe710a2acbaff7dbb76a1c15e0e30cf5c1cf82fc08c84cfcc1fb`.
 
 These fingerprints do not authorize disclosure of underlying content. Private inventory evidence and credential material are deliberately excluded.
 

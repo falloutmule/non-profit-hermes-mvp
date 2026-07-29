@@ -22,6 +22,8 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+from non_profit_hermes import operations as ops
+
 ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_CALENDAR_HEADERS = [
@@ -43,7 +45,8 @@ def load_module(name: str, relative_path: str):
     return module
 
 
-ops = load_module("event_ops", "scripts/non_profit_hermes_ops.py")
+ops.SPREADSHEET_ID = "synthetic-offline-sheet"
+ops.CALENDAR_ID = "synthetic-offline-calendar"
 
 
 # ── In-memory fake Google Sheets (stateful, mirrors the 24-col CalendarLog) ──

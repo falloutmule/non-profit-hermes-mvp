@@ -1,66 +1,278 @@
 # Operations — Non-Profit Hermes MVP
 
-**Canonical operations boundary updated:** 2026-07-15. The current Google recovery/cleanup position is in `GOOGLE_RECONNECT_REPORT.md` and `CLEANUP_MILESTONE_INDEX.md`; retained EVENT sections below are historical evidence, not standing authorization.
+**Current operating boundary captured:** 2026-07-21
 
-## Current recovery and cleanup operating boundary
+## Start with current state
 
-- Recovery evidence supports one completed guarded callback/exchange, accepted candidate, restricted atomic promotion, and bounded post-promotion reads. Do not repeat or extend it without a new authorization.
-- CLEANUP-007B-R2 is read-only and counts-only: 182 records remain unchanged; the current plan authorizes zero changes and 180 records require manual review.
-- A cancelled Calendar tombstone with zero active exact-ID matches is a completed lifecycle result, not an instruction to recreate or mutate an event.
-- Current durable-refresh loaders are non-atomic. In-memory refresh was verified only for bounded read-only work and did not change the token file.
-- Do not restart the gateway, deploy a plugin, publish, push, merge, archive, or delete under this documentation closeout. Those actions require separately scoped human authorization and verification.
+The authoritative runtime is the `nonprofit` Hermes profile for `@HnonProfitBOT`, routed to `openai-codex/gpt-5.6-sol`. The nonprofit gateway is currently **stopped**.
 
-## Retained historical daily operations and publication boundary
+A separate Windows Scheduled Task exists and is enabled, but `Ready` is not proof of a running gateway. The profile config specifies port `8642`; the Scheduled Task launcher overrides to the intended port `8643`. On 2026-07-21, `8643` was not listening, gateway metadata was stale, and no nonprofit process, PID file, or lock file was detected.
 
-`/daily` is live for operations summaries. CLEANUP-003 is complete and keeps it in read-only in-memory state; it does not generate or mutate publication output.
+Do not claim command dispatch, start/restart the gateway, or alter the Scheduled Task without a separately authorized runtime task and rollback plan.
 
-**Publication remains frozen.** Do not use `/daily` as authorization to create, commit, push, or publish an approved-safe snapshot. There is no automatic approval backfill.
+## Safe repository verification
 
-The controlled CLEANUP-002 `--dry-run` found zero approved public needs, donations, and reports in the observed live data. Four generated JSON files were inspected and restored because no public snapshot publication was authorized.
-
-## Explicit export inspection
-
-Use the explicit sync command for local generation or inspection:
+Run from the repository root:
 
 ```bash
-# Inspect live source data without filesystem writes
-python scripts/sync_approved_safe_data.py --dry-run
+python -m pytest -q
+python -m pytest -q tests/test_daily_read_only.py
+python scripts/install_runtime_plugins.py --dry-run
+python scripts/install_runtime_plugins.py --dry-run --mode legacy
+git diff --check
+```
 
-# Generate a local approved-safe snapshot only when separately authorized
+Current accepted clean-install baseline is `379 passed, 69 subtests passed` across 23/23 acceptance stages; `production_touched: false`. Pytest is fake-based and offline.
+
+## Disposable clean-install harness
+
+NPH-V1 clean-install acceptance uses a new unique directory under the Hermes cache and a profile name beginning `nonprofit-v1-test`. Run it only from an exact clean commit:
+
+```bash
+python scripts/clean_install_acceptance.py \
+  --source <clean-repository-root> \
+  --output-root <hermes-cache>/clean-install/<unique-run> \
+  --profile nonprofit-v1-test-<unique-run> \
+  --json
+```
+
+Admission fails before writes for a dirty/non-root Git source, an existing output directory, a non-disposable or existing profile name, a path outside the active Hermes cache, an active-root collision, or an unsupported profile-install CLI. The harness archives the exact commit, scans exclusions, builds wheel/sdist, creates a fresh venv, and installs into an isolated `%LOCALAPPDATA%/hermes` under the run directory. It proves the installed profile has no secrets or private state before creating a synthetic `auth.json` and synthetic credential placeholder solely for offline doctor checks. It does not create `.env`, start a gateway, call Telegram/Google, generate public files, or publish.
+
+Evidence is preserved as `result.json` in the unique run root. It contains normalized command argv, source SHA, artifact hashes, check summaries, profile booleans, and `production_touched: false`; it excludes command output and synthetic values. The accepted release-candidate run `NPH-V1-060N-20260726073936` completed all 23 stages (379 tests and 69 subtests) without touching production. A harness implementation test alone is not clean-install acceptance; each future release candidate requires its own successful disposable run.
+
+## Install the package and profile distribution
+
+Hermes Agent `0.18.2` or newer, Python `3.11` or newer, and Git are required. The supported profile manifest cannot install Python dependencies, so install the Python package first. Profile installation does not install the Python package, configure credentials, start the gateway, or prove any integration live.
+
+From an inspected local checkout:
+
+```bash
+python -m pip install .
+hermes profile install . --name nonprofit
+hermes profile info nonprofit
+```
+
+From the published repository and release tag:
+
+```bash
+python -m pip install "git+https://github.com/falloutmule/non-profit-hermes-mvp.git@v1.0.0"
+hermes profile install https://github.com/falloutmule/non-profit-hermes-mvp.git --name nonprofit
+hermes profile info nonprofit
+```
+
+The tagged package command is valid only after `v1.0.0` is published. The Git profile command follows the repository's default branch; use a reviewed local checkout for an exact revision. Installation fails if the target profile already exists unless the operator deliberately adds `--force`. Force installation replaces distribution-owned content and shipped config while preserving Hermes user-owned state, so back up and review local config first.
+
+## Secure profile setup
+
+Keep the gateway stopped during setup. The installer writes `.env.EXAMPLE` with names and blank values; it does not write `.env`. In the installed `nonprofit` profile:
+
+1. Copy `.env.EXAMPLE` to `.env` without committing either file.
+2. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS` for the intended bot and explicit user allowlist.
+3. For Google-backed operation, set `NON_PROFIT_HERMES_CREDENTIALS_FILE` and `NON_PROFIT_HERMES_SPREADSHEET_ID`. Set the optional Calendar, directory, routing, and delivery variables only when needed. Do not print their values into logs or evidence.
+4. Configure OpenAI Codex OAuth in this profile instead of putting provider secrets in the distribution:
+
+```bash
+hermes -p nonprofit auth add openai-codex
+```
+
+5. Reinspect distribution metadata and profile state without displaying secret values:
+
+```bash
+hermes profile info nonprofit
+hermes profile show nonprofit
+```
+
+Run the offline doctor before considering any gateway start:
+
+```bash
+python -m non_profit_hermes.doctor --profile nonprofit --offline --strict
+nonprofit-hermes doctor --profile nonprofit --offline --strict
+python -m non_profit_hermes.doctor --profile nonprofit --offline --strict --json
+```
+
+The first two commands are equivalent; JSON is redacted and stable for automation. Exit codes are `0` healthy, `1` warning/partial, `2` blocking configuration failure, `3` runtime failure, and `4` privacy/integrity failure. With `--strict`, warnings become exit `2`. Offline mode checks package, profile, distribution, plugin exclusivity, configuration metadata, and privacy inventory while explicitly skipping network/process probes. Do not start the gateway merely because profile installation or offline doctor succeeds.
+
+After secure setup and a separately authorized runtime start, configure `NON_PROFIT_HERMES_EXPECTED_BOT_USERNAME`, `NON_PROFIT_HERMES_PUBLIC_DIR`, and optionally an HTTPS `NON_PROFIT_HERMES_PUBLIC_SITE_URL`, then run:
+
+```bash
+python -m non_profit_hermes.doctor --profile nonprofit --live-readonly --strict
+```
+
+Live-readonly mode reads Scheduled Task, process, listener, runtime-status, and plugin-registration state; performs only Telegram `getMe`; loads Google credentials without refresh and performs one minimal Sheets read plus one Calendar metadata read; and reads approved-safe local/live markers. It never performs gateway lifecycle actions, Telegram sends/polling changes, Google writes, Calendar event creation, credential persistence, public generation, Git operations, or publication. Missing expected identity/publication configuration warns (and blocks strict mode); unsupported Scheduled Task inspection is reported as skipped. Probe exceptions expose only stable classification, never exception details or private payloads.
+
+The production doctor is a downstream acceptance gate: source and fake-backed checks do not establish current live health.
+
+After the offline doctor passes, secure setup is complete, the exact bot/profile/model and unified-only plugin state are verified, and startup is separately authorized, the operator may run:
+
+```bash
+hermes -p nonprofit gateway start
+```
+
+Then perform the gateway acceptance sequence below. This packaging task did not run that command.
+
+## Update, rollback, and delete
+
+Inspect the recorded source and installed version before updating:
+
+```bash
+hermes profile info nonprofit
+hermes profile update nonprofit
+```
+
+Normal update refreshes the declared distribution-owned SOUL, skill, plugin, manifest, and other owned content while preserving local `config.yaml`, `.env`, `auth.json`, memories, sessions, databases, logs, and `local/`. It does not reinstall the Python package and does not start the gateway. Update the Python package separately when the release changes.
+
+To discard local config changes and restore the distribution's shipped safe config:
+
+```bash
+hermes profile update nonprofit --force-config
+```
+
+`--force-config` overwrites `config.yaml`; review and back it up before use. It still preserves Hermes user-owned state and secrets.
+
+The installed Hermes version guarantees that a failed compatibility preflight leaves the prior owned state unchanged, but it does not expose a transactional rollback for an arbitrary mid-copy failure. For exact rollback, stop before gateway activation, protect user-owned state, check out the reviewed Git tag or commit locally, reinstall that package revision, and force-install the local distribution:
+
+```bash
+git checkout <reviewed-tag-or-commit>
+python -m pip install .
+hermes profile install . --name nonprofit --force -y
+hermes profile info nonprofit
+```
+
+Verify the restored version, config, user-owned state, plugin exclusivity, and package import before any separately authorized gateway start. Do not treat Git rollback alone as profile or Python-package rollback.
+
+Profile deletion is destructive and removes config, credentials, memories, sessions, skills, and other profile data. Back up required user-owned data securely, stop the profile gateway, confirm the exact profile, then run only when deletion is intended:
+
+```bash
+hermes profile info nonprofit
+hermes profile delete nonprofit
+```
+
+Deletion does not uninstall the Python package or remove repository data.
+
+## Plugin installation and drift
+
+The canonical v1.0.0 runtime is the unified `non-profit-hermes` plugin under `plugins/non-profit-hermes/`. `RUNTIME_PLUGIN_MANIFEST.json` v2 lists it first with role `primary` and exact source hashes. The seven directories under `runtime_plugins/` are deprecated `compatibility` shims retained for one release as a deterministic rollback set.
+
+Unified and legacy plugins expose the same seven command names and must never be enabled together. Before any gateway start, a separately authorized migration must disable the legacy set when selecting unified mode, or disable the unified plugin when selecting legacy rollback mode. The installer copies files only; it does not enable, disable, or remove plugins.
+
+Dry-run manifest verification performs no writes:
+
+```bash
+python scripts/install_runtime_plugins.py --dry-run
+```
+
+The default is `mode=unified` and lists only `non-profit-hermes`. Inspect the legacy rollback set without writes:
+
+```bash
+python scripts/install_runtime_plugins.py --dry-run --mode legacy
+```
+
+Apply to an explicit disposable or selected plugin root:
+
+```bash
+python scripts/install_runtime_plugins.py --apply --target-root <plugin-root>
+python scripts/install_runtime_plugins.py --apply --mode legacy --target-root <rollback-plugin-root>
+```
+
+Each apply command selects exactly one set: the unified plugin by default, or all seven compatibility shims with `--mode legacy`. The live shared Hermes plugin root is refused unless `--live` is also supplied. Live apply requires later migration authorization; do not add `--live` during ordinary development. Do not use `--allow-dirty-git` except for a deliberate, documented disposable proof.
+
+On apply, the installer:
+
+1. verifies the manifest;
+2. stages canonical files without bytecode;
+3. preserves declared mutable files;
+4. moves an existing plugin directory to `<plugin-root>/.cleanup_004_backups/<plugin>.<UTC timestamp>`;
+5. atomically replaces the target;
+6. restores the backup if staged replacement fails.
+
+The installer does not configure credentials, enable or disable plugins for `nonprofit`, remove the opposite plugin set, create the profile-local junction, or start the gateway. Those remain separately authorized migration operations. Preserve backups until verification and an explicit retention decision.
+
+Read-only drift check:
+
+```bash
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --json --strict
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --mode legacy --json --strict
+python scripts/check_runtime_plugin_drift.py --installed-root <plugin-root> --mode all --json
+```
+
+The default checker mode is `unified`; `--mode legacy` checks only the rollback shims; `--mode all` is a read-only audit of both sets. JSON identifies manifest version, selected mode, source, role, plugin identity/version, and `read_only: true`. Strict mode fails for missing, unexplained, or untested state within the selected mode. This B2 work verified disposable roots only and did not inspect or modify the installed shared root.
+
+## Gateway acceptance sequence
+
+After a separately authorized startup or restart, verify each layer rather than inferring health:
+
+1. exact `nonprofit` profile and expected model/provider;
+2. exact `@HnonProfitBOT` identity using a secret-safe read;
+3. one nonprofit gateway process;
+4. effective `127.0.0.1:8643` listener when launched by the Scheduled Task;
+5. exactly one unified nonprofit plugin enabled, all seven legacy shims disabled, and no nonprofit plugin enabled in `default` (or the exact inverse set during an authorized rollback; never both);
+6. all seven Telegram registry entries;
+7. human-originated `/commands` and `/daily` canaries;
+8. `/daily` zero-write evidence;
+9. no public-file generation or publication.
+
+These checks are currently pending because no gateway lifecycle action was authorized. Historical human-originated `/daily` evidence dated 2026-07-12 is retained in `CLEANUP_003_DAILY_READ_ONLY_REPORT.md` but does not replace a current canary.
+
+## Command behavior
+
+- `/daily` reads approved-safe Sheets/Calendar data and builds the summary in memory. It performs no Google mutation, public-file generation, or durable token refresh.
+- `/need`, `/donation`, `/report`, `/task`, and `/inventory` are draft-first mutation paths when live Google services are connected. Every supported write adds an AuditLog entry.
+- `/event` writes a CalendarLog draft. It does not grant Calendar creation authority.
+- Calendar promotion requires a fresh authorization for the exact draft, preflight and guard checks, one consumed attempt, same-row event-ID persistence, and idempotence/privacy verification.
+
+The Telegram registry proves command registration only. While the gateway is stopped, no command should be described as currently live-dispatch verified.
+
+## OAuth refresh behavior
+
+Operational loaders persist an expired credential through the atomic refresh boundary:
+
+- refresh in memory;
+- write and validate a separate candidate;
+- lock the operational file;
+- create and flush an exact-byte rollback backup;
+- atomically replace and verify;
+- delete temporary state and backup on success;
+- restore exact bytes and ACL on handled post-replacement failure.
+
+Errors and evidence use status codes and hashes, not credential values. `/daily` and sync `--dry-run` intentionally request in-memory refresh only and do not persist a token.
+
+## Approved-safe generation and publication
+
+Inspect live source data without filesystem writes:
+
+```bash
+python scripts/sync_approved_safe_data.py --dry-run
+```
+
+Generate local public output only with separate authorization:
+
+```bash
 python scripts/sync_approved_safe_data.py
 ```
 
-The dry-run reads full Sheet ranges, including rows after 100, and reports acceptance/rejection and duplicate evidence. It does not create Calendar events or write public files.
+Generation writes `docs/`; it does not authorize commit, push, or publication. Required sequence:
 
-## Intake commands
+1. verify the exact authorization and data boundary;
+2. run generation;
+3. inspect all changed HTML/JSON for approved-safe content and escaped values;
+4. verify only `docs/` generated outputs changed;
+5. obtain human approval for the exact public diff;
+6. commit/push only under separate publication authorization;
+7. verify canonical GitHub Pages URLs.
 
-All write commands use draft-first intake:
+The 2026-07-21 inventory did not rerun public-generation parity and did not publish anything.
 
-| Command | Creates | Default status | Default privacy |
-|---|---|---|---|
-| `/need <text>` | Requests row | needs-info | private-review |
-| `/donation <text>` | Donations row | needs-info | private-review |
-| `/report <text>` | Reports row | needs-info | private-review |
-| `/task <text>` | Tasks row | needs-info | internal |
-| `/inventory <text>` | Inventory row (upsert) | needs-info | internal |
-| `/event <text>` | CalendarLog draft | needs-info | private-review |
+## Explicit live-write warnings
 
-Approved-safe exports are deny-by-default: requests require `ConsentToShare`, donations require `PublicListingAllowed`, and reports require `PublicSummaryAllowed` plus `PublicSummaryDraft`; all also require approved privacy and an allowed public status. Board logs are aggregate-only, and generated public HTML escapes user-controlled values.
+These paths can mutate production data and are not offline tests:
 
-## Google Sheets maintenance
+```bash
+python scripts/non_profit_hermes_ops.py --test-write
+python scripts/telegram_intake_router.py --test
+```
 
-CLEANUP-002 resolved the former row-100 read limit, canonical-schema divergence, and export deduplication gap. Header additions were append-only and preserved existing Reports and Donations data rows.
+Do not run them without deliberate live-service authorization. Never create a Calendar event without authorization for that event. Never backfill approval flags automatically.
 
-Historical test records remain data records. Do not delete, backfill, approve, or publish them without explicit authorization.
+## Failure and rollback boundary
 
-## Event operations
-
-`/event` remains draft-first. The authoritative final EVENT-004 evidence JSON supports one explicitly renewed-authorized, synthetic promotion: draft `EVT-A31A0CF8` mapped to Calendar event `cpq3e1oivn4ajb4t8ktemjuj0g` on CalendarLog row 14, with final one-event/13-row counts, authorization absent, `private-review`, `PublicCalendarAllowed=no`, and approved-calendar exclusion. A direct installed-plugin retry observed during the execution session returned `already_created`; that retry observation is not contained in the JSON, while offline tests independently cover idempotence.
-
-This exception does **not** enable general Calendar promotion. For every future promotion, require separate per-event human authorization; run preflight/guard checks; create only the named private-by-default draft; consume authorization immediately before the first external attempt (so it remains non-reusable after a failure); write the returned ID to the same row; and verify retry idempotence and privacy exclusion. Do not treat `/daily`, offline tests, or direct plugin invocation as promotion authority.
-
-A controlled local `/daily` CLI proof observed during the execution session passed with zero writes; it left docs, working-tree status, and absent token state unchanged. Direct invocation of the installed daily gateway plugin was also observed to pass with an in-memory marker and zero writes. These execution-session observations are not contained in the authoritative final evidence JSON, which records final counts, hashes, and state. Neither is a human-originated Telegram-delivered message, so neither proves Telegram transport or user-command delivery.
-
-Initial plugin-routing and sensitive-description-hold failures were contained and repaired before the successful EVENT-004 insertion. During the controlled evidence execution, no public snapshot, gateway restart, Telegram registration, deletion, SNC action, commit, staging, push, or unrelated live mutation was performed. The implementation was subsequently committed and pushed as historical commit `fb2911c8e4cdc0c2c4bcf5a67fcd948db74cf174` (`feat: add controlled event promotion authorization`); local/origin/GitHub `main` matched immediately after that push, not as a standing status claim. The documentation/evidence commit remains pending. Review and separately authorize any documentation/evidence commit, gateway work, or future live promotion. See `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md` for evidence and audit IDs.
-
-Retained EVENT-003 evidence: draft `EVT-FC5611E9` was created and updated in CalendarLog row 13 with a blank `CalendarEventID`; the required read-only Calendar search returned zero matches. This historical draft-only verification does not authorize future promotions.
+If plugin install verification fails, stop the gateway activation path, inspect the timestamped backup, and restore the prior plugin directory before retrying. If bot/profile/model/port identity differs, or duplicate/missing commands appear, stop and preserve evidence rather than continuing. A repository rollback does not by itself restore runtime plugins, profile state, or credentials; each state owner needs its own verified rollback.

@@ -40,12 +40,12 @@
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\Users\fallo\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
-- `C:\Users\fallo\non-profit-hermes-mvp\VISIBLE_SYNC_RENDERING_REPORT.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\APPROVED_SAFE_SYNC_REPORT.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\data\approved_needs.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\data\approved_calendar.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\data\approved_reports.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\data\approved_donations.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\data\approved_volunteer_gaps.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\data\approved_board_log.json`
+- `[USER_HOME]\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
+- `[USER_HOME]\non-profit-hermes-mvp\VISIBLE_SYNC_RENDERING_REPORT.md`
+- `[USER_HOME]\non-profit-hermes-mvp\APPROVED_SAFE_SYNC_REPORT.md`
+- `[USER_HOME]\non-profit-hermes-mvp\data\approved_needs.json`
+- `[USER_HOME]\non-profit-hermes-mvp\data\approved_calendar.json`
+- `[USER_HOME]\non-profit-hermes-mvp\data\approved_reports.json`
+- `[USER_HOME]\non-profit-hermes-mvp\data\approved_donations.json`
+- `[USER_HOME]\non-profit-hermes-mvp\data\approved_volunteer_gaps.json`
+- `[USER_HOME]\non-profit-hermes-mvp\data\approved_board_log.json`

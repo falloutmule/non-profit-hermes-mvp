@@ -1,0 +1,4 @@
+name: non-profit-hermes
+version: 1.0.0
+description: Unified shareable command interface for Non-Profit Hermes operations.
+kind: standalone

@@ -3,27 +3,15 @@ from __future__ import annotations
 
 import builtins
 import hashlib
-import importlib.util
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from non_profit_hermes import approved_safe_sync, router
+
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
-
-
-def load_module(name: str, relative_path: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 class _Result:
@@ -49,8 +37,11 @@ class FakeCalendar:
 class DailyReadOnlyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.sync = load_module("cleanup003_sync", "scripts/sync_approved_safe_data.py")
-        cls.router = load_module("cleanup003_router", "scripts/telegram_intake_router.py")
+        cls.sync = approved_safe_sync
+        cls.sync.TOKEN = ROOT / "synthetic-offline-credential.json"
+        cls.sync.SPREADSHEET_ID = "synthetic-offline-sheet"
+        cls.sync.CALENDAR_ID = "synthetic-offline-calendar"
+        cls.router = router
 
     def rows(self, tab, *mappings):
         header = self.sync.HEADERS[tab]
@@ -170,6 +161,20 @@ class DailyReadOnlyTests(unittest.TestCase):
         self.assertEqual({item["RequestID"] for item in expected["approved_needs"]}, {"REQ-SAFE-1"})
         self.assertIn("REQ-SAFE-1", summary)
         self.assertNotIn("PRIVATE SENTINEL", summary)
+
+    def test_plugin_daily_boundary_stays_in_memory_and_read_only(self):
+        sheets, calendar = self.fake_services()
+        with (
+            patch.object(self.router, "daily_services", return_value=(sheets, calendar)),
+            patch.object(self.router.approved_safe_sync, "write_json", side_effect=AssertionError("plugin daily generated JSON")),
+            patch.object(self.router.approved_safe_sync, "write_page", side_effect=AssertionError("plugin daily generated HTML")),
+            patch.object(self.router.approved_safe_sync, "write_both", side_effect=AssertionError("plugin daily generated page")),
+            patch.object(self.router, "services", side_effect=AssertionError("plugin daily initialized write services")),
+        ):
+            summary = self.router.run_plugin_command("daily", "")
+
+        self.assertIn("Daily board-safe summary", summary)
+        self.assertIn("REQ-SAFE-1: Blankets", summary)
 
 
 if __name__ == "__main__":

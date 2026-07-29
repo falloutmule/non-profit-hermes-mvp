@@ -52,19 +52,19 @@
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\Users\fallo\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_needs.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_calendar.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_reports.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_donations.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_volunteer_gaps.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_board_log.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\index.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs/index.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\calendar.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\calendar/index.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\reports.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\reports/index.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\today.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\today/index.html`
+- `[USER_HOME]\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_needs.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_calendar.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_reports.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_donations.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_volunteer_gaps.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_board_log.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\index.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\current-needs.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\current-needs/index.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\calendar.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\calendar/index.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\reports.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\reports/index.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\today.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\today/index.html`

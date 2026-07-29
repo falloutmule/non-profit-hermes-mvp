@@ -1,177 +1,158 @@
 # Architecture — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-11 (CLEANUP-001)
+**Current architecture captured:** 2026-07-21
 
-## System overview
+## Current deployed shape
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Telegram (user input)                     │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Hermes Gateway + Plugins (external to this repo)            │
-│                                                               │
-│  non-profit-hermes-daily       → /daily                      │
-│  non-profit-hermes-need         → /need                      │
-│  non-profit-hermes-donation     → /donation                  │
-│  non-profit-hermes-report       → /report                    │
-│  non-profit-hermes-task         → /task                      │
-│  non-profit-hermes-inventory    → /inventory                 │
-│  non-profit-hermes-event        → /event (draft-only)        │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ delegates to
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  scripts/telegram_intake_router.py                           │
-│                                                               │
-│  • Draft-first intake for all commands                       │
-│  • Active-draft state tracking (per chat scope)              │
-│  • Follow-up routing (event→report→task→inventory→donation→need) │
-│  • /daily summary builder (currently calls sync, which     │
-│    writes docs/ files; does not commit/push; read-only    │
-│    no-mutation is the cleanup target)                      │
-│  • Source-scope bridge: telegram:live → telegram:<chat_id>   │
-└─────────────┬───────────────────────────────┬───────────────┘
-              │ writes via                    │ reads via
-              ▼                               ▼
-┌──────────────────────────┐  ┌────────────────────────────────┐
-│  scripts/                │  │  scripts/                       │
-│  non_profit_hermes_ops   │  │  sync_approved_safe_data.py     │
-│  .py                     │  │                                │
-│                          │  │  • Reads Sheets + Calendar     │
-│  • add_request           │  │  • Filters to approved-safe    │
-│  • add_donation          │  │  • Writes docs/ HTML + JSON    │
-│  • add_report            │  │  • Privacy gates per type      │
-│  • add_task              │  └────────────────────────────────┘
-│  • update_inventory      │
-│  • upsert_event_draft    │
-│  • update_event_draft    │
-│  • create_calendar_event │
-│  • create_calendar_event │
-│    _from_draft (disabled)│
-│  • write_audit_log       │
-└───────────┬──────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Google Sheets (system of record)                 │
-│                                                               │
-│  Requests │ Donations │ Reports │ Tasks │ Inventory          │
-│  CalendarLog │ AuditLog │ (SensitiveNotes - logical)         │
-└─────────────────────────────────────────────────────────────┘
-            │
-            ▼ (CalendarLog promotion only, EVENT-004)
-┌─────────────────────────────────────────────────────────────┐
-│              Google Calendar (dated commitments)              │
-│  Currently disabled for /event. Live promotion from a      │
-│  draft is untested. Historical safe fake direct backend    │
-│  test events exist. EVENT-004 authorizes first live        │
-│  promotion from a draft.                                    │
-└─────────────────────────────────────────────────────────────┘
+```text
+Telegram user
+  -> @HnonProfitBOT
+  -> separate nonprofit gateway (currently stopped)
+  -> nonprofit Hermes profile
+  -> openai-codex/gpt-5.6-sol
+  -> seven enabled legacy command plugins
+  -> scripts/telegram_intake_router.py
+       |-> /daily approved-safe read-only snapshot
+       |-> draft-first command routing
+  -> scripts/non_profit_hermes_ops.py
+       |-> Google Sheets rows + AuditLog
+       `-> explicitly authorized Google Calendar events
 
-                           │ sync output
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  docs/ (GitHub Pages — main /docs)                           │
-│                                                               │
-│  index.html │ today.html │ current-needs.html                │
-│  calendar.html │ reports.html │ deployment-proof.html        │
-│  data/approved_*.json                                        │
-│                                                               │
-│  Public URL: https://falloutmule.github.io/non-profit-hermes │
-│  -mvp/                                                       │
-└─────────────────────────────────────────────────────────────┘
+Separate publication path
+Google Sheets + Calendar
+  -> scripts/sync_approved_safe_data.py
+  -> reviewed approved-safe HTML/JSON under docs/
+  -> separately authorized GitHub Pages publication
 ```
 
-## Component responsibilities
+The bot identity, profile, model route, plugin enablement, and Telegram command registry were verified read-only. The gateway is stopped, so the full chain above describes the deployed design, not a currently running dispatch path.
 
-### Hermes plugins (external)
+## Runtime and profile topology
 
-Each plugin lives under `~/.hermes/plugins/non-profit-hermes-<cmd>/` and contains:
+- `nonprofit` is an isolated Hermes profile with its own bot credential and model route.
+- The seven nonprofit plugins are disabled in `default` and enabled in `nonprofit`.
+- A separate Windows Scheduled Task launches `hermes --profile nonprofit gateway run` through a profile-local VBS launcher.
+- Profile config declares API host `127.0.0.1` and port `8642`.
+- The Scheduled Task launcher overrides the port to `8643`; this is the intended task-launched port.
+- On 2026-07-21, no nonprofit gateway process or `8643` listener existed. The effective bind remains untested.
+- Gateway state metadata incorrectly still claimed `running`, and two additional generated service/startup paths reported by status were absent. The actual Scheduled Task points to the existing launcher.
 
-- `plugin.yaml` — kind: standalone, registers the command
-- `__init__.py` — entrypoint, calls the router, renders via `_result_to_text()`
+Runtime state, Scheduled Task state, port listeners, and command registration are separate facts. A `Ready` task or registered command does not prove a running gateway.
 
-Plugins are **thin shims**. They contain no business logic, no direct Sheets/Calendar writes. They delegate to `scripts/telegram_intake_router.py`.
+## Plugin source, discovery, and installation
 
-### `scripts/telegram_intake_router.py`
+Canonical source is in the repository:
 
-The router is the intelligence layer:
-
-- **Draft-first intake**: all write commands create a `needs-info` draft first, then accept follow-up text to complete it.
-- **Active-draft state**: per-chat pointers track which draft a follow-up should attach to. State stored in `telegram_active_need_drafts.json`.
-- **Follow-up chain**: `handle_message()` tries event → report → task → inventory → donation → need in order. Each handler returns `None` (pass-through) if the message lacks command-specific fields and no active draft exists.
-- **`/daily`**: currently calls the sync script, which writes `docs/` files (does not commit or push them). Read-only no-mutation behavior is the cleanup target. Displays calendar, needs, donations, reports, volunteer gaps, inventory shortages, website links, and completed-item counts.
-- **Source-scope bridge**: maps `telegram:live` → `telegram:6080816249` for legacy plugin compatibility.
-
-### `scripts/non_profit_hermes_ops.py`
-
-The backend module. Every write operation:
-
-1. Calls `ensure_header()` to sync the Sheet header row with the code schema.
-2. Writes the data row.
-3. Calls `write_audit_log()` to record actor, action, target, before/after, result.
-
-Key operations: `add_request`, `add_donation`, `add_report`, `add_task`, `update_inventory`, `upsert_event_draft`, `update_event_draft`, `create_calendar_event`, `create_calendar_event_from_draft`, `write_audit_log`.
-
-### `scripts/sync_approved_safe_data.py`
-
-The publication pipeline. Reads Sheets + Calendar, filters to approved-safe records, generates self-contained HTML pages and JSON exports under `docs/`.
-
-Privacy filters per type:
-- **Requests**: `PrivacyLevel` in approved set (board-visible, public-safe, board-visible-test). **Note:** `ConsentToShare` and `Status` checks not yet implemented (P0 gap).
-- **Reports**: exclude `private-review`, `private-hold`, `draft`, `needs-info`
-- **Donations**: exports safe fields only (no donor contact or private location)
-- **Calendar**: two-source join — CalendarLog approval gate + live Calendar ID existence check
-- **Board log**: audit entries (currently exposes internal IDs — P0 cleanup item)
-
-### `docs/` (GitHub Pages)
-
-Static HTML/JSON output. Pages source: `main /docs` (verified). All pages carry the deployment marker `CLEAN_DOCS_DEPLOY_NON_PROFIT_HERMES_002`.
-
-## Data flow: write path
-
-```
-User types /need "diapers size 4"
-  → plugin delegates to router
-  → router creates draft (REQ-XXXXXXXX, status=needs-info)
-  → backend add_request() writes Requests row + AuditLog row
-  → router sets active_need_request_id in state
-  → router returns "Draft created, missing: contact, urgency, ..."
-
-User sends follow-up "contact=unknown urgency=high status=ready"
-  → router detects active draft
-  → backend update_request() updates same row + AuditLog
-  → router clears active pointer
-  → router returns "Updated, status=ready"
+```text
+runtime_plugins/
+  non-profit-hermes-daily/
+  non-profit-hermes-need/
+  non-profit-hermes-donation/
+  non-profit-hermes-report/
+  non-profit-hermes-task/
+  non-profit-hermes-inventory/
+  non-profit-hermes-event/
 ```
 
-## Data flow: publication path
+Each plugin is a thin legacy shim that registers one command and delegates to the repository router. Business and Google logic remain in `scripts/`.
 
-```
-Operator runs sync_approved_safe_data.py
-  → reads all Sheets tabs
-  → filters to approved-safe records
-  → generates docs/*.html + docs/data/*.json
-  → operator reviews diffs
-  → operator commits and pushes
+Discovery/install topology:
 
-/daily (currently mutates docs/)
-  → calls sync script internally
-  → writes docs/*.html + docs/data/*.json
-  → does NOT commit or push those files
-  → read-only no-mutation is the cleanup target
+```text
+runtime_plugins/                         canonical tracked source
+  -> RUNTIME_PLUGIN_MANIFEST.json        tracked file hashes and mutable patterns
+  -> scripts/install_runtime_plugins.py  deliberate copy/install boundary
+  -> <hermes-home>/plugins               shared installed root
+  <- <nonprofit-profile>/plugins         Windows junction/reparse point
 ```
 
-## Privacy boundaries
+`scripts/check_runtime_plugin_drift.py` compares installed files against the manifest without writing. Current strict inspection returned only `EXPECTED DERIVATION` for bytecode caches and found no missing or unexplained file.
 
-| Layer | What crosses | What stays |
-|-------|-------------|-----------|
-| Telegram → Sheets | structured intake fields | SensitiveDetails always empty |
-| Sheets → docs/ | approved-safe fields only | donor contact, private location, raw IDs, drafts |
-| Sheets → Calendar | only approved+ready event drafts (EVENT-004) | private titles, descriptions, locations |
-| AuditLog → board log | aggregate counts (target: cleanup) | raw audit IDs, task/inventory IDs (target: cleanup) |
+The installer is dry-run by default. On apply it verifies the manifest, stages a complete directory, preserves declared mutable files, moves an existing target to a timestamped backup, atomically replaces the target, and restores the backup when replacement fails. It does not enable plugins, configure a profile, or start a gateway.
 
-See [SECURITY_AND_PRIVACY.md](SECURITY_AND_PRIVACY.md) for the full privacy model.
+## Command layer
+
+The Telegram registry contains seven commands:
+
+```text
+/daily
+/need
+/donation
+/report
+/task
+/inventory
+/event
+```
+
+`scripts/telegram_intake_router.py` provides:
+
+- draft-first creation for write commands;
+- per-source active-draft pointers;
+- command-specific follow-up routing;
+- privacy classification and safe user responses;
+- `/daily` approved-safe summary rendering.
+
+`/daily` calls `daily_services()`, which requests `persist_refresh=False`, reads approved-safe source data, and builds the response in memory. It does not call the public writer or create Google records.
+
+The six intake commands are mutation-capable when connected to live Google services. `/event` creates or updates a CalendarLog draft; actual Calendar creation is a separate, guarded, per-event promotion.
+
+## Private data and mutation layer
+
+`scripts/non_profit_hermes_ops.py` owns structured writes:
+
+- Requests
+- Donations
+- Reports
+- Tasks
+- Inventory
+- CalendarLog
+- AuditLog
+
+Every supported create/update path maintains the canonical header contract and writes an audit entry. Tasks and Inventory are internal-only. Automated report writes keep sensitive detail fields empty.
+
+Google Calendar is not a general `/event` side effect. Promotion requires explicit authorization for one named draft, guard checks, authorization consumption before the external attempt, same-row event-ID persistence, and idempotence verification.
+
+## OAuth refresh boundary
+
+Operational loaders use `scripts/google_oauth_refresh.py` for durable refresh:
+
+```text
+load operational credential
+  -> refresh in memory
+  -> serialize separate candidate
+  -> validate credential, scopes, identity, hash, and ACL invariants
+  -> acquire exclusive refresh lock
+  -> write and flush exact-byte backup
+  -> atomically replace operational file
+  -> verify hash/ACL and clean temporary state
+  -> delete backup on success or restore it on post-swap failure
+```
+
+This is atomic/recoverable persistence with secret-free error evidence. `/daily` and sync `--dry-run` intentionally bypass durable persistence and refresh only in memory.
+
+## Approved-safe publication layer
+
+`scripts/sync_approved_safe_data.py` reads all relevant Sheet ranges and Calendar data, deduplicates records, applies deny-by-default gates, escapes user-controlled HTML, and writes generated static output under `docs/` only when run without `--dry-run`.
+
+Publication gates include:
+
+- Requests: approved privacy, approved public status, affirmative consent
+- Donations: approved privacy, approved public status, affirmative public-listing permission
+- Reports: approved privacy, approved public status, affirmative public-summary permission, non-empty approved summary
+- Calendar: approved CalendarLog record joined to an existing Calendar event
+- Board log: aggregate-only output
+- Tasks and Inventory: never exported
+
+Generation is not publication. An operator must review generated changes and obtain explicit publication authorization before commit or push. The 2026-07-21 inventory did not rerun generation parity.
+
+## Current production versus release candidate
+
+The current production profile remains script-based and uses seven separate legacy plugins. The local `packaging/non-profit-hermes-v1` release candidate now contains:
+
+- importable `non_profit_hermes` package;
+- one unified plugin registering all seven commands;
+- secret-free installable profile distribution;
+- deterministic runtime doctor;
+- disposable repository-only clean-install acceptance (23/23 stages, 379 tests, 69 subtests, production untouched).
+
+Those candidate capabilities are not yet GitHub-released or migrated into the live profile. Production migration, human Telegram canaries, and live-readonly doctor verification remain separate gates. Historical operational modules may retain user-specific paths, but the candidate publication boundary is now audited and redacted.

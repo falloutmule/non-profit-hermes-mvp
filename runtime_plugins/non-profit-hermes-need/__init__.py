@@ -1,25 +1,20 @@
+"""Deprecated compatibility shim for the historical /need command."""
 from __future__ import annotations
 
-import sys
-import traceback
-from pathlib import Path
-
-REPO = Path(r"C:\Users\fallo\non-profit-hermes-mvp")
-SCRIPTS = REPO / "scripts"
+from non_profit_hermes import router
 
 
 def _need(args: str = "") -> str:
-    if str(SCRIPTS) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS))
     try:
-        import telegram_intake_router
-        result = telegram_intake_router.handle_message("/need " + args.strip(), source_link="telegram:live")
-        return telegram_intake_router._result_to_text(result)
-    except Exception as exc:
-        return "Need command failed. Check gateway logs. Error: " + str(exc) + "\n" + traceback.format_exc(limit=1)
+        return router.run_plugin_command("need", args or "")
+    except Exception:
+        return (
+            "Non-Profit Hermes could not run /need. "
+            "Please try again or check gateway logs."
+        )
 
 
-def register(ctx):
+def register(ctx) -> None:
     ctx.register_command(
         "need",
         _need,

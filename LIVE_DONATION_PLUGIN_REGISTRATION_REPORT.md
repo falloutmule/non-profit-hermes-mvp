@@ -5,7 +5,7 @@
 **Date:** 2026-07-07
 
 ## What was changed
-- Added a live user plugin at `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-donation\`.
+- Added a live user plugin at `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-donation\`.
 - Files created/updated:
   - `plugin.yaml`
   - `__init__.py` (actual Hermes plugin loader entrypoint)

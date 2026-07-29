@@ -47,17 +47,17 @@
 
 ## Evidence paths/files/logs/URLs
 
-- `C:\Users\fallo\non-profit-hermes-mvp\_config.yml`
-- `C:\Users\fallo\non-profit-hermes-mvp\_layouts\default.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\index.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\today.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\current-needs.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\calendar.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\volunteer.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\donations.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\reports.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\board-log.md`
-- `C:\Users\fallo\non-profit-hermes-mvp\PAGES_WIRING_REPORT.md`
+- `[USER_HOME]\non-profit-hermes-mvp\_config.yml`
+- `[USER_HOME]\non-profit-hermes-mvp\_layouts\default.html`
+- `[USER_HOME]\non-profit-hermes-mvp\index.md`
+- `[USER_HOME]\non-profit-hermes-mvp\today.md`
+- `[USER_HOME]\non-profit-hermes-mvp\current-needs.md`
+- `[USER_HOME]\non-profit-hermes-mvp\calendar.md`
+- `[USER_HOME]\non-profit-hermes-mvp\volunteer.md`
+- `[USER_HOME]\non-profit-hermes-mvp\donations.md`
+- `[USER_HOME]\non-profit-hermes-mvp\reports.md`
+- `[USER_HOME]\non-profit-hermes-mvp\board-log.md`
+- `[USER_HOME]\non-profit-hermes-mvp\PAGES_WIRING_REPORT.md`
 - `https://api.github.com/repos/falloutmule/non-profit-hermes-mvp/pages`
 - `https://api.github.com/repos/falloutmule/non-profit-hermes-mvp/pages/builds/1079944534`
 - `https://falloutmule.github.io/non-profit-hermes-mvp/`

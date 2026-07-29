@@ -107,7 +107,7 @@ Verified:
 ### 6) State cleanup
 Verified the active draft state file is now empty again:
 
-- `C:\Users\fallo\AppData\Local\hermes\state\telegram_active_need_drafts.json` → `{}`
+- `[USER_HOME]\AppData\Local\hermes\state\telegram_active_need_drafts.json` → `{}`
 
 ## What Failed
 
@@ -134,9 +134,9 @@ Verified the active draft state file is now empty again:
 
 ## Evidence Paths
 
-- `C:\Users\fallo\non-profit-hermes-mvp\scripts\telegram_intake_router.py`
-- `C:\Users\fallo\non-profit-hermes-mvp\scripts\non_profit_hermes_ops.py`
-- `C:\Users\fallo\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\data\approved_donations.json`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs.html`
-- `C:\Users\fallo\non-profit-hermes-mvp\docs\current-needs\index.html`
+- `[USER_HOME]\non-profit-hermes-mvp\scripts\telegram_intake_router.py`
+- `[USER_HOME]\non-profit-hermes-mvp\scripts\non_profit_hermes_ops.py`
+- `[USER_HOME]\non-profit-hermes-mvp\scripts\sync_approved_safe_data.py`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\data\approved_donations.json`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\current-needs.html`
+- `[USER_HOME]\non-profit-hermes-mvp\docs\current-needs\index.html`

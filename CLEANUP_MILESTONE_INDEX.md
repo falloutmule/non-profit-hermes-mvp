@@ -1,40 +1,52 @@
 # Cleanup Milestone Index
 
-**Canonical status:** Google recovery and CLEANUP-007 documentation closeout. This index is the canonical status entry point for the records named below. It does not grant an operational authorization.
+**Current index captured:** 2026-07-21
 
-## Current canonical truth
+This file preserves cleanup history. It is no longer the primary current-system status page. Use [PROJECT_STATUS.md](PROJECT_STATUS.md) for current Git/runtime truth, and [reports/README.md](reports/README.md) for supersession.
 
-- The recovery repairs are integrated at `dc2ef634c4af117ebfc1c024c9608a257318384d`: port-0 loopback redirect contract, callback/state/scope guards, real Flow redirect binding, guarded candidate validation, and explicit live arming.
-- The integrated documentation base is `af2149648b78ae2b05004b632c5b399c4b35d9d9`: `975fde6` integrated CLEANUP-006C and `af21496` integrated CLEANUP-007C. Their source checker records are `t_cdd46aea` and `t_5f852df8`, both completed PASS.
-- GR-CHECK-001 (`t_ed2752a1`) completed PASS against `dc2ef634`: its redacted evidence chain supports one successful callback/exchange, an ACCEPTED candidate with the exact eight-scope contract, restricted atomic promotion with rollback-only backup, and post-promotion bounded reads.
-- CLEANUP-007B-R2 (`t_51a5542e`) completed PASS: 182 governed records, one `ABANDONED_DRAFT_REVIEW`, one `EVIDENCE_RETAIN`, 180 `UNKNOWN_MANUAL_REVIEW`, five confirmed exact Calendar IDs per pass, and zero mutation calls.
-- CLEANUP-006C and CLEANUP-007C are integrated and independently checked. The retention policy authorizes zero current changes: no archive, delete, edit, publication, or automatic action.
+## Current repository and runtime boundary
 
-## Canonical decisions and limitations
+- Production GitHub `main`: `91143b3bacb46f799292027f1697376932b55403`
+- Packaging current-state evidence commit: `2276aa8f04b787e66d9eefd382fb32912660c7bb`
+- Runtime profile/model: `nonprofit`, `openai-codex/gpt-5.6-sol`
+- Bot identity: `@HnonProfitBOT`, verified read-only
+- Gateway: stopped; current live dispatch and human canaries untested
+- Plugins: seven canonical legacy copies tracked, seven installed/enabled for `nonprofit`, strict drift clean except expected bytecode derivations
+- Tests: 235 passed, 64 subtests passed
 
-- Candidate acceptance is not a reusable authorization. The documented recovery flow requires validation before promotion and preserves the operational credential on a failed candidate path.
-- The current application loaders remain non-atomic for durable refresh. The recovery-only `atomic_promote` helper is not a description of those loaders.
-- R2 performed only in-memory refresh for its bounded read-only inventory; the operational token file was unchanged in that run.
-- A Calendar delete may retain a cancelled tombstone. The verified condition is one cancelled tombstone and zero active exact-ID matches; no recreation is authorized.
-- Gateway restart and independent deployed-runtime validation were not performed. No plugin deployment, publication, push, merge, archive, or delete is authorized by this index.
-- Direct installer dry-run has a known Windows CRLF checkout/manifest exit-2 limitation. Tracked Git blobs, focused tests, strict runtime drift, and full-suite evidence remain separately recorded; the limitation is not repaired by documentation.
+Packaging work is in progress. No unified plugin, installable profile distribution, importable package, runtime doctor, clean-install acceptance, production migration, or `v1.0.0` release exists yet.
 
-## Historical records and stale-claim handling
+## Milestone state
 
-The following remain retained evidence or historical context and must not be read as current authorization or current runtime proof:
+| Milestone | Current interpretation |
+|---|---|
+| CLEANUP-002 — export safety | Complete; deny-by-default consent/status/privacy gates, deduplication, escaping, and aggregate board log implemented |
+| CLEANUP-003 — `/daily` read-only separation | Complete; `/daily` uses an in-memory approved-safe snapshot and does not generate public files or persist refresh |
+| CLEANUP-004 — runtime plugin reproducibility | Complete for seven legacy plugins; canonical sources, manifest, installer, backups, rollback, and drift checker exist |
+| Atomic OAuth refresh closeout | Complete in source and synthetic tests; operational loaders use candidate validation, lock, exact backup, atomic replace, verification, and rollback |
+| EVENT-004 — controlled Calendar promotion | Historical bounded acceptance only; no standing authority for another event |
+| Google recovery/retention work through CLEANUP-007 | Historical accepted evidence and zero-change/manual-review decisions; not a current runtime-health claim |
+| NPH-V1 packaging/reconciliation | In progress on `packaging/non-profit-hermes-v1`; proposed package/distribution/unified-plugin/doctor artifacts remain unimplemented |
 
-- `EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md` and the EVENT-003/EVENT-004 passages in older status/operations/security documents are historical controlled-event evidence.
-- `CLEANUP_006B_*` decision and forensic packets preserve the earlier redirect/recovery analysis. They are historical evidence, not a current permission to re-run an OAuth flow.
-- Earlier statements that a documentation closeout was pending, that an old offline test count was the latest suite result, or that a remote branch matched at a past instant are historical observations only. Current repository state must be queried with Git.
-- Legacy insecure URL-evidence artifacts are quarantined/non-authoritative and are not named as a source of current approval.
+## Corrected stale boundaries
 
-## Next-wave proposal — no authorization granted
+The following older statements are superseded:
 
-A later wave may consider only after a new human decision:
+- The repository **does** contain canonical copies of all seven legacy runtime plugins.
+- CLEANUP-003 is complete; `/daily` no longer generates `docs/`.
+- Operational durable refresh is atomic/recoverable; `/daily` and dry-run intentionally refresh in memory only.
+- The current test baseline is 235 passed plus 64 subtests, not earlier cleanup/event counts.
+- Historical command and event acceptance does not prove present live dispatch.
+- The stopped gateway, port mismatch, stale metadata, and pending human canaries remain current limitations.
 
-1. a new read-only, fresh inventory and exact-ID reconciliation for the 180 manual-review records;
-2. separate review of the single abandoned draft and the retained evidence record, with no automatic classification override;
-3. a separately scoped durable-refresh/promotion hardening proposal for the current non-atomic loaders; and
-4. an installer CRLF/manifest remediation proposal confined to the installer/runtime-plugin boundary.
+## Historical recovery and retention evidence
 
-Any archive or delete would require the exact targets, a fresh counts-only recheck, reversible archive and restore evidence, an independent checker, and explicit data-owner/operations, privacy, and system-owner authorization. Any gateway/plugin/publication action would require its own human-approved scope and deployment verification. This index grants none of those authorizations.
+Recovery repairs and the CLEANUP-006/CLEANUP-007 records remain retained evidence for their exact dates and commits. Their bounded candidate acceptance, promotion, counts-only inventory, manual-review classifications, and zero-change retention decision are not reusable authorization.
+
+A cancelled Calendar tombstone with zero active exact-ID matches remains a lifecycle result, not an instruction to recreate an event. Historical per-event promotion authority was consumed and does not authorize another Calendar mutation.
+
+## Authorization boundary
+
+This index authorizes no gateway lifecycle action, plugin deployment, Google mutation, Calendar event, public generation/publication, Git push/merge/tag, archive, deletion, or cleanup. Those actions require their own exact scope, backups, verification, and approval.
+
+Old worktrees and branches remain until containment and later cleanup gates authorize removal. Public-generation parity remains untested in the 2026-07-21 inventory. Historical evidence must be preserved and labeled rather than deleted to make the repository appear current.

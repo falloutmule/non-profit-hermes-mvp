@@ -1,102 +1,75 @@
 # Reports Index — Non-Profit Hermes MVP
 
-**Last updated:** 2026-07-11 (CLEANUP-001)
+**Current index captured:** 2026-07-21
 
-Reports in this repository document the building, wiring, and verification of each system component. Some reports are current verification evidence; others are historical snapshots of superseded runtime states.
+Reports are immutable point-in-time evidence unless a report explicitly says otherwise. A passing historical report does not prove present runtime state, grant a standing authorization, or override current Git/runtime inspection.
 
-**Historical reports may describe states, commits, or configurations that no longer reflect the current system.** Always cross-reference with [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the current state.
+## Current authority
 
----
+Use these sources in order:
 
-## Current verification
+1. current direct runtime inspection;
+2. current Git and GitHub state;
+3. current passing tests;
+4. [PROJECT_STATUS.md](../PROJECT_STATUS.md);
+5. historical reports;
+6. inference.
 
-These reports contain live-verified evidence that remains accurate:
+Machine-local runtime inventories are deliberately excluded from Git. They belong in the operator's local Hermes evidence root and never establish public release or runtime status.
 
-| Report | Subject |
-|--------|---------|
-| [LIVE_EVENT_COMMAND_REPORT.md](../LIVE_EVENT_COMMAND_REPORT.md) | EVENT-003 draft-first `/event` live verification |
-| [EVENT_CALENDAR_PRIVACY_REPORT.md](../EVENT_CALENDAR_PRIVACY_REPORT.md) | EVENT-001 calendar publication privacy gate |
-| [EVENT_DRAFT_BACKEND_REPORT.md](../EVENT_DRAFT_BACKEND_REPORT.md) | EVENT-002 durable event-draft backend (amended with final commit) |
+## Supersession map
 
----
+| Older document or report family | What remains valid | Current authority / correction |
+|---|---|---|
+| Pre-2026-07-21 `PROJECT_STATUS.md` content | Dated cleanup and event evidence | [PROJECT_STATUS.md](../PROJECT_STATUS.md) now states current Git/runtime truth and the 235 + 64-subtest baseline |
+| [CLEANUP_MILESTONE_INDEX.md](../CLEANUP_MILESTONE_INDEX.md) through 2026-07-15 | Recovery, retention, and cleanup decisions at those dates | Current system/runtime status comes from NPH-V1-000 and rewritten canonical docs; old no-action language is not a claim that atomic refresh or plugin copies are absent |
+| [CLEANUP_003_DAILY_READ_ONLY_REPORT.md](../CLEANUP_003_DAILY_READ_ONLY_REPORT.md) | `/daily` implementation evidence and historical human-originated response dated 2026-07-12 | `/daily` remains read-only locally; current live dispatch/zero-write canary is untested while gateway is stopped |
+| [CLEANUP_004_RUNTIME_PLUGIN_REPRODUCIBILITY_REPORT.md](../CLEANUP_004_RUNTIME_PLUGIN_REPRODUCIBILITY_REPORT.md) | Canonical plugin/installer design and disposable proof | Repository now contains seven canonical plugin copies; 2026-07-21 strict installed drift passed |
+| `LIVE_*_COMMAND_REPORT.md` files | Historical implementation and command-specific acceptance | Commands are registered and plugins enabled; current dispatch is not proven with the stopped gateway |
+| [EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md](../EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md) and earlier EVENT reports | One bounded historical promotion/draft proof | No reusable Calendar authority; every future promotion needs fresh per-event authorization |
+| Deployment proof and Pages reports | Dated canonical/browser evidence | Pages source is `main /docs`; no new generation/publication or parity check occurred in the 2026-07-21 inventory |
+| [GOOGLE_RECONNECT_REPORT.md](../GOOGLE_RECONNECT_REPORT.md) and recovery packets | Bounded recovery evidence | Operational loaders now use atomic refresh persistence; `/daily` and dry-run intentionally remain in-memory only |
+| Historical test counts | Results for those exact commits | Current required full-suite result is 235 passed, 64 subtests passed |
 
-## Historical — Telegram command wiring
+## Current verification evidence
 
-These reports document the initial wiring of each Telegram command. They were written during implementation and may contain stale "pending activation" or "awaits gateway session" wording. The commands are now all live and verified.
+- [PROJECT_STATUS.md](../PROJECT_STATUS.md) — current release, Git, runtime, and limitation state
+- [NPH_V1_DOCUMENTATION_RECONCILIATION.md](NPH_V1_DOCUMENTATION_RECONCILIATION.md) — dated historical documentation correction record
+- [COMPLETION_REFRESH_001_HANDOFF.md](COMPLETION_REFRESH_001_HANDOFF.md) — atomic refresh closeout using synthetic files
+- [COMPLETION_INSTALLER_001_HANDOFF.md](COMPLETION_INSTALLER_001_HANDOFF.md) — disposable plugin install, backup, rollback, and strict drift closeout
 
-| Report | Command | Note |
-|--------|---------|------|
-| [LIVE_DAILY_LINKS_AND_DEDUP_REPORT.md](../LIVE_DAILY_LINKS_AND_DEDUP_REPORT.md) | `/daily` v002 | Superseded by v003 |
-| [LIVE_DAILY_SUMMARY_TRIM_REPORT.md](../LIVE_DAILY_SUMMARY_TRIM_REPORT.md) | `/daily` v003 | Historical; commit now recorded |
-| [LIVE_NEED_COMMAND_REPORT.md](../LIVE_NEED_COMMAND_REPORT.md) | `/need` | Historical |
-| [LIVE_NEED_SLOPPY_INTAKE_FIX_REPORT.md](../LIVE_NEED_SLOPPY_INTAKE_FIX_REPORT.md) | `/need` | Historical |
-| [LIVE_DONATION_COMMAND_REPORT.md](../LIVE_DONATION_COMMAND_REPORT.md) | `/donation` | Historical; live verified |
-| [LIVE_DONATION_PLUGIN_REGISTRATION_REPORT.md](../LIVE_DONATION_PLUGIN_REGISTRATION_REPORT.md) | `/donation` | Historical; plugin registered |
-| [LIVE_REPORT_COMMAND_REPORT.md](../LIVE_REPORT_COMMAND_REPORT.md) | `/report` | Historical; live verified |
-| [LIVE_TASK_COMMAND_REPORT.md](../LIVE_TASK_COMMAND_REPORT.md) | `/task` | Historical; live verified |
-| [LIVE_INVENTORY_COMMAND_REPORT.md](../LIVE_INVENTORY_COMMAND_REPORT.md) | `/inventory` | Historical; live verified |
+## Publication policy
 
----
+Keep a report in Git only when it is intentionally maintained, useful outside the operator machine, and contains no user-home path, runtime inventory, PID, token fingerprint, credential reference, raw private identifier, or mutable machine state. Historical technical reports under `reports/v1.0.0/` are curated public documentation; read them as dated implementation evidence, not current release or production acceptance.
 
-## Historical — Deployment proofs
+Machine-local inventory outputs belong under the operator's local Hermes reports directory. The `.gitignore` rules for `NPH_V1_000_CURRENT_STATE.*` prevent those outputs from re-entering the GitHub publication surface.
 
-These reports document deployment verification at various points in the project. The deployment process and Pages source have since been clarified. Current Pages source is `main /docs`.
+## Historical command evidence
 
-| Report | Subject |
-|--------|---------|
-| [BROWSER_VISIBLE_DEPLOYMENT_PROOF_REPORT.md](../BROWSER_VISIBLE_DEPLOYMENT_PROOF_REPORT.md) | Browser screenshot proof (historical) |
-| [PAGES_WIRING_REPORT.md](../PAGES_WIRING_REPORT.md) | Pages wiring pattern |
-| [LIVE_PUBLIC_FETCH_PROOF_REPORT.md](../LIVE_PUBLIC_FETCH_PROOF_REPORT.md) | Live fetch proof (historical) |
-| [LIVE_SITE_SYNC_MISMATCH_REPORT.md](../LIVE_SITE_SYNC_MISMATCH_REPORT.md) | Site sync mismatch diagnosis (historical) |
-| [CACHEBUST_PUBLIC_FETCH_REPORT.md](../CACHEBUST_PUBLIC_FETCH_REPORT.md) | Cache-bust fetch proof (historical) |
-| [CANONICAL_LIVE_DEPLOYMENT_PROOF_REPORT.md](../CANONICAL_LIVE_DEPLOYMENT_PROOF_REPORT.md) | Canonical deployment proof (historical) |
-| [DEPLOYMENT_SOURCE_DIAGNOSIS_REPORT.md](../DEPLOYMENT_SOURCE_DIAGNOSIS_REPORT.md) | Deployment source diagnosis (historical) |
-| [VISIBLE_SYNC_RENDERING_REPORT.md](../VISIBLE_SYNC_RENDERING_REPORT.md) | Sync rendering proof (historical) |
-| [docs/DOCS_SYNC_UPDATE_REPORT.md](../docs/DOCS_SYNC_UPDATE_REPORT.md) | Docs sync update (historical) |
+These reports document command implementation/wiring. Treat every live claim as dated historical evidence, not current runtime proof:
 
----
+- [LIVE_DAILY_LINKS_AND_DEDUP_REPORT.md](../LIVE_DAILY_LINKS_AND_DEDUP_REPORT.md)
+- [LIVE_DAILY_SUMMARY_TRIM_REPORT.md](../LIVE_DAILY_SUMMARY_TRIM_REPORT.md)
+- [LIVE_NEED_COMMAND_REPORT.md](../LIVE_NEED_COMMAND_REPORT.md)
+- [LIVE_NEED_SLOPPY_INTAKE_FIX_REPORT.md](../LIVE_NEED_SLOPPY_INTAKE_FIX_REPORT.md)
+- [LIVE_DONATION_COMMAND_REPORT.md](../LIVE_DONATION_COMMAND_REPORT.md)
+- [LIVE_DONATION_PLUGIN_REGISTRATION_REPORT.md](../LIVE_DONATION_PLUGIN_REGISTRATION_REPORT.md)
+- [LIVE_REPORT_COMMAND_REPORT.md](../LIVE_REPORT_COMMAND_REPORT.md)
+- [LIVE_TASK_COMMAND_REPORT.md](../LIVE_TASK_COMMAND_REPORT.md)
+- [LIVE_INVENTORY_COMMAND_REPORT.md](../LIVE_INVENTORY_COMMAND_REPORT.md)
+- [LIVE_EVENT_COMMAND_REPORT.md](../LIVE_EVENT_COMMAND_REPORT.md)
 
-## Historical — Privacy/security fixes
+## Historical privacy, Calendar, and publication evidence
 
-| Report | Subject |
-|--------|---------|
-| [REPORT_EXPORT_PRIVACY_FIX_REPORT.md](../REPORT_EXPORT_PRIVACY_FIX_REPORT.md) | Report export privacy fix |
-| [REPORT_ACTIVE_FOLLOWUP_FIX_REPORT.md](../REPORT_ACTIVE_FOLLOWUP_FIX_REPORT.md) | Active follow-up fix |
-| [REPORT_LIVE_ACTIVE_FOLLOWUP_DIAGNOSIS.md](../REPORT_LIVE_ACTIVE_FOLLOWUP_DIAGNOSIS.md) | Follow-up diagnosis |
+- [CLEANUP_002_EXPORT_SAFETY_REPORT.md](../CLEANUP_002_EXPORT_SAFETY_REPORT.md)
+- [EVENT_CALENDAR_PRIVACY_REPORT.md](../EVENT_CALENDAR_PRIVACY_REPORT.md)
+- [EVENT_DRAFT_BACKEND_REPORT.md](../EVENT_DRAFT_BACKEND_REPORT.md)
+- [EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md](../EVENT_004_LIVE_CALENDAR_PROMOTION_REPORT.md)
+- [REPORT_EXPORT_PRIVACY_FIX_REPORT.md](../REPORT_EXPORT_PRIVACY_FIX_REPORT.md)
+- [APPROVED_SAFE_SYNC_REPORT.md](../APPROVED_SAFE_SYNC_REPORT.md)
+- [PAGES_WIRING_REPORT.md](../PAGES_WIRING_REPORT.md)
+- [CANONICAL_LIVE_DEPLOYMENT_PROOF_REPORT.md](../CANONICAL_LIVE_DEPLOYMENT_PROOF_REPORT.md)
 
----
+## Historical proof artifacts
 
-## Historical — Google asset wiring
-
-| Report | Subject |
-|--------|---------|
-| [GOOGLE_WRITE_CAPABILITY_REPORT.md](../GOOGLE_WRITE_CAPABILITY_REPORT.md) | Initial write capability proof. **Historical:** describes pre-EVENT-001 calendar export policy. |
-| [GOOGLE_ASSETS_WIRING_REPORT.md](../GOOGLE_ASSETS_WIRING_REPORT.md) | Google Sheets/Calendar/Drive wiring |
-| [APPROVED_SAFE_SYNC_REPORT.md](../APPROVED_SAFE_SYNC_REPORT.md) | Approved-safe sync initial proof |
-
----
-
-## Diagnostics
-
-| Report | Subject |
-|--------|---------|
-| [TELEGRAM_INTAKE_ROUTER_REPORT.md](../TELEGRAM_INTAKE_ROUTER_REPORT.md) | Router design and implementation |
-
----
-
-## Archive candidates
-
-The following root-level proof artifacts are historical and do not represent the current deployment. They are candidates for archival (CLEANUP-006):
-
-```
-LIVE_CHECK_001.html
-proof-8194ce0.html
-proof-live-fetch/
-proof-live-fetch-cachebust/
-proof-canonical-live-fetch-2/
-proof-browser-source/
-proof-browser-screenshots/
-proof-external-mismatch-diagnosis/
-```
-
-The active deployment proof is `docs/deployment-proof.html`.
+Root proof HTML, saved fetches, screenshots, and legacy Jekyll files are retained historical evidence. They do not establish current deployment parity. The active generated site remains under `docs/`; do not delete evidence or regenerate public data without separate authorization.

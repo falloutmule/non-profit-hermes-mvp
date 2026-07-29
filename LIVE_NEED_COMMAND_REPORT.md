@@ -14,8 +14,8 @@ Allow Telegram `/need` to create a safe request record through the existing rout
    - Sync script `current-needs.html` builder only rendered `needs[0]`; updated to list all board-visible needs.
 
 2. **Created live `/need` plugin**
-   - `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-need\plugin.yaml`
-   - `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-need\__init__.py`
+   - `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-need\plugin.yaml`
+   - `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-need\__init__.py`
      - Calls `telegram_intake_router.handle_message("/need " + args)` then renders via new `_result_to_text()` helper.
    - Added `_result_to_text()` to `telegram_intake_router.py` for board-safe Telegram replies (created / duplicate-skipped / needs_more_info / sensitive-hold).
 
@@ -45,7 +45,7 @@ Allow Telegram `/need` to create a safe request record through the existing rout
 - Direct shell `--message '/need ...'` was corrupted by Windows argv parsing through `C:/Program Files/...`, so verification used the router's in-process call path instead.
 
 ## Current Exact State
-- Live `/need` plugin enabled at `C:\Users\fallo\AppData\Local\hermes\plugins\non-profit-hermes-need\`.
+- Live `/need` plugin enabled at `[USER_HOME]\AppData\Local\hermes\plugins\non-profit-hermes-need\`.
 - Router `telegram_intake_router.py` has `_result_to_text()` and routes `/need` to idempotent `add_request`.
 - Backend `non_profit_hermes_ops.py` unchanged for this task (idempotency already in place).
 - Sync script lists all board-visible needs on current-needs page.

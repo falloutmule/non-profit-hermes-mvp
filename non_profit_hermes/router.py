@@ -1,0 +1,2656 @@
+"""
+telegram_intake_router.py — Safe Telegram-style intake router for Non-Profit Hermes.
+
+This script maps command-like Telegram text to the tested backend write module
+in scripts/non_profit_hermes_ops.py. It does not register live Telegram
+commands by itself; it provides a safe callable/router surface and a test mode.
+
+CLI:
+    python scripts/telegram_intake_router.py --test
+    python scripts/telegram_intake_router.py --message "/daily"
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from non_profit_hermes import approved_safe_sync, config, operations as ops
+
+__all__ = [
+    "RouterResult",
+    "parse_message",
+    "classify_privacy",
+    "source_scope",
+    "handle_message",
+    "run_daily_summary",
+    "write_event_calendar_promotion_authorization",
+    "route_event_followup",
+    "run_test",
+    "main",
+]
+
+_INITIAL_CONFIG = config.resolve_config()
+DOCS_DATA = _INITIAL_CONFIG.public_dir / "data"
+STATE_DIR = _INITIAL_CONFIG.state_dir
+ACTIVE_NEED_STATE_PATH = STATE_DIR / "telegram_active_need_drafts.json"
+EVENT_CALENDAR_PROMOTION_AUTHORIZATION_PATH = STATE_DIR / "event_calendar_promotion_authorization.json"
+ONE_SHOT_CALENDAR_PROMOTION_MODE = "one-shot-local-authorization"
+
+UNKNOWN = "unknown"
+SOURCE_PREFIX = "telegram-simulated"
+
+SENSITIVE_PATTERNS = [
+    r"\bSensitiveNotes\b",
+    r"\bmedical\b",
+    r"\baddiction\b",
+    r"\blegal\b",
+    r"\bcamp\b",
+    r"\bfamily crisis\b",
+    r"\bprivate[- ]?location\b",
+    r"\baddress\b",
+    r"\bphone\b",
+    r"\b\d{3}[-. ]?\d{3}[-. ]?\d{4}\b",
+]
+SENSITIVE_RE = re.compile("|".join(SENSITIVE_PATTERNS), re.IGNORECASE)
+
+COMMANDS = {
+    "/need",
+    "/donation",
+    "/report",
+    "/task",
+    "/inventory",
+    "/event",
+    "/daily",
+}
+
+_PLUGIN_COMMAND_NAMES = {command.lstrip("/") for command in COMMANDS}
+_PROMOTION_ID_FIELDS = {"id", "eventdraftid", "event_draft_id", "eventid", "event_id"}
+_PROMOTION_CONFIRMATION_FIELDS = {"create_calendar", "confirm_create"}
+_PROMOTION_TRUTHY_VALUES = {"1", "true", "yes", "on"}
+_PROMOTION_REJECTION = (
+    "Promotion request rejected: promotion may include only one EVT draft ID "
+    "and one create confirmation."
+)
+
+
+@dataclass
+class RouterResult:
+    ok: bool
+    command: str
+    status: str
+    message: str
+    record_id: str = ""
+    calendar_event_id: str = ""
+    missing_fields: list[str] | None = None
+    privacy_level: str = "board-visible"
+    sensitive_hold: bool = False
+    summary: str = ""
+    backend_status: str = ""  # "created" | "already_exists" | "held" | "needs_more_info"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "command": self.command,
+            "status": self.status,
+            "message": self.message,
+            "record_id": self.record_id,
+            "calendar_event_id": self.calendar_event_id,
+            "missing_fields": self.missing_fields or [],
+            "privacy_level": self.privacy_level,
+            "sensitive_hold": self.sensitive_hold,
+            "summary": self.summary,
+            "backend_status": self.backend_status,
+        }
+
+
+def _example_for_command(command: str) -> str:
+    """Return a safe example for the given command's missing-fields reply."""
+    examples = {
+        "/need": '/need id=REQ-EXAMPLE-001 description="Short safe need" urgency=normal needed_by=unknown location="public-safe area" privacy_level=board-visible next_action=review',
+        "/donation": '/donation id=DON-EXAMPLE-001 item="Safe test donation" type=clothing quantity=1 condition=new pickup_or_dropoff=dropoff location="safe area" receipt_needed=no consent_to_public_thanks=yes next_action=review',
+        "/report": '/report type=pantry summary="Pantry gave out socks and toilet paper" date=today people_served_estimate=unknown items_distributed="socks, toilet paper" followups_needed=none privacy_level=board-visible public_summary_allowed=yes next_action=review',
+        "/task": '/task id=TASK-EXAMPLE-001 title="Call volunteer about socks" assigned_to=unknown due_date=unknown priority=normal next_action=review',
+        "/inventory": '/inventory id=INV-EXAMPLE-001 item="socks" quantity=30 unit=pairs category=clothing minimum=20 storage=pantry condition=new next_action=review',
+        "/event": '/event event_title="Safe test event" start=2099-01-01T09:00:00-06:00 end=2099-01-01T10:00:00-06:00 type=meeting location="safe venue"',
+    }
+    return examples.get(
+        command,
+        f'{command} id=EXAMPLE-001 description="Safe example"',
+    )
+
+
+def _result_to_text(result: "RouterResult") -> str:
+    """Render a RouterResult as a board-safe Telegram reply."""
+    if result.summary:
+        # /daily returns the full summary; pass it through unchanged.
+        return result.summary
+    if result.ok and result.command == "/event" and not result.calendar_event_id:
+        missing = ", ".join(result.missing_fields or [])
+        lines = [
+            f"Draft Event created: {result.record_id}",
+            f"Privacy: {result.privacy_level}",
+            f"Status: {result.status}",
+        ]
+        if missing:
+            lines.append(f"Missing: {missing}")
+        lines.extend([
+            "Calendar: not created",
+            "Calendar creation is disabled pending EVENT-004.",
+        ])
+        return "\n".join(lines)
+    if not result.ok and result.status == "needs_more_info":
+            missing = ", ".join(result.missing_fields)
+            cmd = result.command.lstrip("/")
+            label = cmd.title() if cmd else "Record"
+            example = _example_for_command(result.command)
+            return (
+                f"Need more info to create this {label}.\n"
+                f"Missing: {missing}\n\n"
+                f"Example:\n{example}"
+            )
+    if not result.ok and result.sensitive_hold:
+        return result.message
+    if result.ok and result.backend_status == "already_exists":
+        return f"Request {result.record_id} already exists; duplicate skipped (no new row written)."
+    if result.ok and result.status in {"needs-info", "draft"}:
+        missing = ", ".join(result.missing_fields or []) or "none"
+        label = result.command.lstrip("/").title() if result.command else "Record"
+        return (
+            f"Draft {label} created: {result.record_id}\n"
+            f"Privacy: {result.privacy_level}\n"
+            f"Status: {result.status}\n"
+            f"Missing: {missing}\n"
+            f"Next action: review"
+        )
+    if result.ok:
+        label = result.command.lstrip("/").title() if result.command else "Record"
+        return (
+            f"{label} created: {result.record_id}\n"
+            f"Privacy: {result.privacy_level}\n"
+            f"Status: {result.backend_status}\n"
+            f"Run /daily to see board summary, or visit the appropriate page."
+        )
+    return result.message
+
+
+def _plugin_event_dispatch(raw_args: str) -> tuple[str, str]:
+    """Classify plugin /event arguments without weakening promotion safeguards."""
+    raw = raw_args.strip()
+    try:
+        tokens = shlex.split(raw)
+    except ValueError:
+        promotion_shaped = re.search(
+            r"(?:^|\s)(?:create_calendar|confirm_create)\s*=",
+            raw,
+            re.IGNORECASE,
+        )
+        return ("", _PROMOTION_REJECTION) if promotion_shaped else (f"/event {raw}".rstrip(), "")
+
+    fields: list[tuple[str, str]] = []
+    free_tokens: list[str] = []
+    for token in tokens:
+        if "=" in token:
+            key, value = token.split("=", 1)
+            fields.append((key.strip().lower().replace("-", "_"), value.strip()))
+        else:
+            free_tokens.append(token)
+
+    confirmations = [
+        (key, value)
+        for key, value in fields
+        if key in _PROMOTION_CONFIRMATION_FIELDS
+    ]
+    if not confirmations:
+        return f"/event {raw}".rstrip(), ""
+
+    populated_ids = [
+        (key, value)
+        for key, value in fields
+        if key in _PROMOTION_ID_FIELDS and value
+    ]
+    truthy_confirmations = [
+        (key, value)
+        for key, value in confirmations
+        if value.lower() in _PROMOTION_TRUTHY_VALUES
+    ]
+    draft_id = populated_ids[0][1] if len(populated_ids) == 1 else ""
+    if (
+        len(populated_ids) != 1
+        or len(confirmations) != 1
+        or len(truthy_confirmations) != 1
+        or not re.fullmatch(r"EVT-[0-9A-F]{8}", draft_id)
+        or len(fields) != 2
+        or free_tokens
+    ):
+        return "", _PROMOTION_REJECTION
+    return raw, ""
+
+
+def run_plugin_command(name: str, raw_args: str = "") -> str:
+    """Run one canonical plugin command through the package-owned router boundary."""
+    command_name = (name or "").strip().lower().lstrip("/")
+    if command_name not in _PLUGIN_COMMAND_NAMES:
+        return "Unsupported Non-Profit Hermes command."
+
+    raw = (raw_args or "").strip()
+    dispatch_text = f"/{command_name} {raw}".rstrip()
+    kwargs: dict[str, object] = {"source_link": "telegram:live"}
+    if command_name == "event":
+        dispatch_text, rejection = _plugin_event_dispatch(raw)
+        if rejection:
+            return rejection
+        kwargs.update(
+            allow_calendar_creation=False,
+            calendar_promotion_mode=ONE_SHOT_CALENDAR_PROMOTION_MODE,
+        )
+
+    result = handle_message(dispatch_text, **kwargs)
+    return _result_to_text(result)
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _authorization_path(authorization_path: Path | None = None) -> Path:
+    """Return the local-only EVENT-004 authorization state path."""
+    return Path(authorization_path or EVENT_CALENDAR_PROMOTION_AUTHORIZATION_PATH)
+
+
+def _parse_aware_iso(value: str) -> datetime | None:
+    """Parse an offset-bearing ISO timestamp; never infer a timezone."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def write_event_calendar_promotion_authorization(
+    *,
+    authorized_event_draft_id: str,
+    authorized_source_scope: str,
+    expires_at: str,
+    authorization_path: Path | None = None,
+) -> dict[str, object]:
+    """Write one exact, expiring local authorization for an operator-only caller.
+
+    This helper is deliberately not routed from Telegram.  It validates and writes
+    only the narrowly-scoped state that EVENT-004 consumes on its first real
+    promotion attempt.
+    """
+    draft_id = (authorized_event_draft_id or "").strip()
+    scope = source_scope(authorized_source_scope)
+    expiry = _parse_aware_iso(expires_at)
+    if not draft_id.startswith("EVT-"):
+        raise ValueError("authorized_event_draft_id must be an EVT- draft ID")
+    if not scope:
+        raise ValueError("authorized_source_scope is required")
+    if expiry is None:
+        raise ValueError("expires_at must be an offset-bearing ISO timestamp")
+    state = {
+        "authorized_event_draft_id": draft_id,
+        "authorized_source_scope": scope,
+        "expires_at": expiry.isoformat(),
+        "remaining_uses": 1,
+    }
+    path = _authorization_path(authorization_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+    return state
+
+
+def _valid_event_calendar_promotion_authorization(
+    *, draft_id: str, source_link: str, authorization_path: Path | None = None,
+) -> tuple[bool, str]:
+    """Validate (without consuming) the exact local EVENT-004 authorization."""
+    path = _authorization_path(authorization_path)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False, "no exact local one-shot authorization"
+    expiry = _parse_aware_iso(str(state.get("expires_at", "")))
+    if expiry is None or expiry <= now_utc():
+        return False, "local one-shot authorization expired"
+    if state.get("remaining_uses") != 1:
+        return False, "local one-shot authorization already used"
+    if str(state.get("authorized_event_draft_id", "")).strip() != draft_id:
+        return False, "local authorization is for a different EventDraftID"
+    if source_scope(str(state.get("authorized_source_scope", ""))) != source_scope(source_link):
+        return False, "local authorization is for a different source scope"
+    return True, ""
+
+
+def _consume_event_calendar_promotion_authorization(authorization_path: Path | None = None) -> None:
+    """Remove the authorization before the first actual Calendar promotion call."""
+    try:
+        _authorization_path(authorization_path).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def parse_message(text: str) -> tuple[str, dict[str, str], str]:
+    """Parse /command key=value text. Quoted values are supported via shlex."""
+    text = text.strip()
+    if not text:
+        return "", {}, ""
+    parts = shlex.split(text)
+    if not parts:
+        return "", {}, ""
+    command = parts[0].lower()
+    fields: dict[str, str] = {}
+    free_parts: list[str] = []
+    for token in parts[1:]:
+        if "=" in token:
+            key, value = token.split("=", 1)
+            fields[key.strip().lower().replace("-", "_")] = value.strip()
+        else:
+            free_parts.append(token)
+    return command, fields, " ".join(free_parts).strip()
+
+
+def classify_privacy(text: str) -> tuple[str, bool, list[str]]:
+    """Return (privacy_level, sensitive_hold, matched_terms)."""
+    matches = sorted({m.group(0) for m in SENSITIVE_RE.finditer(text or "")})
+    if matches:
+        return "private-hold", True, matches
+    return "board-visible", False, []
+
+
+def missing_required(fields: dict[str, str], required: list[str]) -> list[str]:
+    return [name for name in required if not fields.get(name)]
+
+
+def normalize_need_description(text: str) -> str:
+    """Normalize sloppy /need free text into a readable request description."""
+    desc = (text or "").strip()
+    desc = re.sub(r"\s*,\s*", " and ", desc)
+    desc = re.sub(r"\b(\d+)\s+person\b", r"\1-person", desc, flags=re.IGNORECASE)
+    desc = re.sub(r"\s+", " ", desc).strip()
+    return desc
+
+
+def generate_live_request_id(svc) -> str:
+    """Generate REQ-LIVE-YYYYMMDD-### from existing Requests rows."""
+    today = now_utc().strftime("%Y%m%d")
+    prefix = f"REQ-LIVE-{today}-"
+    try:
+        rows = svc.spreadsheets().values().get(
+            spreadsheetId=ops.SPREADSHEET_ID,
+            range="Requests!A1:A1000",
+        ).execute().get("values", [])
+    except Exception:
+        rows = []
+    max_seq = 0
+    for row in rows[1:]:
+        if not row:
+            continue
+        rid = str(row[0]).strip()
+        if rid.startswith(prefix):
+            try:
+                max_seq = max(max_seq, int(rid.rsplit("-", 1)[-1]))
+            except ValueError:
+                pass
+    return f"{prefix}{max_seq + 1:03d}"
+
+
+def explicit_privacy_level(fields: dict[str, str]) -> str | None:
+    raw = (fields.get("privacy_level") or fields.get("privacy") or "").strip().lower()
+    if raw in {"board-visible", "public-safe", "board-visible-test", "private-review", "private-hold"}:
+        return raw
+    return None
+def source_scope(
+    source_link: str,
+    *,
+    telegram_live_scope: str | None = None,
+) -> str:
+    """Return a source's chat/session scope without embedding runtime IDs.
+
+    ``telegram:live`` is a legacy placeholder.  Callers may inject its concrete
+    scope, or configure ``NON_PROFIT_HERMES_TELEGRAM_SOURCE_SCOPE``.  The
+    environment is resolved here, at call time, so importing the router remains
+    side-effect free.  Without configuration the placeholder stays isolated.
+    """
+    raw = (source_link or "").strip()
+    if not raw:
+        return ""
+    parts = raw.split(":")
+    if len(parts) >= 2 and parts[0].lower() == "telegram" and parts[1].lower() == "live":
+        configured_scope = (
+            telegram_live_scope
+            if telegram_live_scope is not None
+            else os.environ.get("NON_PROFIT_HERMES_TELEGRAM_SOURCE_SCOPE", "")
+        )
+        if configured_scope and configured_scope.strip():
+            raw = configured_scope.strip()
+            parts = raw.split(":")
+
+    # Normalize Telegram sources to telegram:<chat-or-session>.
+    if len(parts) >= 2 and parts[0].lower() == "telegram":
+        return ":".join(parts[:2])
+    if len(parts) >= 4:
+        return ":".join(parts[:-1])
+    return raw
+
+
+
+def load_active_need_state(
+    state_path: str | Path | None = None,
+) -> dict[str, dict[str, str]]:
+    path = Path(state_path or ACTIVE_NEED_STATE_PATH)
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+
+def save_active_need_state(
+    state: dict[str, dict[str, str]],
+    state_path: str | Path | None = None,
+) -> None:
+    path = Path(state_path or ACTIVE_NEED_STATE_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+
+def get_active_need_request_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_need_request_id", "")
+
+
+
+def set_active_need_request_id(source_link: str, request_id: str) -> None:
+    if not request_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    state[scope] = {
+        "active_need_request_id": request_id,
+        "updated_at": now_utc().isoformat(),
+    }
+    save_active_need_state(state)
+
+
+
+def clear_active_need_request_id(source_link: str, request_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_need_request_id", "")
+    if request_id and current and current != request_id:
+        return
+    entry.pop("active_need_request_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def get_active_donation_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_donation_id", "")
+
+
+
+def set_active_donation_id(source_link: str, donation_id: str) -> None:
+    if not donation_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_donation_id"] = donation_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+
+def clear_active_donation_id(source_link: str, donation_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_donation_id", "")
+    if donation_id and current and current != donation_id:
+        return
+    entry.pop("active_donation_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+
+def get_active_report_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_report_id", "")
+
+
+def set_active_report_id(source_link: str, report_id: str) -> None:
+    if not report_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_report_id"] = report_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_report_id(source_link: str, report_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_report_id", "")
+    if report_id and current and current != report_id:
+        return
+    entry.pop("active_report_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def report_row_by_id(svc, report_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Reports!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "ReportID" not in header:
+        return None
+    ridx = header.index("ReportID")
+    for row in rows[1:]:
+        if len(row) > ridx and row[ridx].strip() == report_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_report_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Reports!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("Date", "")) or now_utc(), item.get("ReportID", "")))
+    return out
+
+
+def resolve_report_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("reportid") or fields.get("report_id") or fields.get("id")
+    if requested_id:
+        row = report_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"ReportID {requested_id} not found"]
+
+    active_id = get_active_report_id(source_link)
+    if active_id:
+        row = report_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft"}:
+            return row, []
+        clear_active_report_id(source_link, active_id)
+
+    drafts = open_report_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info report draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active report drafts: " + ", ".join(d.get("ReportID", "") for d in drafts if d.get("ReportID"))]
+    return drafts[0], []
+
+
+# ── Task active draft tracking ──────────────────────────────────────────
+
+def get_active_task_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_task_id", "")
+
+
+def set_active_task_id(source_link: str, task_id: str) -> None:
+    if not task_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_task_id"] = task_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_task_id(source_link: str, task_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_task_id", "")
+    if task_id and current and current != task_id:
+        return
+    entry.pop("active_task_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def task_row_by_id(svc, task_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Tasks!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "TaskID" not in header:
+        return None
+    tidx = header.index("TaskID")
+    for row in rows[1:]:
+        if len(row) > tidx and row[tidx].strip() == task_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_task_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Tasks!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft", "new"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("DateCreated", "")) or now_utc(), item.get("TaskID", "")))
+    return out
+
+
+def resolve_task_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("taskid") or fields.get("task_id") or fields.get("id")
+    if requested_id:
+        row = task_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"TaskID {requested_id} not found"]
+
+    active_id = get_active_task_id(source_link)
+    if active_id:
+        row = task_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft", "new"}:
+            return row, []
+        clear_active_task_id(source_link, active_id)
+
+    drafts = open_task_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info task draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active task drafts: " + ", ".join(d.get("TaskID", "") for d in drafts if d.get("TaskID"))]
+    return drafts[0], []
+
+
+def get_active_inventory_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_inventory_id", "")
+
+
+def set_active_inventory_id(source_link: str, item_id: str) -> None:
+    if not item_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_inventory_id"] = item_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_inventory_id(source_link: str, item_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_inventory_id", "")
+    if item_id and current and current != item_id:
+        return
+    entry.pop("active_inventory_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def inventory_row_by_id(svc, item_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Inventory!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "ItemID" not in header:
+        return None
+    iidx = header.index("ItemID")
+    for row in rows[1:]:
+        if len(row) > iidx and row[iidx].strip() == item_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_inventory_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Inventory!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft", "new"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("LastCounted", "")) or now_utc(), item.get("ItemID", "")))
+    return out
+
+
+def resolve_inventory_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("itemid") or fields.get("item_id") or fields.get("id")
+    if requested_id:
+        row = inventory_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"ItemID {requested_id} not found"]
+
+    active_id = get_active_inventory_id(source_link)
+    if active_id:
+        row = inventory_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft", "new"}:
+            return row, []
+        clear_active_inventory_id(source_link, active_id)
+
+    drafts = open_inventory_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info inventory draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active inventory drafts: " + ", ".join(d.get("ItemID", "") for d in drafts if d.get("ItemID"))]
+    return drafts[0], []
+
+
+def donation_row_by_id(svc, donation_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Donations!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "DonationID" not in header:
+        return None
+    didx = header.index("DonationID")
+    for row in rows[1:]:
+        if len(row) > didx and row[didx].strip() == donation_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+
+def open_donation_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Donations!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("DateOffered", "")) or now_utc(), item.get("DonationID", "")))
+    return out
+
+
+
+def resolve_donation_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("donationid") or fields.get("donation_id") or fields.get("id")
+    if requested_id:
+        row = donation_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"DonationID {requested_id} not found"]
+
+    active_id = get_active_donation_id(source_link)
+    if active_id:
+        row = donation_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft"}:
+            return row, []
+        clear_active_donation_id(source_link, active_id)
+
+    drafts = open_donation_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info donation draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active donation drafts: " + ", ".join(d.get("DonationID", "") for d in drafts if d.get("DonationID"))]
+    return drafts[0], []
+
+
+
+def request_row_by_id(svc, request_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Requests!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "RequestID" not in header:
+        return None
+    req_idx = header.index("RequestID")
+    for row in rows[1:]:
+        if len(row) > req_idx and row[req_idx].strip() == request_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+
+def open_need_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="Requests!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in {"needs-info", "draft"}:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("DateReceived", "")) or now_utc(), item.get("RequestID", "")))
+    return out
+
+
+
+def resolve_need_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("requestid") or fields.get("request_id") or fields.get("id")
+    if requested_id:
+        row = request_row_by_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"RequestID {requested_id} not found"]
+
+    active_id = get_active_need_request_id(source_link)
+    if active_id:
+        row = request_row_by_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in {"needs-info", "draft"}:
+            return row, []
+        clear_active_need_request_id(source_link, active_id)
+
+    drafts = open_need_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open needs-info draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active drafts: " + ", ".join(d.get("RequestID", "") for d in drafts if d.get("RequestID"))]
+    return drafts[0], []
+
+
+def services():
+    c = ops.get_creds()
+    return ops.sheets(c), ops.calendar(c)
+
+
+def parse_followup_text(text: str) -> tuple[dict[str, str], str]:
+    """Parse a plain follow-up message into key=value fields plus free text."""
+    fields: dict[str, str] = {}
+    free_parts: list[str] = []
+    for token in shlex.split(text.strip()):
+        if "=" in token:
+            key, value = token.split("=", 1)
+            fields[key.strip().lower().replace("-", "_")] = value.strip()
+        else:
+            free_parts.append(token)
+    return fields, " ".join(free_parts).strip()
+
+
+def audit_hold(svc, command: str, reason: str, source_link: str = "") -> str:
+    return ops.write_audit_log(
+        svc,
+        actor="Hermes Telegram Router",
+        action="hold",
+        target_system="Telegram intake router",
+        target_item=command,
+        before="incoming command",
+        after=reason,
+        result="held",
+        error="",
+        source_link=source_link,
+    )
+
+
+def audit_missing(svc, command: str, missing: list[str], source_link: str = "") -> str:
+    return ops.write_audit_log(
+        svc,
+        actor="Hermes Telegram Router",
+        action="needs-more-info",
+        target_system="Telegram intake router",
+        target_item=command,
+        before="incoming command",
+        after="missing fields: " + ", ".join(missing),
+        result="needs_more_info",
+        error="",
+        source_link=source_link,
+    )
+
+
+def parse_dt(value: str) -> datetime | None:
+    if not value:
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def is_naive_iso(value: str) -> bool:
+    """True when value looks like an ISO datetime WITHOUT an offset or Z (e.g.
+    '2026-07-12T09:00:00'). Such values must NOT silently become UTC (contract 7)."""
+    if not value or not isinstance(value, str):
+        return False
+    s = value.strip()
+    # A trailing Z denotes UTC offset (+00:00) — it is NOT naive.
+    if s.endswith("Z"):
+        return False
+    if "T" not in s or ":" not in s.split("T", 1)[1]:
+        return False
+    cand = s[:-1] if s.endswith("Z") else s
+    try:
+        dt = datetime.fromisoformat(cand)
+    except ValueError:
+        return False
+    return dt.tzinfo is None
+
+
+def handle_message(
+    text: str,
+    *,
+    source_link: str = "telegram-simulated:test",
+    allow_calendar_creation: bool = False,
+    calendar_promotion_mode: str = "",
+) -> RouterResult:
+    stripped = (text or "").strip()
+    if stripped and not stripped.startswith("/"):
+        svc, svc_cal = services()
+        followup_result = route_event_followup(
+            svc,
+            svc_cal,
+            stripped,
+            source_link,
+            allow_calendar_creation=allow_calendar_creation,
+            calendar_promotion_mode=calendar_promotion_mode,
+        )
+        if followup_result is not None:
+            return followup_result
+        followup_result = route_report_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
+        followup_result = route_task_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
+        followup_result = route_inventory_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
+        followup_result = route_donation_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
+        followup_result = route_need_followup(svc, stripped, source_link)
+        if followup_result is not None:
+            return followup_result
+
+    command, fields, free_text = parse_message(text)
+    if command not in COMMANDS:
+        return RouterResult(False, command or UNKNOWN, "unsupported", "Unsupported command. Supported: " + ", ".join(sorted(COMMANDS)))
+
+    if command == "/daily":
+        summary = run_daily_summary()
+        return RouterResult(True, command, "summarized", "Read-only in-memory board-safe summary; no public files were generated.", summary=summary)
+
+    privacy_level, sensitive_hold, sensitive_terms = classify_privacy(text)
+    svc, svc_cal = services()
+
+    if sensitive_hold:
+        audit_id = audit_hold(svc, command, "Sensitive intake held; matched terms: " + ", ".join(sensitive_terms), source_link)
+        return RouterResult(
+            False,
+            command,
+            "held_sensitive",
+            f"Held for human review. Sensitive details were not published or written to public-safe fields. Audit: {audit_id}",
+            privacy_level=privacy_level,
+            sensitive_hold=True,
+        )
+
+    handlers = {
+        "/need": route_need,
+        "/donation": route_donation,
+        "/report": route_report,
+        "/task": route_task,
+        "/inventory": route_inventory,
+        "/event": route_event,
+    }
+    if command == "/event":
+        return route_event(
+            svc,
+            svc_cal,
+            fields,
+            free_text,
+            source_link,
+            privacy_level,
+            allow_calendar_creation=allow_calendar_creation,
+        )
+    return handlers[command](svc, svc_cal, fields, free_text, source_link, privacy_level)
+
+
+def route_need_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the newest open /need draft in the same session."""
+    fields, free_text = parse_followup_text(followup_text)
+    target, problems = resolve_need_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active drafts:"):
+            return RouterResult(False, "/need", "needs_more_info", "Multiple active drafts found. Please name RequestID.", missing_fields=problems)
+        return RouterResult(False, "/need", "needs_more_info", "No open needs-info draft found in this chat/session.", missing_fields=problems or ["open needs-info draft in this chat/session"])
+
+    updates: dict[str, str] = {}
+
+    if "description" in fields or "need_description" in fields:
+        updates["need_description"] = fields.get("description", fields.get("need_description", ""))
+    if "category" in fields or "need_category" in fields:
+        updates["need_category"] = fields.get("category", fields.get("need_category", ""))
+    if "quantity" in fields:
+        updates["quantity"] = fields["quantity"]
+    if "urgency" in fields:
+        updates["urgency"] = fields["urgency"]
+    if "needed_by" in fields:
+        updates["needed_by"] = fields["needed_by"]
+    if "location" in fields:
+        updates["location_public_safe"] = fields["location"]
+    if "location_public_safe" in fields:
+        updates["location_public_safe"] = fields["location_public_safe"]
+    if "location_private" in fields:
+        updates["location_private"] = fields["location_private"]
+    if "privacy_level" in fields:
+        updates["privacy_level"] = fields["privacy_level"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {"description", "need_description", "category", "need_category", "quantity", "urgency", "needed_by", "location", "location_public_safe", "location_private", "privacy_level", "next_action", "status", "requestid", "request_id", "id"}
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    result = ops.update_request(
+        svc,
+        request_id=target.get("RequestID", ""),
+        source=target.get("Source", "Telegram live intake"),
+        submitted_by=target.get("SubmittedBy", "Telegram user"),
+        person_or_group=target.get("PersonOrGroup", UNKNOWN),
+        contact_method=target.get("ContactMethod", UNKNOWN),
+        need_category=updates.get("need_category", target.get("NeedCategory", UNKNOWN)),
+        need_description=updates.get("need_description", target.get("NeedDescription", UNKNOWN)),
+        quantity=updates.get("quantity", target.get("Quantity", UNKNOWN)),
+        location_private=updates.get("location_private", target.get("LocationPrivate", "")),
+        location_public_safe=updates.get("location_public_safe", target.get("LocationPublicSafe", UNKNOWN)),
+        urgency=updates.get("urgency", target.get("Urgency", UNKNOWN)),
+        needed_by=updates.get("needed_by", target.get("NeededBy", UNKNOWN)),
+        privacy_level=updates.get("privacy_level", target.get("PrivacyLevel", "private-review")),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        next_action=updates.get("next_action", target.get("NextAction", "review")),
+        notes=updates.get("notes", target.get("Notes", "")),
+        created_by=target.get("CreatedBy", "Hermes Telegram Router"),
+        source_link=source_link,
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status == "ready":
+        clear_active_need_request_id(source_link, target.get("RequestID", ""))
+    elif final_status in {"needs-info", "draft"}:
+        set_active_need_request_id(source_link, target.get("RequestID", ""))
+    return RouterResult(
+        True,
+        "/need",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('RequestID', UNKNOWN)}.",
+        record_id=target.get("RequestID", ""),
+        privacy_level=target.get("PrivacyLevel", "board-visible"),
+        backend_status=result.get("status", "updated"),
+    )
+
+
+def route_need(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
+    description = normalize_need_description(fields.get("description", "") or free_text)
+    if not description:
+        audit_missing(svc, "/need", ["description"], source_link)
+        return RouterResult(False, "/need", "needs_more_info", "Need more info: description", missing_fields=["description"])
+
+    request_id = fields.get("id") or generate_live_request_id(svc)
+    explicit_privacy = explicit_privacy_level(fields)
+    final_privacy = explicit_privacy or "private-review"
+    location = fields.get("location", UNKNOWN)
+    missing_followup = [
+        name for name in ["urgency", "needed_by", "location", "privacy_level"]
+        if not fields.get(name)
+    ]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+    next_action = fields.get("next_action", "review")
+
+    result = ops.add_request(
+        svc,
+        request_id=request_id,
+        source="Telegram live intake" if source_link.startswith("telegram:live") else "Telegram simulated intake",
+        submitted_by=fields.get("submitted_by", "Telegram user"),
+        person_or_group=fields.get("person_or_group", UNKNOWN),
+        contact_method=UNKNOWN,
+        need_category=fields.get("category", UNKNOWN),
+        need_description=description,
+        quantity=fields.get("quantity", UNKNOWN),
+        location_public_safe=location if final_privacy in {"board-visible", "public-safe", "board-visible-test"} else UNKNOWN,
+        urgency=fields.get("urgency", UNKNOWN),
+        needed_by=fields.get("needed_by", UNKNOWN),
+        privacy_level=final_privacy,
+        status=status,
+        next_action=next_action,
+        notes="Sloppy Telegram /need intake; missing fields marked unknown; human review required" if missing_followup else "Telegram /need intake",
+        created_by="Hermes Telegram Router",
+        source_link=source_link,
+    )
+    if result.get("status") == "created":
+        if status in {"needs-info", "draft"}:
+            set_active_need_request_id(source_link, result["id"])
+        else:
+            clear_active_need_request_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/need",
+        reply_status,
+        "Request row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level=final_privacy,
+        backend_status=result.get("status", "created"),
+    )
+
+
+def route_donation_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the newest open /donation draft in the same session."""
+    fields, free_text = parse_followup_text(followup_text)
+    target, problems = resolve_donation_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active donation drafts:"):
+            return RouterResult(False, "/donation", "needs_more_info", "Multiple active donation drafts found. Please name DonationID.", missing_fields=problems)
+        return RouterResult(False, "/donation", "needs_more_info", "No open donation draft found in this chat/session.", missing_fields=problems or ["open needs-info donation draft in this chat/session"])
+
+    updates: dict[str, str] = {}
+    if "description" in fields or "item" in fields or "item_description" in fields:
+        updates["item_description"] = fields.get("description", fields.get("item", fields.get("item_description", "")))
+    if "type" in fields or "donation_type" in fields:
+        updates["donation_type"] = fields.get("type", fields.get("donation_type", ""))
+    if "quantity" in fields:
+        updates["quantity"] = fields["quantity"]
+    if "condition" in fields:
+        updates["condition"] = fields["condition"]
+    if "pickup_or_dropoff" in fields or "method" in fields:
+        updates["pickup_or_dropoff"] = fields.get("pickup_or_dropoff", fields.get("method", ""))
+    if "location" in fields:
+        updates["location"] = fields["location"]
+    if "available_date" in fields or "available" in fields:
+        updates["available_date"] = fields.get("available_date", fields.get("available", ""))
+    if "receipt_needed" in fields:
+        updates["receipt_needed"] = fields["receipt_needed"]
+    if "thank_you_needed" in fields:
+        updates["thank_you_needed"] = fields["thank_you_needed"]
+    if "consent_to_public_thanks" in fields or "public_thanks" in fields:
+        updates["consent_to_public_thanks"] = fields.get("consent_to_public_thanks", fields.get("public_thanks", ""))
+    if "privacy_level" in fields:
+        updates["privacy_level"] = fields["privacy_level"]
+    if "public_listing_allowed" in fields:
+        updates["public_listing_allowed"] = fields["public_listing_allowed"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {"description", "item", "item_description", "type", "donation_type", "quantity", "condition", "pickup_or_dropoff", "method", "location", "available_date", "available", "receipt_needed", "thank_you_needed", "consent_to_public_thanks", "public_thanks", "next_action", "status", "donationid", "donation_id", "id"}
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    result = ops.update_donation(
+        svc,
+        donation_id=target.get("DonationID", ""),
+        donor_name=target.get("DonorName", "Anonymous Telegram donor"),
+        donor_contact=target.get("DonorContact", UNKNOWN),
+        donation_type=updates.get("donation_type", target.get("DonationType", UNKNOWN)),
+        item_description=updates.get("item_description", target.get("ItemDescription", UNKNOWN)),
+        quantity=updates.get("quantity", target.get("Quantity", UNKNOWN)),
+        condition=updates.get("condition", target.get("Condition", UNKNOWN)),
+        pickup_or_dropoff=updates.get("pickup_or_dropoff", target.get("PickupOrDropoff", UNKNOWN)),
+        location=updates.get("location", target.get("Location", UNKNOWN)),
+        available_date=updates.get("available_date", target.get("AvailableDate", UNKNOWN)),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        receipt_needed=updates.get("receipt_needed", target.get("ReceiptNeeded", UNKNOWN)),
+        thank_you_needed=updates.get("thank_you_needed", target.get("ThankYouNeeded", UNKNOWN)),
+        consent_to_public_thanks=updates.get("consent_to_public_thanks", target.get("ConsentToPublicThanks", UNKNOWN)),
+        privacy_level=updates.get("privacy_level", target.get("PrivacyLevel", "private-review")),
+        public_listing_allowed=updates.get("public_listing_allowed", target.get("PublicListingAllowed", "")),
+        notes=updates.get("notes", target.get("Notes", "")),
+        source_link=source_link,
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status == "ready":
+        clear_active_donation_id(source_link, target.get("DonationID", ""))
+    elif final_status in {"needs-info", "draft"}:
+        set_active_donation_id(source_link, target.get("DonationID", ""))
+    return RouterResult(
+        True,
+        "/donation",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('DonationID', UNKNOWN)}.",
+        record_id=target.get("DonationID", ""),
+        privacy_level=target.get("PrivacyLevel", "private-review"),
+        backend_status=result.get("status", "updated"),
+    )
+
+
+
+def route_donation(svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str) -> RouterResult:
+    item_description = normalize_need_description(fields.get("item", "") or fields.get("description", "") or free_text)
+    if not item_description:
+        item_description = UNKNOWN
+    donation_id = fields.get("donationid") or fields.get("donation_id") or fields.get("id") or ""
+    missing_followup = [
+        name for name in ["pickup_or_dropoff", "location", "available_date", "receipt_needed", "consent_to_public_thanks", "privacy_level", "public_listing_allowed", "next_action"]
+        if not fields.get(name)
+    ]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+    result = ops.add_donation(
+        svc,
+        donation_id=donation_id,
+        donor_name=fields.get("donor_name", "Anonymous Telegram donor"),
+        donor_contact=UNKNOWN,
+        donation_type=fields.get("type", fields.get("donation_type", UNKNOWN)),
+        item_description=item_description,
+        quantity=fields.get("quantity", UNKNOWN),
+        condition=fields.get("condition", UNKNOWN),
+        pickup_or_dropoff=fields.get("pickup_or_dropoff", fields.get("method", UNKNOWN)),
+        location=fields.get("location", UNKNOWN),
+        available_date=fields.get("available_date", fields.get("available", UNKNOWN)),
+        status=status,
+        receipt_needed=fields.get("receipt_needed", UNKNOWN),
+        thank_you_needed=fields.get("thank_you_needed", UNKNOWN),
+        consent_to_public_thanks=fields.get("consent_to_public_thanks", fields.get("public_thanks", UNKNOWN)),
+        privacy_level=explicit_privacy_level(fields) or "private-review",
+        public_listing_allowed=fields.get("public_listing_allowed", ""),
+        notes="Telegram /donation intake; missing fields marked unknown; human review required" if missing_followup else "Telegram /donation intake",
+        source_link=source_link,
+    )
+    if result.get("status") == "created":
+        if status in {"needs-info", "draft"}:
+            set_active_donation_id(source_link, result["id"])
+        else:
+            clear_active_donation_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/donation",
+        reply_status,
+        "Donation row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level=explicit_privacy_level(fields) or "private-review",
+        backend_status=result.get("status", "created"),
+    )
+
+
+
+def route_report(
+    svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str
+) -> RouterResult:
+    summary = (fields.get("summary") or fields.get("description") or free_text).strip()
+    if not summary:
+        audit_missing(svc, "/report", ["summary"], source_link)
+        return RouterResult(
+            False, "/report", "needs_more_info",
+            "Need more info: summary/description",
+            missing_fields=["summary"],
+        )
+
+    report_id = fields.get("reportid") or fields.get("report_id") or fields.get("id") or ""
+    explicit_privacy = explicit_privacy_level(fields)
+    final_privacy = explicit_privacy or "private-review"
+
+    REPORT_MISSING = [
+        "report_type",
+        "date",
+        "people_served_estimate",
+        "items_distributed",
+        "followups_needed",
+        "privacy_level",
+        "public_summary_allowed",
+        "next_action",
+    ]
+    missing_followup = [name for name in REPORT_MISSING if not fields.get(name)]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+    next_action = fields.get("next_action", "review")
+    report_type = fields.get("report_type") or fields.get("type") or UNKNOWN
+
+    # PublicSummaryDraft only populated when privacy is board-visible or public-safe
+    public_safe = final_privacy in {"board-visible", "public-safe", "board-visible-test"}
+    public_summary_draft = summary if public_safe else ""
+
+    result = ops.add_report(
+        svc,
+        report_id=report_id,
+        submitted_by=fields.get("submitted_by", "Telegram user"),
+        report_type=report_type,
+        summary=summary,
+        privacy_level=final_privacy,
+        sensitive_details="",  # never auto-populate sensitive details
+        source_link=source_link,
+        people_served_estimate=fields.get("people_served_estimate", UNKNOWN),
+        items_distributed=fields.get("items_distributed", UNKNOWN),
+        followups_needed=fields.get("followups_needed", UNKNOWN),
+        public_summary_draft=public_summary_draft,
+        public_summary_allowed=fields.get("public_summary_allowed", ""),
+        status=status,
+        next_action=next_action,
+    )
+    if result.get("status") == "created":
+        if status in {"needs-info", "draft"}:
+            set_active_report_id(source_link, result["id"])
+        else:
+            clear_active_report_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/report",
+        reply_status,
+        "Report row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level=final_privacy,
+        backend_status=result.get("status", "created"),
+    )
+
+
+def route_report_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the active /report draft in the same session."""
+    fields, free_text = parse_followup_text(followup_text)
+    # Only intercept if report-specific fields present or active draft exists
+    report_keys = {"report_type", "type", "people_served_estimate", "items_distributed", "followups_needed", "public_summary_allowed"}
+    has_report_fields = bool(report_keys & set(fields.keys()))
+    has_active_draft = bool(get_active_report_id(source_link))
+    if not has_report_fields and not has_active_draft:
+        return None
+    target, problems = resolve_report_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active report drafts:"):
+            return RouterResult(
+                False, "/report", "needs_more_info",
+                "Multiple active report drafts found. Please name ReportID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/report", "needs_more_info",
+            "No open report draft found in this chat/session.",
+            missing_fields=problems or ["open needs-info report draft in this chat/session"],
+        )
+
+    updates: dict[str, str] = {}
+    if "summary" in fields or "description" in fields:
+        updates["summary"] = fields.get("summary", fields.get("description", ""))
+    if "report_type" in fields or "type" in fields:
+        updates["report_type"] = fields.get("report_type", fields.get("type", ""))
+    if "date" in fields:
+        updates["date"] = fields["date"]
+    if "people_served_estimate" in fields:
+        updates["people_served_estimate"] = fields["people_served_estimate"]
+    if "items_distributed" in fields:
+        updates["items_distributed"] = fields["items_distributed"]
+    if "followups_needed" in fields:
+        updates["followups_needed"] = fields["followups_needed"]
+    if "privacy_level" in fields:
+        updates["privacy_level"] = fields["privacy_level"]
+    if "public_summary_allowed" in fields:
+        updates["public_summary_allowed"] = fields["public_summary_allowed"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {
+        "summary", "description", "report_type", "type", "date", "people_served_estimate",
+        "items_distributed", "followups_needed", "privacy_level", "public_summary_allowed",
+        "next_action", "status", "reportid", "report_id", "id",
+    }
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    # Determine public_summary_draft based on privacy
+    new_privacy = updates.get("privacy_level", target.get("PrivacyLevel", "private-review"))
+    new_summary = updates.get("summary", target.get("Summary", ""))
+    public_safe = new_privacy in {"board-visible", "public-safe", "board-visible-test"}
+
+    result = ops.update_report(
+        svc,
+        report_id=target.get("ReportID", ""),
+        submitted_by=target.get("SubmittedBy", "Telegram user"),
+        report_type=updates.get("report_type", target.get("ReportType", UNKNOWN)),
+        summary=updates.get("summary", target.get("Summary", UNKNOWN)),
+        people_served_estimate=updates.get("people_served_estimate", target.get("PeopleServedEstimate", UNKNOWN)),
+        items_distributed=updates.get("items_distributed", target.get("ItemsDistributed", UNKNOWN)),
+        followups_needed=updates.get("followups_needed", target.get("FollowUpsNeeded", UNKNOWN)),
+        sensitive_details=target.get("SensitiveDetails", ""),
+        public_summary_draft=new_summary if public_safe else "",
+        privacy_level=new_privacy,
+        date=updates.get("date", target.get("Date", UNKNOWN)),
+        next_action=updates.get("next_action", target.get("NextAction", "review")),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        source_link=source_link,
+        public_summary_allowed=updates.get("public_summary_allowed", target.get("PublicSummaryAllowed", "")),
+        notes=updates.get("notes", target.get("Notes", "")),
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status == "ready":
+        clear_active_report_id(source_link, target.get("ReportID", ""))
+    elif final_status in {"needs-info", "draft"}:
+        set_active_report_id(source_link, target.get("ReportID", ""))
+    return RouterResult(
+        True,
+        "/report",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('ReportID', UNKNOWN)}.",
+        record_id=target.get("ReportID", ""),
+        privacy_level=target.get("PrivacyLevel", "private-review"),
+        backend_status=result.get("status", "updated"),
+    )
+
+
+def route_task(
+    svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str
+) -> RouterResult:
+    title = (fields.get("title") or fields.get("description") or free_text).strip()
+    if not title:
+        audit_missing(svc, "/task", ["title"], source_link)
+        return RouterResult(
+            False, "/task", "needs_more_info",
+            "Need more info: title/description",
+            missing_fields=["title"],
+        )
+
+    task_id = fields.get("taskid") or fields.get("task_id") or fields.get("id") or ""
+
+    TASK_MISSING = [
+        "assigned_to",
+        "due_date",
+        "priority",
+        "privacy_level",
+        "next_action",
+    ]
+    missing_followup = [name for name in TASK_MISSING if not fields.get(name)]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+
+    result = ops.add_task(
+        svc,
+        task_id=task_id,
+        task_title=title,
+        task_description=fields.get("description", free_text or title),
+        category=fields.get("category", UNKNOWN),
+        priority=fields.get("priority", UNKNOWN),
+        assigned_to=fields.get("assigned_to", UNKNOWN),
+        due_date=fields.get("due_date", fields.get("due", UNKNOWN)),
+        status=status,
+        source_link=source_link,
+    )
+    if result.get("status") == "created":
+        if status in {"needs-info", "draft", "new"}:
+            set_active_task_id(source_link, result["id"])
+        else:
+            clear_active_task_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/task",
+        reply_status,
+        "Task row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level="internal",
+        backend_status=result.get("status", "created"),
+    )
+
+
+def route_task_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the active /task draft in the same session."""
+    fields, free_text = parse_followup_text(followup_text)
+    # Only intercept if task-specific fields present or active draft exists
+    task_keys = {"assigned_to", "due_date", "due", "priority"}
+    has_task_fields = bool(task_keys & set(fields.keys()))
+    has_active_draft = bool(get_active_task_id(source_link))
+    if not has_task_fields and not has_active_draft:
+        return None
+    target, problems = resolve_task_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active task drafts:"):
+            return RouterResult(
+                False, "/task", "needs_more_info",
+                "Multiple active task drafts found. Please name TaskID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/task", "needs_more_info",
+            "No open task draft found in this chat/session.",
+            missing_fields=problems or ["open needs-info task draft in this chat/session"],
+        )
+
+    updates: dict[str, str] = {}
+    if "title" in fields or "description" in fields:
+        updates["task_description"] = fields.get("title", fields.get("description", ""))
+    if "category" in fields:
+        updates["category"] = fields["category"]
+    if "priority" in fields:
+        updates["priority"] = fields["priority"]
+    if "assigned_to" in fields:
+        updates["assigned_to"] = fields["assigned_to"]
+    if "due_date" in fields or "due" in fields:
+        updates["due_date"] = fields.get("due_date", fields.get("due", ""))
+    if "privacy_level" in fields:
+        updates["privacy_level"] = fields["privacy_level"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {
+        "title", "description", "category", "priority", "assigned_to",
+        "due_date", "due", "privacy_level", "next_action", "status",
+        "taskid", "task_id", "id",
+    }
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    result = ops.update_task(
+        svc,
+        task_id=target.get("TaskID", ""),
+        task_title=target.get("TaskTitle", UNKNOWN),
+        task_description=updates.get("task_description", target.get("TaskDescription", UNKNOWN)),
+        category=updates.get("category", target.get("Category", UNKNOWN)),
+        priority=updates.get("priority", target.get("Priority", UNKNOWN)),
+        assigned_to=updates.get("assigned_to", target.get("AssignedTo", UNKNOWN)),
+        due_date=updates.get("due_date", target.get("DueDate", UNKNOWN)),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        next_action=updates.get("next_action", target.get("NextAction", "review")),
+        source_link=source_link,
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status in {"ready", "done", "complete"}:
+        clear_active_task_id(source_link, target.get("TaskID", ""))
+    elif final_status in {"needs-info", "draft", "new"}:
+        set_active_task_id(source_link, target.get("TaskID", ""))
+    return RouterResult(
+        True,
+        "/task",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('TaskID', UNKNOWN)}.",
+        record_id=target.get("TaskID", ""),
+        privacy_level="internal",
+        backend_status=result.get("status", "updated"),
+    )
+
+
+def route_inventory(
+    svc, _svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str
+) -> RouterResult:
+    item_name = (fields.get("item") or fields.get("item_name") or "").strip()
+    if not item_name and free_text:
+        parts = free_text.strip().split()
+        if len(parts) >= 1:
+            item_name = parts[0]
+            if len(parts) >= 2 and parts[1].isdigit():
+                fields["quantity"] = parts[1]
+                if len(parts) >= 3:
+                    fields["unit"] = parts[2]
+    if not item_name:
+        audit_missing(svc, "/inventory", ["item"], source_link)
+        return RouterResult(
+            False, "/inventory", "needs_more_info",
+            "Need more info: item name",
+            missing_fields=["item"],
+        )
+
+    item_id = fields.get("itemid") or fields.get("item_id") or fields.get("id") or ""
+    quantity = fields.get("quantity") or fields.get("quantity_on_hand") or ""
+
+    INV_MISSING = ["quantity", "unit", "category", "minimum_needed", "storage_location", "condition", "public_need_allowed", "next_action"]
+    missing_followup = [name for name in INV_MISSING if not fields.get(name)]
+    status = fields.get("status") or ("needs-info" if missing_followup else "new")
+
+    result = ops.update_inventory(
+        svc,
+        item_id=item_id,
+        item_name=item_name,
+        category=fields.get("category", UNKNOWN),
+        quantity_on_hand=quantity,
+        unit=fields.get("unit", UNKNOWN),
+        minimum_needed=fields.get("minimum", fields.get("minimum_needed", UNKNOWN)),
+        storage_location=fields.get("storage", fields.get("storage_location", UNKNOWN)),
+        condition=fields.get("condition", UNKNOWN),
+        notes=fields.get("notes", ""),
+        needed_this_week=fields.get("needed_this_week", UNKNOWN),
+        public_need_allowed=fields.get("public_need_allowed", UNKNOWN),
+        status=status,
+        next_action=fields.get("next_action", "review"),
+        source_link=source_link,
+    )
+    if result.get("status") in ("created", "updated"):
+        if status in {"needs-info", "draft", "new"}:
+            set_active_inventory_id(source_link, result["id"])
+        else:
+            clear_active_inventory_id(source_link, result["id"])
+    reply_status = status if result.get("status") == "created" else result.get("status", status)
+    return RouterResult(
+        True,
+        "/inventory",
+        reply_status,
+        "Inventory row written through backend.",
+        record_id=result["id"],
+        missing_fields=missing_followup,
+        privacy_level="internal",
+        backend_status=result.get("status", "created"),
+    )
+
+
+def route_inventory_followup(svc, followup_text: str, source_link: str) -> RouterResult | None:
+    """Attach a plain follow-up message to the active /inventory draft."""
+    fields, free_text = parse_followup_text(followup_text)
+    inv_keys = {"item", "item_name", "quantity", "quantity_on_hand", "unit", "category", "minimum", "minimum_needed", "storage", "storage_location", "condition", "needed_this_week", "public_need_allowed"}
+    has_inv_fields = bool(inv_keys & set(fields.keys()))
+    has_active_draft = bool(get_active_inventory_id(source_link))
+    if not has_inv_fields and not has_active_draft:
+        return None
+    target, problems = resolve_inventory_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active inventory drafts:"):
+            return RouterResult(
+                False, "/inventory", "needs_more_info",
+                "Multiple active inventory drafts found. Please name ItemID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/inventory", "needs_more_info",
+            "No open inventory draft found in this chat/session.",
+            missing_fields=problems or ["open needs-info inventory draft in this chat/session"],
+        )
+
+    updates: dict[str, str] = {}
+    if "item" in fields or "item_name" in fields:
+        updates["item_name"] = fields.get("item", fields.get("item_name", ""))
+    if "quantity" in fields or "quantity_on_hand" in fields:
+        updates["quantity_on_hand"] = fields.get("quantity", fields.get("quantity_on_hand", ""))
+    if "unit" in fields:
+        updates["unit"] = fields["unit"]
+    if "category" in fields:
+        updates["category"] = fields["category"]
+    if "minimum" in fields or "minimum_needed" in fields:
+        updates["minimum_needed"] = fields.get("minimum", fields.get("minimum_needed", ""))
+    if "storage" in fields or "storage_location" in fields:
+        updates["storage_location"] = fields.get("storage", fields.get("storage_location", ""))
+    if "condition" in fields:
+        updates["condition"] = fields["condition"]
+    if "needed_this_week" in fields:
+        updates["needed_this_week"] = fields["needed_this_week"]
+    if "public_need_allowed" in fields:
+        updates["public_need_allowed"] = fields["public_need_allowed"]
+    if "notes" in fields:
+        updates["notes"] = fields["notes"]
+    if "next_action" in fields:
+        updates["next_action"] = fields["next_action"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked_keys = {
+        "item", "item_name", "quantity", "quantity_on_hand", "unit", "category",
+        "minimum", "minimum_needed", "storage", "storage_location", "condition",
+        "needed_this_week", "public_need_allowed", "notes", "next_action", "status",
+        "itemid", "item_id", "id",
+    }
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked_keys]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        updates["notes"] = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+
+    result = ops.update_inventory(
+        svc,
+        item_id=target.get("ItemID", ""),
+        item_name=updates.get("item_name", target.get("ItemName", UNKNOWN)),
+        category=updates.get("category", target.get("Category", UNKNOWN)),
+        quantity_on_hand=updates.get("quantity_on_hand", target.get("QuantityOnHand", UNKNOWN)),
+        unit=updates.get("unit", target.get("Unit", UNKNOWN)),
+        minimum_needed=updates.get("minimum_needed", target.get("MinimumNeeded", UNKNOWN)),
+        storage_location=updates.get("storage_location", target.get("StorageLocation", UNKNOWN)),
+        condition=updates.get("condition", target.get("Condition", UNKNOWN)),
+        needed_this_week=updates.get("needed_this_week", target.get("NeededThisWeek", UNKNOWN)),
+        public_need_allowed=updates.get("public_need_allowed", target.get("PublicNeedAllowed", UNKNOWN)),
+        notes=updates.get("notes", target.get("Notes", "")),
+        status=updates.get("status", target.get("Status", "needs-info")),
+        next_action=updates.get("next_action", target.get("NextAction", "review")),
+        source_link=source_link,
+    )
+    final_status = (updates.get("status") or target.get("Status", "")).strip().lower()
+    if final_status in {"ready", "done", "complete"}:
+        clear_active_inventory_id(source_link, target.get("ItemID", ""))
+    elif final_status in {"needs-info", "draft", "new"}:
+        set_active_inventory_id(source_link, target.get("ItemID", ""))
+    return RouterResult(
+        True,
+        "/inventory",
+        result.get("status", "updated"),
+        f"Attached follow-up to {target.get('ItemID', UNKNOWN)}.",
+        record_id=target.get("ItemID", ""),
+        privacy_level="internal",
+        backend_status=result.get("status", "updated"),
+    )
+
+
+# ── Event active draft tracking ──────────────────────────────────────────
+# Active events use the SAME per-source state file (ACTIVE_NEED_STATE_PATH) so
+# other active_* pointers are never erased. Only the active_event_id key is touched.
+
+OPEN_EVENT_STATES = {"needs-info", "draft", "new", "ready"}
+TERMINAL_EVENT_STATES = {"confirmed", "cancelled", "rejected"}
+
+
+def get_active_event_id(source_link: str) -> str:
+    scope = source_scope(source_link)
+    return load_active_need_state().get(scope, {}).get("active_event_id", "")
+
+
+def set_active_event_id(source_link: str, event_id: str) -> None:
+    if not event_id:
+        return
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope, {})
+    entry["active_event_id"] = event_id
+    entry["updated_at"] = now_utc().isoformat()
+    state[scope] = entry
+    save_active_need_state(state)
+
+
+def clear_active_event_id(source_link: str, event_id: str | None = None) -> None:
+    state = load_active_need_state()
+    scope = source_scope(source_link)
+    entry = state.get(scope)
+    if not entry:
+        return
+    current = entry.get("active_event_id", "")
+    if event_id and current and current != event_id:
+        return
+    entry.pop("active_event_id", None)
+    entry.pop("updated_at", None)
+    if entry:
+        state[scope] = entry
+    else:
+        state.pop(scope, None)
+    save_active_need_state(state)
+
+
+def event_row_by_draft_id(svc, draft_id: str) -> dict[str, str] | None:
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="CalendarLog!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    if "EventDraftID" not in header:
+        return None
+    didx = header.index("EventDraftID")
+    for row in rows[1:]:
+        if len(row) > didx and row[didx].strip() == draft_id:
+            return {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+    return None
+
+
+def open_event_drafts(svc, source_link: str) -> list[dict[str, str]]:
+    scope = source_scope(source_link)
+    rows = svc.spreadsheets().values().get(
+        spreadsheetId=ops.SPREADSHEET_ID,
+        range="CalendarLog!A1:Z1000",
+    ).execute().get("values", [])
+    if not rows:
+        return []
+    header = [h.strip() for h in rows[0]]
+    out: list[dict[str, str]] = []
+    for row in rows[1:]:
+        data = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        if str(data.get("Status", "")).strip().lower() not in OPEN_EVENT_STATES:
+            continue
+        row_scope = source_scope(data.get("SourceMessageLink", ""))
+        if scope and row_scope != scope:
+            continue
+        out.append(data)
+    out.sort(key=lambda item: (parse_dt(item.get("LastUpdated", "")) or parse_dt(item.get("StartDateTime", "")) or now_utc(), item.get("EventDraftID", "")))
+    return out
+
+
+def resolve_event_followup_target(svc, source_link: str, fields: dict[str, str]) -> tuple[dict[str, str] | None, list[str]]:
+    requested_id = fields.get("eventdraftid") or fields.get("event_draft_id") or fields.get("id") or fields.get("eventid") or fields.get("event_id")
+    if requested_id:
+        row = event_row_by_draft_id(svc, requested_id)
+        if row:
+            return row, []
+        return None, [f"EventDraftID {requested_id} not found"]
+
+    active_id = get_active_event_id(source_link)
+    if active_id:
+        row = event_row_by_draft_id(svc, active_id)
+        if row and str(row.get("Status", "")).strip().lower() in OPEN_EVENT_STATES:
+            return row, []
+        clear_active_event_id(source_link, active_id)
+
+    drafts = open_event_drafts(svc, source_link)
+    if not drafts:
+        return None, ["open event draft in this chat/session"]
+    if len(drafts) > 1:
+        return None, ["multiple active event drafts: " + ", ".join(d.get("EventDraftID", "") for d in drafts if d.get("EventDraftID"))]
+    return drafts[0], []
+
+
+def route_event(svc, svc_cal, fields: dict[str, str], free_text: str, source_link: str, privacy_level: str, *, allow_calendar_creation: bool = False) -> RouterResult:
+    """Draft-first /event router (EVENT-003).
+
+    Writes a Sheet-only EventDraft; never creates a Calendar event unless
+    allow_calendar_creation=True AND the draft is explicitly promoted. The live
+    plugin always passes allow_calendar_creation=False (Calendar creation disabled
+    pending EVENT-004).
+    """
+    explicit_id = fields.get("id") or fields.get("eventdraftid") or fields.get("event_draft_id") or ""
+
+    # Free text becomes EventTitle when title absent. Do NOT infer natural-language dates/times.
+    event_title = (fields.get("title") or fields.get("event_title") or free_text or "").strip()
+    EVENT_MISSING = ["title"]
+    missing_followup = [name for name in EVENT_MISSING if not fields.get(name) and not free_text]
+    status = fields.get("status") or ("needs-info" if (missing_followup or not fields.get("start")) else "new")
+
+    # Time validation: accept offset/ Z ISO; reject naive datetimes.
+    start_raw = fields.get("start") or fields.get("start_time") or ""
+    start_dt = None
+    if start_raw:
+        if is_naive_iso(start_raw):
+            # Naive ISO -> do NOT guess UTC. Report incomplete, store phrase in Notes, ask for offset.
+            missing_followup = sorted(set(missing_followup + ["start (offset-bearing ISO, e.g. 2026-07-12T09:00:00-06:00)"]))
+            status = "needs-info"
+            start_raw = start_raw  # preserve ambiguous phrase (not written to StartDateTime)
+        else:
+            start_dt = parse_dt(start_raw)
+            if start_dt is None:
+                # Non-ISO / natural-language phrase (e.g. "Saturday morning") -> do not infer.
+                missing_followup = sorted(set(missing_followup + ["start (offset-bearing ISO, e.g. 2026-07-12T09:00:00-06:00)"]))
+                status = "needs-info"
+            else:
+                start_raw = start_dt.isoformat()
+
+    end_raw = fields.get("end") or fields.get("end_time") or ""
+    end_dt = None
+    if end_raw:
+        if is_naive_iso(end_raw):
+            end_raw = fields.get("end") or fields.get("end_time") or ""
+            if status != "needs-info":
+                status = "needs-info"
+        else:
+            end_dt = parse_dt(end_raw)
+            if end_dt is None:
+                end_raw = fields.get("end") or fields.get("end_time") or ""
+                if status != "needs-info":
+                    status = "needs-info"
+            else:
+                end_raw = end_dt.isoformat()
+
+    privacy = explicit_privacy_level(fields) or ("internal" if (fields.get("privacy_level") or privacy_level) == "internal" else "private-review")
+
+    notes_parts = []
+    if free_text and fields.get("title"):
+        notes_parts.append(free_text)
+    if not start_dt and (fields.get("start") or fields.get("start_time")):
+        notes_parts.append(f"Unparsed time phrase: {fields.get('start') or fields.get('start_time')}")
+    if not end_dt and (fields.get("end") or fields.get("end_time")):
+        notes_parts.append(f"Unparsed end phrase: {fields.get('end') or fields.get('end_time')}")
+    if free_text and not fields.get("title"):
+        # free_text was used as EventTitle; preserve the original phrasing in Notes.
+        notes_parts.append(free_text)
+    notes = fields.get("notes", "")
+    if notes_parts:
+        extra = " | ".join(notes_parts)
+        notes = f"{notes}\n{extra}" if notes else extra
+
+    result = ops.upsert_event_draft(
+        svc,
+        event_draft_id=explicit_id,
+        event_title=event_title or UNKNOWN,
+        event_type=fields.get("event_type") or fields.get("type") or "event",
+        start_time=start_raw if start_dt else "",
+        end_time=end_raw if end_dt else "",
+        description=fields.get("description") or "",
+        location=fields.get("location") or "",
+        private_location=fields.get("private_location") or "",
+        attendees=fields.get("attendees") or "",
+        related_task_id=fields.get("related_task_id") or fields.get("task") or "",
+        related_request_id=fields.get("related_request_id") or fields.get("request") or "",
+        related_donation_id=fields.get("related_donation_id") or fields.get("donation") or "",
+        privacy_level=privacy,
+        public_calendar_allowed="no",
+        public_title=fields.get("public_title") or "",
+        public_description=fields.get("public_description") or "",
+        public_location=fields.get("public_location") or "",
+        approval_status=fields.get("approval_status") or "needs-info",
+        status=status,
+        source_link=source_link,
+        notes=notes,
+    )
+    draft_id = result["id"]
+
+    # Active pointer rules (contract 6).
+    cal_id_blank = True  # draft-first: CalendarEventID always blank here
+    if status in OPEN_EVENT_STATES and cal_id_blank:
+        set_active_event_id(source_link, draft_id)
+    else:
+        clear_active_event_id(source_link, draft_id)
+
+    if not allow_calendar_creation:
+        # Draft-only: no Calendar backend call. Wording (contract 1 + 9):
+        # never "Event created"; say "Draft Event created", "Calendar: not created",
+        # and "Calendar creation is disabled pending EVENT-004".
+        return RouterResult(
+            True,
+            "/event",
+            status,
+            f"Draft Event created: {draft_id}\nCalendar: not created\nCalendar creation is disabled pending EVENT-004.",
+            record_id=draft_id,
+            calendar_event_id="",
+            missing_fields=missing_followup,
+            privacy_level=privacy,
+            backend_status=result.get("status", "created"),
+        )
+
+    # allow_calendar_creation=True path is only exercised by fake tests; real
+    # promotion additionally requires explicit create_calendar=yes. Handled in
+    # route_event_followup because promotion is a follow-up action.
+    return RouterResult(
+        True,
+        "/event",
+        status,
+        f"Draft Event created: {draft_id}",
+        record_id=draft_id,
+        calendar_event_id="",
+        missing_fields=missing_followup,
+        privacy_level=privacy,
+        backend_status=result.get("status", "created"),
+    )
+
+
+EVENT_SPECIFIC_KEYS = {
+    "event", "event_title", "event_type", "start", "start_time", "end", "end_time",
+    "description", "location", "private_location", "attendees", "related_task_id",
+    "related_request_id", "related_donation_id", "privacy", "privacy_level",
+    "public_calendar_allowed", "public_title", "public_description", "public_location",
+    "approval", "approval_status", "notes", "status", "eventdraftid", "event_draft_id",
+    "id", "create_calendar", "confirm_create",
+}
+# Generic keys that must NOT alone select the event handler (contract 5).
+EVENT_GENERIC_KEYS = {"title", "type", "task", "request", "donation", "description", "notes", "privacy_level", "status"}
+
+# Other command follow-up prefixes that must NOT be intercepted as events.
+_EVENT_NON_EVENT_PREFIXES = {"report", "task", "inventory", "donation", "need"}
+
+
+def route_event_followup(
+    svc, svc_cal, followup_text: str, source_link: str, *,
+    allow_calendar_creation: bool = False,
+    calendar_promotion_mode: str = "",
+    authorization_path: Path | None = None,
+) -> RouterResult | None:
+    """Attach a follow-up to the active /event draft, or promote it to Calendar.
+
+    Event-specific fields (see EVENT_SPECIFIC_KEYS) or an explicit EVT id select
+    this handler. Without an active draft, generic keys (title/description/status/
+    notes/privacy_level) alone must NOT select the event handler. Also do not
+    intercept report/task/inventory/donation/need follow-ups.
+    """
+    fields, free_text = parse_followup_text(followup_text)
+
+    # Do not intercept other command follow-ups. This covers both the bare
+    # prefix form ("/report ...", "report ...") and the key=value form
+    # ("task=TASK-1 ...", "donation=DON-1 ...", etc.) where the first
+    # token's key is a non-event command prefix.
+    tokens = followup_text.strip().split()
+    first_token = tokens[0].lower().rstrip(":").lstrip("/") if tokens else ""
+    if first_token in _EVENT_NON_EVENT_PREFIXES:
+        return None
+    if "=" in first_token:
+        first_key = first_token.split("=", 1)[0]
+        if first_key in _EVENT_NON_EVENT_PREFIXES:
+            return None
+
+    has_explicit_id = bool(fields.get("eventdraftid") or fields.get("event_draft_id") or fields.get("id") or fields.get("eventid") or fields.get("event_id"))
+    present_event_keys = EVENT_SPECIFIC_KEYS & set(fields.keys())
+    # Strip the generic-only keys: require at least one truly event-specific key.
+    event_only_keys = present_event_keys - {"title", "type", "task", "request", "donation", "description", "notes", "privacy_level", "status", "id"}
+    has_active = bool(get_active_event_id(source_link))
+    has_event_field = bool(event_only_keys) or has_explicit_id
+
+    if not has_event_field and not has_active:
+        return None
+
+    target, problems = resolve_event_followup_target(svc, source_link, fields)
+    if not target:
+        if problems and problems[0].startswith("multiple active event drafts:"):
+            return RouterResult(
+                False, "/event", "needs_more_info",
+                "Multiple active event drafts found. Please name EventDraftID.",
+                missing_fields=problems,
+            )
+        return RouterResult(
+            False, "/event", "needs_more_info",
+            "No open event draft found in this chat/session.",
+            missing_fields=problems or ["open event draft in this chat/session"],
+        )
+
+    draft_id = target.get("EventDraftID", "")
+
+    # Explicit promotion only (contract 8).
+    create_calendar = (fields.get("create_calendar") or fields.get("confirm_create") or "").strip().lower() in {"yes", "true", "1"}
+    if create_calendar:
+        one_shot_mode = calendar_promotion_mode == ONE_SHOT_CALENDAR_PROMOTION_MODE
+        if not one_shot_mode:
+            # Draft-only default: updating a draft cannot implicitly enable Calendar writes.
+            _apply_event_followup_updates(svc, target, fields, free_text, source_link)
+            return RouterResult(
+                True, "/event", "needs-info",
+                f"Event draft ready: {draft_id}\nCalendar creation is disabled pending EVENT-004.\nNo Calendar event was created.",
+                record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="updated",
+            )
+        # Idempotent retries are safe without an authorization and cannot insert again.
+        existing_calendar_id = target.get("CalendarEventID", "").strip()
+        if existing_calendar_id:
+            clear_active_event_id(source_link, draft_id)
+            return RouterResult(
+                True, "/event", "confirmed",
+                f"Event already promoted: {draft_id} → Calendar {existing_calendar_id}",
+                record_id=draft_id, calendar_event_id=existing_calendar_id,
+                privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="already_created",
+            )
+        # All ordinary draft gates must pass before an authorization is consumed.
+        upd = _apply_event_followup_updates(svc, target, fields, free_text, source_link)
+        row = event_row_by_draft_id(svc, draft_id)
+        approval = (upd.get("approval_status") or row.get("ApprovalStatus", "")).strip().lower()
+        st = (upd.get("status") or row.get("Status", "")).strip().lower()
+        public_calendar_allowed = row.get("PublicCalendarAllowed", "")
+        privacy_level = row.get("PrivacyLevel", "")
+        start_val = row.get("StartDateTime", "")
+        end_val = row.get("EndDateTime", "")
+        start_dt = _parse_aware_iso(start_val)
+        end_dt = _parse_aware_iso(end_val) if end_val else None
+        title = row.get("EventTitle", "").strip()
+        if (public_calendar_allowed != "no" or privacy_level != "private-review"
+                or approval != "approved" or st != "ready" or not title or title == UNKNOWN
+                or start_dt is None or (end_val and end_dt is None)
+                or (end_dt is not None and end_dt <= start_dt)):
+            return RouterResult(
+                True, "/event", "needs-info",
+                f"Event draft {draft_id} not yet approved/ready for Calendar promotion.",
+                record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="updated",
+            )
+        authorized, reason = _valid_event_calendar_promotion_authorization(
+            draft_id=draft_id, source_link=source_link, authorization_path=authorization_path,
+        )
+        if not authorized:
+            return RouterResult(
+                False, "/event", "blocked",
+                f"Calendar promotion blocked for {draft_id}: {reason}.",
+                record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+                backend_status="authorization_required",
+            )
+        # Consume before the first actual external attempt, including a failed one.
+        _consume_event_calendar_promotion_authorization(authorization_path)
+        promo = ops.create_calendar_event_from_draft(svc_cal, svc, event_draft_id=draft_id)
+        if promo.get("status") in {"created", "already_created"}:
+            clear_active_event_id(source_link, draft_id)
+            return RouterResult(
+                True, "/event", "confirmed",
+                f"Event promoted: {draft_id} → Calendar {promo.get('calendar_id', '')}",
+                record_id=draft_id, calendar_event_id=promo.get("calendar_id", ""),
+                privacy_level=target.get("PrivacyLevel", "private-review"), backend_status="confirmed",
+            )
+        return RouterResult(
+            True, "/event", "blocked",
+            f"Calendar promotion blocked for {draft_id}: {promo.get('status')}",
+            record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+            backend_status="blocked",
+        )
+
+    upd = _apply_event_followup_updates(svc, target, fields, free_text, source_link)
+    final_status = (upd.get("status") or target.get("Status", "")).strip().lower()
+    # Active pointer maintenance (contract 6).
+    row = event_row_by_draft_id(svc, draft_id)
+    cal_id = row.get("CalendarEventID", "") if row else ""
+    if cal_id and final_status == "confirmed":
+        clear_active_event_id(source_link, draft_id)
+    elif final_status in {"cancelled", "rejected"}:
+        clear_active_event_id(source_link, draft_id)
+    elif final_status in OPEN_EVENT_STATES and not cal_id:
+        set_active_event_id(source_link, draft_id)
+    return RouterResult(
+        True, "/event", final_status or "updated",
+        f"Attached follow-up to {draft_id}.",
+        record_id=draft_id, calendar_event_id="", privacy_level=target.get("PrivacyLevel", "private-review"),
+        backend_status=upd.get("status", "updated"),
+    )
+
+
+def _apply_event_followup_updates(svc, target, fields, free_text, source_link: str) -> dict:
+    updates: dict[str, str] = {}
+    # Event-specific field mapping + aliases (contract 5).
+    if "event_title" in fields or "title" in fields:
+        updates["event_title"] = fields.get("event_title", fields.get("title", ""))
+    if "event_type" in fields or "type" in fields:
+        updates["event_type"] = fields.get("event_type", fields.get("type", ""))
+    if "start" in fields or "start_time" in fields:
+        updates["start_time"] = fields.get("start", fields.get("start_time", ""))
+    if "end" in fields or "end_time" in fields:
+        updates["end_time"] = fields.get("end", fields.get("end_time", ""))
+    if "description" in fields:
+        updates["description"] = fields["description"]
+    if "location" in fields:
+        updates["location"] = fields["location"]
+    if "private_location" in fields:
+        updates["private_location"] = fields["private_location"]
+    if "attendees" in fields:
+        updates["attendees"] = fields["attendees"]
+    if "related_task_id" in fields or "task" in fields:
+        updates["related_task_id"] = fields.get("related_task_id", fields.get("task", ""))
+    if "related_request_id" in fields or "request" in fields:
+        updates["related_request_id"] = fields.get("related_request_id", fields.get("request", ""))
+    if "related_donation_id" in fields or "donation" in fields:
+        updates["related_donation_id"] = fields.get("related_donation_id", fields.get("donation", ""))
+    if "privacy" in fields or "privacy_level" in fields:
+        updates["privacy_level"] = fields.get("privacy_level", fields.get("privacy", ""))
+    if "public_calendar_allowed" in fields:
+        updates["public_calendar_allowed"] = fields["public_calendar_allowed"]
+    if "public_title" in fields:
+        updates["public_title"] = fields["public_title"]
+    if "public_description" in fields:
+        updates["public_description"] = fields["public_description"]
+    if "public_location" in fields:
+        updates["public_location"] = fields["public_location"]
+    if "approval" in fields or "approval_status" in fields:
+        updates["approval_status"] = fields.get("approval_status", fields.get("approval", ""))
+    if "notes" in fields:
+        updates["notes"] = fields["notes"]
+    if "status" in fields:
+        updates["status"] = fields["status"]
+
+    current_notes = target.get("Notes", "").strip()
+    note_parts = []
+    if free_text:
+        note_parts.append(free_text)
+    tracked = set(updates.keys()) | {"eventdraftid", "event_draft_id", "id", "eventid", "event_id", "create_calendar", "confirm_create"}
+    kv_parts = [f"{k}={v}" for k, v in fields.items() if k not in tracked]
+    if kv_parts:
+        note_parts.append(" ".join(kv_parts))
+    if note_parts:
+        followup_note = "Follow-up: " + " | ".join(note_parts)
+        new_notes = f"{current_notes}\n{followup_note}" if current_notes else followup_note
+        updates["notes"] = new_notes
+
+    result = ops.upsert_event_draft(
+        svc,
+        event_draft_id=target.get("EventDraftID", ""),
+        event_title=updates.get("event_title", target.get("EventTitle", "")),
+        event_type=updates.get("event_type", target.get("EventType", "event")),
+        start_time=updates.get("start_time", target.get("StartDateTime", "")),
+        end_time=updates.get("end_time", target.get("EndDateTime", "")),
+        description=updates.get("description", target.get("Description", "")),
+        location=updates.get("location", target.get("Location", "")),
+        private_location=updates.get("private_location", target.get("PrivateLocation", "")),
+        attendees=updates.get("attendees", target.get("Attendees", "")),
+        related_task_id=updates.get("related_task_id", target.get("RelatedTaskID", "")),
+        related_request_id=updates.get("related_request_id", target.get("RelatedRequestID", "")),
+        related_donation_id=updates.get("related_donation_id", target.get("RelatedDonationID", "")),
+        privacy_level=updates.get("privacy_level", target.get("PrivacyLevel", "")),
+        public_calendar_allowed=updates.get("public_calendar_allowed", target.get("PublicCalendarAllowed", "")),
+        public_title=updates.get("public_title", target.get("PublicTitle", "")),
+        public_description=updates.get("public_description", target.get("PublicDescription", "")),
+        public_location=updates.get("public_location", target.get("PublicLocation", "")),
+        approval_status=updates.get("approval_status", target.get("ApprovalStatus", "")),
+        status=updates.get("status", target.get("Status", "")),
+        notes=updates.get("notes", target.get("Notes", "")),
+        source_link=source_link,
+    )
+    return updates
+
+
+def run_sync(sync_runner=None) -> Any:
+    """Delegate sync directly to the canonical package or an explicit injection."""
+    runner = approved_safe_sync.run_sync if sync_runner is None else sync_runner
+    return runner()
+
+
+def read_json(name: str) -> list[dict[str, Any]]:
+    path = DOCS_DATA / name
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _dedupe_by_key(items: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """Return items with unique values for the given key, keeping first occurrence."""
+    seen = set()
+    out = []
+    for item in items:
+        val = item.get(key, "")
+        if val and val not in seen:
+            seen.add(val)
+            out.append(item)
+    return out
+
+
+def _dedupe_calendar_by_title(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate calendar items by title, keeping first occurrence.
+    Does not delete source rows; only affects /daily display.
+    """
+    seen = set()
+    out = []
+    for item in items:
+        title = (item.get("EventTitle") or "").strip()
+        if title and title not in seen:
+            seen.add(title)
+            out.append(item)
+    return out
+
+
+def _completed_item_summary(entry: dict[str, Any]) -> tuple[str, str] | None:
+    target = str(entry.get("TargetItem", ""))
+    action = str(entry.get("Action", ""))
+    if target.startswith("Donations/"):
+        return ("donation", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Reports/"):
+        return ("report", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Tasks/"):
+        return ("task", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Inventory/"):
+        return ("inventory item", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("CalendarLog/"):
+        return ("calendar event", "created" if action == "create" else "updated" if action == "update" else action)
+    if target.startswith("Requests/"):
+        return ("request", "created" if action == "create" else "updated" if action == "update" else action)
+    return None
+
+
+def _format_completed_item_lines(entries: list[dict[str, Any]]) -> list[str]:
+    counts: Counter[tuple[str, str]] = Counter()
+    order: list[tuple[str, str]] = []
+    for entry in entries:
+        key = _completed_item_summary(entry)
+        if not key:
+            continue
+        if key not in counts:
+            order.append(key)
+        counts[key] += 1
+
+    def pluralize(noun: str, count: int) -> str:
+        if count == 1:
+            return noun
+        parts = noun.split()
+        parts[-1] = parts[-1] + "s"
+        return " ".join(parts)
+
+    lines: list[str] = []
+    for noun, action in order:
+        count = counts[(noun, action)]
+        lines.append(f"- {count} {pluralize(noun, count)} {action}")
+    return lines
+
+
+def daily_services():
+    """Create read-only service clients for the /daily approved-safe snapshot."""
+    credentials = approved_safe_sync.creds(persist_refresh=False)
+    return approved_safe_sync.sheets_service(credentials), approved_safe_sync.calendar_service(credentials)
+
+
+def run_daily_summary(sheets_service=None, calendar_service=None) -> str:
+    """Build a Telegram-safe summary directly from an in-memory safe snapshot."""
+    if sheets_service is None or calendar_service is None:
+        sheets_service, calendar_service = daily_services()
+    snapshot = approved_safe_sync.collect_approved_safe_data(sheets_service, calendar_service)
+    needs = snapshot["approved_needs"]
+    donations = snapshot["approved_donations"]
+    reports = snapshot["approved_reports"]
+    calendar = snapshot["approved_calendar"]
+    board_log = snapshot["approved_board_log"]
+
+    # Deduplicate by primary keys
+    needs = _dedupe_by_key(needs, "RequestID")
+    donations = _dedupe_by_key(donations, "DonationID")
+    reports = _dedupe_by_key(reports, "ReportID")
+    calendar = _dedupe_by_key(calendar, "CalendarEventID")
+    calendar = _dedupe_calendar_by_title(calendar)
+
+    today = now_utc().strftime("%Y-%m-%d")
+    lines = [
+        "Daily board-safe summary",
+        f"Date: {today}",
+        "",
+        "Today's calendar:",
+    ]
+    today_events = [e for e in calendar if str(e.get("StartDateTime", "")).startswith(today)]
+    if today_events:
+        for e in today_events[:5]:
+            lines.append(f"- {e.get('EventTitle', UNKNOWN)} ({e.get('Status', UNKNOWN)})")
+    else:
+        lines.append("- No board-safe events found for today.")
+
+    lines += ["", "Open urgent requests:"]
+    urgent = [n for n in needs if str(n.get("Urgency", "")).lower() in {"urgent", "high"}]
+    if urgent:
+        for n in urgent[:5]:
+            lines.append(f"- {n.get('RequestID', UNKNOWN)}: {n.get('NeedDescription', UNKNOWN)}")
+    else:
+        lines.append("- No urgent board-safe requests found.")
+
+    lines += ["", "Donation pickups/drop-offs:"]
+    if donations:
+        for d in donations[-5:]:
+            lines.append(f"- {d.get('DonationID', UNKNOWN)}: {d.get('ItemDescription', UNKNOWN)} ({d.get('Status', UNKNOWN)})")
+    else:
+        lines.append("- No board-safe donation records found.")
+
+    lines += ["", "Approved-safe reports:"]
+    if reports:
+        for report in reports[-5:]:
+            lines.append(f"- {report.get('ReportID', UNKNOWN)}: {report.get('Summary', UNKNOWN)}")
+    else:
+        lines.append("- No approved-safe reports found.")
+
+    lines += ["", "Volunteer gaps:", "- None listed in approved-safe export."]
+    lines += ["", "Inventory shortages:", "- Inventory is not exported publicly yet; check private Sheet."]
+    lines += ["", "Website drafts needing approval:", "- None listed in approved-safe export."]
+    lines += ["", "Follow-ups due:"]
+    if needs:
+        for n in needs[-5:]:
+            lines.append(f"- {n.get('RequestID', UNKNOWN)} next action: {n.get('NextAction', UNKNOWN)}")
+    else:
+        lines.append("- No follow-ups listed.")
+    lines += ["", "Sensitive items requiring human review:", "- Not exported to docs/. Check private systems only if needed."]
+    lines += ["", "Completed items since last brief:"]
+    visible_request_ids = {n.get("RequestID") for n in needs if n.get("RequestID")}
+    recent_success = []
+    for a in [x for x in board_log if x.get("Result") == "success"]:
+        target = str(a.get("TargetItem", ""))
+        if target.startswith("Requests/") and target.split("/", 1)[1] in visible_request_ids:
+            continue
+        recent_success.append(a)
+    recent_success = recent_success[-50:]
+    if recent_success:
+        lines.extend(_format_completed_item_lines(recent_success))
+    else:
+        lines.append("- No recent successful audit entries found.")
+    lines += ["", "Website:", "- Board home: https://falloutmule.github.io/non-profit-hermes-mvp/", "- Today: https://falloutmule.github.io/non-profit-hermes-mvp/today.html", "- Current needs: https://falloutmule.github.io/non-profit-hermes-mvp/current-needs.html", "- Calendar: https://falloutmule.github.io/non-profit-hermes-mvp/calendar.html", "- Reports: https://falloutmule.github.io/non-profit-hermes-mvp/reports.html"]
+    lines += ["", "Read state:", "- Source: approved-safe in-memory snapshot", f"- Counts: {{'needs': {len(needs)}, 'calendar': {len(calendar)}, 'reports': {len(reports)}, 'donations': {len(donations)}}}"]
+    lines += ["", "daily_plugin_version: website-links-dedup-003"]
+    return "\n".join(lines)
+
+
+def safe_test_messages() -> list[str]:
+    start = (now_utc() + timedelta(hours=4)).replace(microsecond=0)
+    end = start + timedelta(hours=1)
+    return [
+        '/need id=REQ-TG-TEST-001 category=clothing description="Safe fake Telegram need for blankets" quantity=2 urgency=low needed_by=2099-01-01 next_action=review',
+        '/donation id=DON-TG-TEST-001 type=clothing item="Safe fake Telegram donation of coats" quantity=3 condition=new method=dropoff location="Safe fake public dropoff" available=2099-01-01',
+        '/report type=test summary="Safe fake Telegram report summary"',
+        '/task id=TASK-TG-TEST-001 title="Safe fake Telegram task" description="Verify Telegram router task write" category=test priority=low due=2099-01-01 assigned_to=unknown',
+        '/inventory id=INV-TG-TEST-001 item="Safe fake Telegram socks" category=socks quantity=42 unit=pairs minimum=10 storage="Safe fake storage shelf" condition=new',
+        f'/event id=CAL-TG-TEST-001 title="Safe fake Telegram calendar event" start={start.isoformat()} end={end.isoformat()} type=telegram-test request=REQ-TG-TEST-001 task=TASK-TG-TEST-001',
+        '/daily',
+        '/need id=REQ-TG-HOLD-001 description="medical private-location camp test should hold"',
+        '/need id=REQ-TG-MISSING-001',
+        '/report pantry gave out socks and toilet paper',
+    ]
+
+
+
+def report_followup_test_sequence() -> list[tuple[str, str]]:
+    """Conversation-style test for active /report draft follow-up handling."""
+    source = "telegram-simulated:report-followup"
+    return [
+        (source, '/report pantry gave out socks and toilet paper'),
+        (source, 'report_type=pantry date=today people_served_estimate=unknown items_distributed="socks and toilet paper" followups_needed=none privacy_level=board-visible public_summary_allowed=yes status=ready next_action=review'),
+    ]
+
+
+def need_followup_test_sequence() -> list[tuple[str, str]]:
+    """Conversation-style test for active /need draft follow-up handling."""
+    source = "telegram-simulated:need-followup"
+    return [
+        (source, '/need 6 rolls of toilet paper'),
+        (source, 'urgency=normal needed_by=unknown location="public-safe test area" privacy_level=board-visible status=ready'),
+    ]
+
+
+def run_test() -> int:
+    print("=== Non-Profit Hermes Telegram Intake Router — Safe Test ===")
+    results: list[dict[str, Any]] = []
+    for i, message in enumerate(safe_test_messages(), start=1):
+        source = f"{SOURCE_PREFIX}:{i}"
+        result = handle_message(message, source_link=source)
+        results.append({"input": message, "result": result.to_dict()})
+        print(f"\n[{i}] {message.split()[0]} → {result.status}")
+        print(result.message)
+        if result.record_id:
+            print(f"record_id: {result.record_id}")
+        if result.calendar_event_id:
+            print(f"calendar_event_id: {result.calendar_event_id}")
+        if result.summary:
+            print(result.summary)
+
+    print("\n=== Conversation follow-up test ===\n")
+
+    print("--- Report follow-up ---")
+    for i, (source, message) in enumerate(report_followup_test_sequence(), start=1):
+        result = handle_message(message, source_link=source)
+        results.append({"input": message, "source": source, "result": result.to_dict()})
+        print(f"\n[RF{i}] {message.split()[0] if message.startswith('/') else message[:50]} → {result.status}")
+        print(result.message)
+        if result.record_id:
+            print(f"record_id: {result.record_id}")
+
+    print("\n--- Need follow-up ---")
+    for i, (source, message) in enumerate(need_followup_test_sequence(), start=1):
+        result = handle_message(message, source_link=source)
+        results.append({"input": message, "source": source, "result": result.to_dict()})
+        print(f"\n[F{i}] {message.split()[0]} → {result.status}")
+        print(result.message)
+        if result.record_id:
+            print(f"record_id: {result.record_id}")
+
+    print("\n=== JSON result ===")
+    print(json.dumps(results, indent=2, ensure_ascii=False))
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Safe Telegram intake router for Non-Profit Hermes")
+    parser.add_argument("--test", action="store_true", help="Run safe fake Telegram intake simulation")
+    parser.add_argument("--message", help="Route one command-like Telegram message")
+    args = parser.parse_args()
+
+    if args.test:
+        return run_test()
+    if args.message:
+        result = handle_message(args.message)
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        if result.summary:
+            print("\n" + result.summary)
+        return 0 if result.ok else 2
+
+    parser.print_help()
+    return 0
+
+
+_ROUTER_CONSTANT_EXPORTS = {
+    "ACTIVE_NEED_STATE_PATH",
+    "COMMANDS",
+    "DOCS_DATA",
+    "EVENT_CALENDAR_PROMOTION_AUTHORIZATION_PATH",
+    "EVENT_GENERIC_KEYS",
+    "EVENT_SPECIFIC_KEYS",
+    "ONE_SHOT_CALENDAR_PROMOTION_MODE",
+    "OPEN_EVENT_STATES",
+    "SENSITIVE_PATTERNS",
+    "SENSITIVE_RE",
+    "SOURCE_PREFIX",
+    "STATE_DIR",
+    "TERMINAL_EVENT_STATES",
+    "UNKNOWN",
+}
+__all__ = sorted(
+    _ROUTER_CONSTANT_EXPORTS
+    | {
+        name
+        for name, value in globals().items()
+        if callable(value) and getattr(value, "__module__", None) == __name__
+    }
+)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
