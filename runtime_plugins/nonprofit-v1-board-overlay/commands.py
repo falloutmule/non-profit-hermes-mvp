@@ -5,7 +5,6 @@ from typing import NamedTuple
 import importlib.util
 from pathlib import Path
 
-from non_profit_hermes import router
 
 
 class CommandSpec(NamedTuple):
@@ -71,6 +70,7 @@ def make_handler(command_name: str):
                 elif board_args.isdigit():
                     board_args = "list " + board_args
                 return module.dispatch(board_args)
+            from non_profit_hermes import router
             return router.run_plugin_command(command_name, raw_args or "")
         except Exception:
             return (
