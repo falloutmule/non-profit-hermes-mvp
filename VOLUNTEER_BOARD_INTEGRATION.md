@@ -29,3 +29,9 @@ Public/application text is updated to volunteer coordination, policy version2026
 ## Verification boundary
 
 Connector unit tests cover DST, recurrence, repeat preparation, drift protection, publication hold and secret redaction. Live adapter invocation through installed profile tested locally; a human-originated Telegram command is still required to establish end-to-end Telegram transport. No claim that real SMS delivery through Funnel was tested here.
+
+## September23 command-registration repair
+
+The direct adapter import check was insufficient: the pinned gateway's CLI startup path did not retain /event in its live registry. scripts/nonprofit_gateway_entry.py pins HERMES_HOME to nonprofit-v1, discovers/verifies the registry and calls the pinned gateway.run entry point directly. It verifies registration again eight seconds into the running gateway. Live output confirms NONPROFIT_EVENT_REGISTRY_LIVE=True with the correct profile. scripts/windows/Start-NonprofitV1.ps1 preserves the existing private-binding loader and launches this bootstrap with the dedicated Python runtime. No shared gateway/runtime source was modified. Prior launcher retained in the profile private directory for rollback.
+
+Regression check: run the dedicated Python with scripts/nonprofit_gateway_entry.py --check-registry; verify it lists Board events. After startup, check the live-registry marker and Telegram polling connection. Human Telegram response is still the end-to-end confirmation; local handler tests alone are not enough.
