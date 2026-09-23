@@ -945,6 +945,10 @@ def handle_message(
     calendar_promotion_mode: str = "",
 ) -> RouterResult:
     stripped = (text or "").strip()
+    if stripped == "/event board" or stripped.startswith("/event board "):
+        from volunteer_board_operator import dispatch
+        message = dispatch(stripped[len("/event board"):].strip())
+        return RouterResult(True, "/event board", "board", message, summary=message)
     if stripped and not stripped.startswith("/"):
         svc, svc_cal = services()
         followup_result = route_event_followup(
