@@ -4,11 +4,11 @@ Source: this repository. Dedicated live operator: Hermes profile nonprofit-v1, t
 
 ## Telegram commands
 
-- `/event board list`: list event ID, date, capacity, status and keyword; no private roster.
-- `/event board show 1`: inspect Saturday Pantry occurrence1.
-- `/event board pantry preview`: preview the upcoming 12 Saturdays without writes.
-- `/event board pantry prepare`: reconcile upcoming12 weekly drafts; duplicates skipped; existing changes/cancellations preserved. No SMS.
-- `/event board publish 1`: publish one reviewed draft only after the protected real_use_review_complete gate is true. No automated publication.
+- `/board`: list event ID, date, capacity, status and keyword; no private roster.
+- `/board show 1`: inspect Saturday Pantry occurrence1.
+- `/board pantry preview`: preview the upcoming 12 Saturdays without writes.
+- `/board pantry prepare`: reconcile upcoming12 weekly drafts; duplicates skipped; existing changes/cancellations preserved. No SMS.
+- `/board publish 1`: publish one reviewed draft only after the protected real_use_review_complete gate is true. No automated publication.
 
 First Saturday Pantry is September26,2026, 3:45–5:00 PM America/Denver, 302 South Ave, Grand Junction, CO, capacity6. Signup keyword PANTRY20260926. Each occurrence gets PANTRYYYYYMMDD, a separate capacity and standby queue. DST conversion uses IANA America/Denver; November dates correctly shift UTC while local time stays fixed.
 
@@ -38,4 +38,10 @@ Regression check: run the dedicated Python with scripts/nonprofit_gateway_entry.
 
 ## Concise Telegram display
 
-/event board list shows shared schedule/location once and three dates per page. Use /event board list 2 for more dates. /event board show <id> presents one readable event card with status and signup keyword. No changes to events, capacity, publication, consent or messaging behavior. The adapter loads presentation changes at invocation, so no gateway restart is required.
+/board shows shared schedule/location once and three dates per page. Use /board 2 for more dates. /board show <id> presents one readable event card with status and signup keyword. No changes to events, capacity, publication, consent or messaging behavior. The adapter loads presentation changes at invocation, so no gateway restart is required.
+
+## Direct Telegram menu command
+
+In @HnonProfitBOT, open Menu and select /board (Volunteer dates and event details). No arguments are needed. /board 2 shows the next three dates; /board show 1 opens one event. Legacy /event board commands remain supported. The default Telegram command menu preserves existing commands until the operator identifies the five to retain. Post-connect menu mutations remain disabled so runtime startup does not replace this menu.
+
+The bootstrap now verifies NONPROFIT_BOARD_REGISTRY_LIVE=True. Telegram schedule responses were confirmed by the operator before this shortcut change. To restart the dedicated gateway, stop its scheduled task and verify/stop only any remaining child listening on 8643 whose command line contains nonprofit_gateway_entry.py, then start Hermes_Gateway_nonprofit_v1. Never stop the shared Hermes gateway.

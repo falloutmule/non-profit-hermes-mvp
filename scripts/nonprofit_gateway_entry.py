@@ -11,17 +11,17 @@ if check:sys.argv.remove('--check-registry')
 from gateway.run import main
 from hermes_cli.plugins import discover_plugins,get_plugin_command_handler
 discover_plugins(force=True)
-handler=get_plugin_command_handler('event')
+handler=get_plugin_command_handler('board')
 if not handler:
-    raise SystemExit('Non-Profit /event command registration failed; gateway not started.')
-print('NONPROFIT_EVENT_REGISTRY_READY',flush=True)
+    raise SystemExit('Non-Profit /board command registration failed; gateway not started.')
+print('NONPROFIT_BOARD_REGISTRY_READY',flush=True)
 if check:
-    print(handler('board list'))
+    print(handler(''))
 else:
     import threading
     def verify_live_registry():
         from hermes_constants import get_hermes_home
-        print('NONPROFIT_EVENT_REGISTRY_LIVE=' + str(bool(get_plugin_command_handler('event'))) + ' home=' + str(get_hermes_home()), flush=True)
+        print('NONPROFIT_BOARD_REGISTRY_LIVE=' + str(bool(get_plugin_command_handler('board'))) + ' home=' + str(get_hermes_home()), flush=True)
     timer = threading.Timer(8, verify_live_registry)
     timer.daemon = True
     timer.start()

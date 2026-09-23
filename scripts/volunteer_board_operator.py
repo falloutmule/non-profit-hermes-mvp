@@ -111,7 +111,7 @@ def summary(events, page=1):
     events = sorted(events, key=lambda e: (e['startsAt'], str(e['id'])))
     pages = (len(events) + 2) // 3
     if page < 1 or page > pages:
-        return f"Choose a page from 1 to {pages}: /event board list <page>"
+        return f"Choose a page from 1 to {pages}: /board <page>"
     visible = events[(page-1)*3:page*3]
     def group_key(e):
         start, end = local_time(e['startsAt']), local_time(e['endsAt'])
@@ -137,9 +137,9 @@ def summary(events, page=1):
             lines.append(f"• {event['name']} — {dt:%b} {dt.day}, {clock(dt)} (Denver) · {label}")
     lines.append('')
     if isinstance(visible[0]['id'], int):
-        lines.append(f"First date details: /event board show {visible[0]['id']}")
+        lines.append(f"First date details: /board show {visible[0]['id']}")
     if page < pages:
-        lines.append(f"More dates: /event board list {page+1}")
+        lines.append(f"More dates: /board {page+1}")
     return '\n'.join(lines)
 
 
@@ -147,7 +147,7 @@ def dispatch(args, client=None):
     try:
         words=args.strip().split()
         if not words or words==['help']:
-            return 'Volunteer events\n\n/event board list — Upcoming dates\n/event board show <id> — Event details\n/event board pantry prepare — Prepare upcoming Saturdays\n/event board publish <id> — Publish a reviewed date'
+            return 'Volunteer events\n\n/board — Upcoming dates\n/board show <id> — Event details\n/board pantry prepare — Prepare upcoming Saturdays\n/board publish <id> — Publish a reviewed date'
         if words==['pantry','preview']:
             return summary([dict(e,id='draft') for e in pantry_occurrences()])
         client=client or BoardClient()
@@ -156,7 +156,7 @@ def dispatch(args, client=None):
             return summary(client.events(), int(words[1]))
         if words==['pantry','prepare']:
             created=prepare_pantry(client)
-            return f'Prepared {len(created)} new Saturday Pantry drafts; upcoming 12 Saturdays reconciled without overwriting existing events. No SMS sent. Use /event board list.'
+            return f'Prepared {len(created)} new Saturday Pantry drafts; upcoming 12 Saturdays reconciled without overwriting existing events. No SMS sent. Use /board.'
         if len(words)==2 and words[0] in ('show','publish') and words[1].isdigit() and int(words[1])>0:
             route='/api/admin/events/'+str(int(words[1]))
             if words[0]=='show':return event_details(client.request('GET',route))
@@ -165,7 +165,7 @@ def dispatch(args, client=None):
             event=client.request('GET',route)
             if event['status']!='draft':return 'Only a draft can be published through this command. No change made.'
             return event_details(client.request('PATCH',route,{'status':'published'}))
-        return 'Unknown Board command. Use /event board help. No SMS or drop operation is exposed here.'
+        return 'Unknown Board command. Use /board help. No SMS or drop operation is exposed here.'
     except Exception:
         # No credential, HTTP header, raw API body, private roster or traceback in Telegram.
         return 'Volunteer Board operation failed. Inspect local readiness/configuration and reconcile events before retrying a write. No secrets displayed.'

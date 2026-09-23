@@ -15,6 +15,7 @@ class CommandSpec(NamedTuple):
 
 
 COMMANDS = (
+    CommandSpec("board", "Volunteer dates and event details", "[page] | show <id>"),
     CommandSpec(
         "daily",
         "Non-Profit Hermes board-safe daily summary",
@@ -59,12 +60,17 @@ def make_handler(command_name: str):
     def handler(raw_args: str = "") -> str:
         try:
             args = (raw_args or "").strip()
-            if command_name == "event" and (args == "board" or args.startswith("board ")):
+            if command_name == "board" or (command_name == "event" and (args == "board" or args.startswith("board "))):
                 source = Path(r"C:\Users\fallo\non-profit-hermes-mvp\scripts\volunteer_board_operator.py")
                 spec = importlib.util.spec_from_file_location("hermes_volunteer_board_operator", source)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-                return module.dispatch(args[len("board"):].strip())
+                board_args = args if command_name == "board" else args[len("board"):].strip()
+                if not board_args:
+                    board_args = "list"
+                elif board_args.isdigit():
+                    board_args = "list " + board_args
+                return module.dispatch(board_args)
             return router.run_plugin_command(command_name, raw_args or "")
         except Exception:
             return (
