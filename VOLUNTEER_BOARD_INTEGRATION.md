@@ -35,3 +35,7 @@ Connector unit tests cover DST, recurrence, repeat preparation, drift protection
 The direct adapter import check was insufficient: the pinned gateway's CLI startup path did not retain /event in its live registry. scripts/nonprofit_gateway_entry.py pins HERMES_HOME to nonprofit-v1, discovers/verifies the registry and calls the pinned gateway.run entry point directly. It verifies registration again eight seconds into the running gateway. Live output confirms NONPROFIT_EVENT_REGISTRY_LIVE=True with the correct profile. scripts/windows/Start-NonprofitV1.ps1 preserves the existing private-binding loader and launches this bootstrap with the dedicated Python runtime. No shared gateway/runtime source was modified. Prior launcher retained in the profile private directory for rollback.
 
 Regression check: run the dedicated Python with scripts/nonprofit_gateway_entry.py --check-registry; verify it lists Board events. After startup, check the live-registry marker and Telegram polling connection. Human Telegram response is still the end-to-end confirmation; local handler tests alone are not enough.
+
+## Concise Telegram display
+
+/event board list shows shared schedule/location once and three dates per page. Use /event board list 2 for more dates. /event board show <id> presents one readable event card with status and signup keyword. No changes to events, capacity, publication, consent or messaging behavior. The adapter loads presentation changes at invocation, so no gateway restart is required.

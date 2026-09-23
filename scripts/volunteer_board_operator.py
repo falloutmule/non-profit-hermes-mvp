@@ -57,7 +57,7 @@ def pantry_occurrences(now=None, weeks=12):
     for week in range(weeks):
         d=day+timedelta(days=7*week)
         utc=lambda t: datetime.combine(d,t,ZONE).astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00','Z')
-        result.append(dict(slug='PANTRY'+d.strftime('%Y%m%d'),name='Saturday Pantry',description='Every Saturday, 3:45–5:00 PM America/Denver. Six confirmed places; additional volunteers join standby. Each dated event has its own signup.',location='302 South Ave, Grand Junction, CO',startsAt=utc(time(15,45)),endsAt=utc(time(17)),capacity=6,status='draft'))
+        result.append(dict(slug='PANTRY'+d.strftime('%Y%m%d'),name='Saturday Pantry',description='Every Saturday, 3:45â€“5:00 PM America/Denver. Six confirmed places; additional volunteers join standby. Each dated event has its own signup.',location='302 South Ave, Grand Junction, CO',startsAt=utc(time(15,45)),endsAt=utc(time(17)),capacity=6,status='draft'))
     return result
 
 
@@ -81,12 +81,65 @@ def prepare_pantry(client, now=None):
     return created
 
 
-def summary(events):
-    if not events:return 'Volunteer Board: no events.'
-    lines=['Volunteer Board (authoritative):']
-    for e in events:
-        dt=datetime.fromisoformat(e['startsAt'].replace('Z','+00:00')).astimezone(ZONE)
-        lines.append(f"#{e['id']} {e['name']} | {dt:%Y-%m-%d %I:%M %p %Z} | capacity {e['capacity']} | {e['status']} | {e['slug']}")
+def local_time(value):
+    return datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(ZONE)
+
+
+def clock(value):
+    return value.strftime('%I:%M %p').lstrip('0')
+
+
+def event_details(event):
+    start, end = local_time(event['startsAt']), local_time(event['endsAt'])
+    status = {'draft': 'Not published yet', 'published': 'Open for signups',
+              'cancelled': 'Cancelled', 'completed': 'Completed'}.get(event['status'], event['status'])
+    return '\n'.join([
+        event['name'],
+        start.strftime('%A, %B ') + str(start.day) + start.strftime(', %Y'),
+        f"{clock(start)}–{clock(end)} · Denver time",
+        event.get('location') or 'Location to be announced',
+        f"{event['capacity']} volunteer places · Standby when full",
+        '', status,
+        f"Signup keyword: {event['slug']}",
+        'No signups are accepted until published.' if event['status'] == 'draft' else '',
+    ]).rstrip()
+
+
+def summary(events, page=1):
+    if not events:
+        return 'No volunteer events yet.'
+    events = sorted(events, key=lambda e: (e['startsAt'], str(e['id'])))
+    pages = (len(events) + 2) // 3
+    if page < 1 or page > pages:
+        return f"Choose a page from 1 to {pages}: /event board list <page>"
+    visible = events[(page-1)*3:page*3]
+    def group_key(e):
+        start, end = local_time(e['startsAt']), local_time(e['endsAt'])
+        return (e['name'], e.get('location'), e['capacity'], e['status'],
+                start.weekday(), clock(start), clock(end))
+    first = events[0]
+    if all(group_key(e) == group_key(first) for e in events):
+        start, end = local_time(first['startsAt']), local_time(first['endsAt'])
+        lines = [first['name'],
+                 f"{start:%A}s · {clock(start)}–{clock(end)} (Denver)",
+                 first.get('location') or 'Location to be announced',
+                 f"{first['capacity']} volunteer places per date · Standby when full", '',
+                 'Not published yet' if first['status'] == 'draft' else first['status'].capitalize(),
+                 f"Dates ({len(events)} prepared)"]
+        for event in visible:
+            dt = local_time(event['startsAt'])
+            lines.append(f"• {dt:%b} {dt.day}, {dt.year}")
+    else:
+        lines = ['Volunteer events', '']
+        for event in visible:
+            dt = local_time(event['startsAt'])
+            label = 'Not published' if event['status'] == 'draft' else event['status'].capitalize()
+            lines.append(f"• {event['name']} — {dt:%b} {dt.day}, {clock(dt)} (Denver) · {label}")
+    lines.append('')
+    if isinstance(visible[0]['id'], int):
+        lines.append(f"First date details: /event board show {visible[0]['id']}")
+    if page < pages:
+        lines.append(f"More dates: /event board list {page+1}")
     return '\n'.join(lines)
 
 
@@ -94,22 +147,24 @@ def dispatch(args, client=None):
     try:
         words=args.strip().split()
         if not words or words==['help']:
-            return 'Volunteer Board: /event board list; /event board pantry preview; /event board pantry prepare; /event board show <id>; /event board publish <id>. Pantry preparation creates upcoming 12 weekly drafts; no SMS. Publication is held until real-use review is enabled locally.'
+            return 'Volunteer events\n\n/event board list — Upcoming dates\n/event board show <id> — Event details\n/event board pantry prepare — Prepare upcoming Saturdays\n/event board publish <id> — Publish a reviewed date'
         if words==['pantry','preview']:
             return summary([dict(e,id='draft') for e in pantry_occurrences()])
         client=client or BoardClient()
         if words==['list']:return summary(client.events())
+        if len(words)==2 and words[0]=='list' and words[1].isdigit():
+            return summary(client.events(), int(words[1]))
         if words==['pantry','prepare']:
             created=prepare_pantry(client)
             return f'Prepared {len(created)} new Saturday Pantry drafts; upcoming 12 Saturdays reconciled without overwriting existing events. No SMS sent. Use /event board list.'
         if len(words)==2 and words[0] in ('show','publish') and words[1].isdigit() and int(words[1])>0:
             route='/api/admin/events/'+str(int(words[1]))
-            if words[0]=='show':return summary([client.request('GET',route)])
+            if words[0]=='show':return event_details(client.request('GET',route))
             if client.config.get('real_use_review_complete') is not True:
                 return 'Publication held: current public wording and approved campaign real-use review must be confirmed first. No change made.'
             event=client.request('GET',route)
             if event['status']!='draft':return 'Only a draft can be published through this command. No change made.'
-            return summary([client.request('PATCH',route,{'status':'published'})])
+            return event_details(client.request('PATCH',route,{'status':'published'}))
         return 'Unknown Board command. Use /event board help. No SMS or drop operation is exposed here.'
     except Exception:
         # No credential, HTTP header, raw API body, private roster or traceback in Telegram.
