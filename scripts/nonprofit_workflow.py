@@ -108,7 +108,7 @@ def event(args='', client=None):
     client=client or BoardClient()
     words=args.strip().split(maxsplit=2)
     if not words or words==['list']:
-        return summary(client.events()).replace('/board','/event') + '\n\nTo create or change an event, tell me what, when and where in a regular message.'
+        return summary(client.events()).replace('/board','/event') + '\n\nChange it in chat: “Move this Saturday to 4 PM” or “Make future Saturdays 8 places.”'
     if words[0]=='board': return board(args.strip()[5:].strip(),client)
     if words[0].isdigit():return summary(client.events(),int(words[0])).replace('/board','/event')
     if len(words)==2 and words[0]=='show' and words[1].isdigit():
@@ -122,7 +122,7 @@ def event(args='', client=None):
         return event_details(operate('create',{'event':fields},client=client,authorized=True))
     if len(words)==3 and words[0]=='update' and words[1].isdigit():
         return event_details(operate('update',{'eventId':int(words[1]),'scope':'one','event':json.loads(words[2])},client=client,authorized=True))
-    return 'Events\n/event — Upcoming dates\n/event show 1 — Event details\nTell me the event name, date, time and location in a regular message. I will ask about staffing and DONE completion when needed. New events stay drafts.'
+    return 'Events\n/event — Upcoming dates\n/event show 1 — Details\n\nTell me in chat:\n• Move this Saturday to 4 PM\n• Make future Saturdays 8 places\n• Require DONE for the sock pickup\n\nI will clarify which date if needed. New events stay drafts.'
 
 def daily(client=None):
     lines=['Today at Hermes']

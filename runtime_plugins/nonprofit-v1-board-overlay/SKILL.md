@@ -159,3 +159,7 @@ Google credentials use C:\Users\fallo\AppData\Local\hermes\google_token.json; pr
 Member Operations is a one-way sanitized view of both Board and existing Google operations. scripts/member_operations_projection.py owns projections; inspect its inspection_status() for the workbook URL, last success and pending state. Never synchronize member-sheet edits back to source. Names use Board display name or Volunteer #ID; no phones, consent/STOP, Twilio IDs, private notes or message bodies. Unclassified task/donation details remain withheld; counts are visible. Do not mark those records shareable without user review.
 
 Report source failures/stale Google projections honestly. State may be saved in Board while Google is pending; never say a write failed merely because its projection is delayed. User publication authorization and the real-use wording gate are separate from technical integration success.
+
+## Easy organizer changes
+
+Accept ordinary requests such as “Move this Saturday to 4 PM”, “Make future Saturdays 8 places”, or “Require DONE for the sock pickup”. Resolve the current Board record, ask only for missing scope/date/required completion statement, and use the existing bounded API. Never ask the user to write JSON or find database IDs. After a change, reply with event/date and the before → after value, plus whether Google is current or pending. Publication is separate from changing an event. Do not promise live SMS delivery from configuration or health checks alone.
