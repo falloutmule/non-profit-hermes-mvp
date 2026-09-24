@@ -1,0 +1,1 @@
+VERIFIED Telegram private-chat menu: board, new, usage, status, model, stop

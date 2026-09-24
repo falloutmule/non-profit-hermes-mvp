@@ -47,3 +47,8 @@ In @HnonProfitBOT, open Menu and select /board (Volunteer dates and event detail
 The bootstrap now verifies NONPROFIT_BOARD_REGISTRY_LIVE=True. Telegram schedule responses were confirmed by the operator before this shortcut change. To restart the dedicated gateway, stop its scheduled task and verify/stop only any remaining child listening on 8643 whose command line contains nonprofit_gateway_entry.py, then start Hermes_Gateway_nonprofit_v1. Never stop the shared Hermes gateway.
 
 Menu persistence correction: Telegram private-chat scopes override the default menu. A newer-runtime restart also replaces menus from profile configuration. The Board adapter now imports the legacy package router only when a legacy command is used, so /board can register independently in both installed runtimes. Verified newer-runtime plugin discovery, read-only Board listing and exact six-command menu generation. The dedicated startup task remains the intended runtime.
+
+
+## SMS and Google reconnection
+
+Operator instructions: runtime_plugins/nonprofit-v1-board-overlay/OPERATOR.md, installed into the dedicated profile nonprofit skill and referenced in its SOUL.md. /board status and /board signups <id> are read-only. The structured stdin connector adds existing API create/update/send/drop operations with explicit authorization and retained real-use gates. Eleven fake-boundary/connector tests pass. No live writes or messages were used for verification. Google Docs/Drive workflow exists, but both known token refreshes fail invalid_grant. No OAuth launched; all Google operational reads remain blocked. See the sanitized reconnection evidence for exact state.

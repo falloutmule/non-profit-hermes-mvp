@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import re
 import os
 import sys
 from datetime import datetime, date, time, timedelta, timezone
@@ -18,6 +19,15 @@ class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise BoardError('Board redirect refused.')
 
+def allowed_route(method, route):
+    rules = {
+        'GET': r'/(?:health|ready|api/admin/events(?:/[1-9][0-9]*(?:/signups)?)?)',
+        'POST': r'/api/admin/(?:events|messages/send|signups/[1-9][0-9]*/drop)',
+        'PATCH': r'/api/admin/events/[1-9][0-9]*',
+    }
+    return bool(re.fullmatch(rules.get(method, r'(?!)'), route))
+
+
 class BoardClient:
     def __init__(self, config=None):
         self.config = config if config is not None else json.loads(CONFIG.read_text(encoding='utf-8-sig'))
@@ -29,7 +39,7 @@ class BoardClient:
             raise BoardError('Board credential is missing.')
 
     def request(self, method, route, payload=None):
-        if not route.startswith('/api/admin/events') or method not in ('GET', 'POST', 'PATCH'):
+        if not allowed_route(method, route):
             raise BoardError('Unsupported Board operation.')
         data = None if payload is None else json.dumps(payload).encode()
         req = Request(self.base + route, data=data, method=method, headers={'Authorization':'Bearer '+self.token,'Content-Type':'application/json'})
@@ -143,6 +153,55 @@ def summary(events, page=1):
     return '\n'.join(lines)
 
 
+def operate(action, payload=None, *, client=None, authorized=False):
+    """Structured operator boundary; never logs bodies, credentials or private rosters."""
+    client = client or BoardClient()
+    payload = payload or {}
+    if action == 'status':
+        return {key: client.request('GET', '/' + key) for key in ('health', 'ready')}
+    if action == 'list':
+        return {'events': client.events()}
+    def positive_id(key):
+        value = payload.get(key)
+        if type(value) is not int or value < 1:
+            raise BoardError('A positive integer ' + key + ' is required.')
+        return value
+    if action in ('show', 'signups'):
+        event_id = positive_id('eventId')
+        event = client.request('GET', '/api/admin/events/' + str(event_id))
+        if action == 'show': return event
+        rows = client.request('GET', '/api/admin/events/' + str(event_id) + '/signups')['signups']
+        return {'eventId': event_id, 'capacity': event['capacity'],
+                'counts': {state: sum(row['status'] == state for row in rows) for state in ('confirmed','standby','cancelled')},
+                'signups': [{key: row.get(key) for key in ('id','volunteerId','status','standbyPosition','smsStatus')} for row in rows]}
+    if action not in ('create', 'update', 'send', 'drop'):
+        raise BoardError('Unsupported operation.')
+    if authorized is not True:
+        raise BoardError('Explicit operator authorization required; no change made.')
+    if action in ('send', 'drop') and client.config.get('real_use_review_complete') is not True:
+        raise BoardError('Real-use review remains held; no SMS-capable action made.')
+    if action in ('create', 'update'):
+        fields = payload.get('event')
+        allowed = {'slug','name','description','location','startsAt','endsAt','capacity','status'}
+        if not isinstance(fields, dict) or not fields or set(fields) - allowed:
+            raise BoardError('Invalid event fields.')
+        if action == 'create' and fields.get('status') != 'draft':
+            raise BoardError('Create a draft first.')
+        if fields.get('status') == 'published' and client.config.get('real_use_review_complete') is not True:
+            raise BoardError('Publication review remains held.')
+        route = '/api/admin/events'
+        if action == 'update': route += '/' + str(positive_id('eventId'))
+        return client.request('POST' if action == 'create' else 'PATCH', route, fields)
+    if action == 'drop':
+        return client.request('POST', '/api/admin/signups/' + str(positive_id('signupId')) + '/drop', {})
+    message = {'volunteerId': positive_id('volunteerId'), 'body': payload.get('body')}
+    if not isinstance(message['body'], str) or not 1 <= len(message['body'].strip()) <= 1600:
+        raise BoardError('Invalid message body.')
+    if 'eventId' in payload: message['eventId'] = positive_id('eventId')
+    result = client.request('POST', '/api/admin/messages/send', message)
+    return {'accepted': True, 'status': result.get('status', 'unknown')}
+
+
 def dispatch(args, client=None):
     try:
         words=args.strip().split()
@@ -151,6 +210,12 @@ def dispatch(args, client=None):
         if words==['pantry','preview']:
             return summary([dict(e,id='draft') for e in pantry_occurrences()])
         client=client or BoardClient()
+        if words==['status']:
+            state=operate('status',client=client)
+            return 'Volunteer Board: ' + ('Ready' if all(v.get('ok') is True for v in state.values()) else 'Needs attention')
+        if len(words)==2 and words[0]=='signups' and words[1].isdigit():
+            state=operate('signups',{'eventId':int(words[1])},client=client)
+            return f"Places: {state['capacity']} · Confirmed: {state['counts']['confirmed']} · Standby: {state['counts']['standby']}"
         if words==['list']:return summary(client.events())
         if len(words)==2 and words[0]=='list' and words[1].isdigit():
             return summary(client.events(), int(words[1]))
@@ -171,7 +236,15 @@ def dispatch(args, client=None):
         return 'Volunteer Board operation failed. Inspect local readiness/configuration and reconcile events before retrying a write. No secrets displayed.'
 
 if __name__=='__main__':
-    result = dispatch(' '.join(sys.argv[1:]))
-    print(result)
-    sys.exit(1 if result.startswith('Volunteer Board operation failed.') else 0)
-
+    if sys.argv[1:] == ['--request']:
+        try:
+            request=json.load(sys.stdin)
+            result=operate(request['action'],request.get('payload'),authorized=request.get('authorized') is True)
+            print(json.dumps(result,ensure_ascii=True))
+        except Exception:
+            print(json.dumps({'error':'Board operation failed or held; reconcile before retrying writes.'}))
+            sys.exit(1)
+    else:
+        result = dispatch(' '.join(sys.argv[1:]))
+        print(result)
+        sys.exit(1 if result.startswith('Volunteer Board operation failed.') else 0)

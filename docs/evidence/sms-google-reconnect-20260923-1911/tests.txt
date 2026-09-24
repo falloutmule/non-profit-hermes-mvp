@@ -1,0 +1,16 @@
+test_credential_destination (test_volunteer_board_operator.BoardOperatorTests.test_credential_destination) ... ok
+test_drift_not_overwritten (test_volunteer_board_operator.BoardOperatorTests.test_drift_not_overwritten) ... ok
+test_dst_and_occurrences (test_volunteer_board_operator.BoardOperatorTests.test_dst_and_occurrences) ... ok
+test_no_secrets_in_failure (test_volunteer_board_operator.BoardOperatorTests.test_no_secrets_in_failure) ... ok
+test_prepare_idempotency (test_volunteer_board_operator.BoardOperatorTests.test_prepare_idempotency) ... ok
+test_publication_gate_and_no_sms (test_volunteer_board_operator.BoardOperatorTests.test_publication_gate_and_no_sms) ... ok
+test_create_and_update_use_api (test_volunteer_board_operator.OperatorBoundaryTests.test_create_and_update_use_api) ... ok
+test_exact_route_boundary (test_volunteer_board_operator.OperatorBoundaryTests.test_exact_route_boundary) ... ok
+test_mutations_require_authorization_and_real_use_review (test_volunteer_board_operator.OperatorBoundaryTests.test_mutations_require_authorization_and_real_use_review) ... ok
+test_send_and_drop_use_board_only (test_volunteer_board_operator.OperatorBoundaryTests.test_send_and_drop_use_board_only) ... ok
+test_signup_privacy_and_counts (test_volunteer_board_operator.OperatorBoundaryTests.test_signup_privacy_and_counts) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.001s
+
+OK

@@ -1,0 +1,1 @@
+VERIFIED: No credentials or private phone numbers in evidence. No SMS, Google writes, invitations, publication, direct SQLite access, new database, Twilio Console or OAuth flow. Send/drop integration tested only with fake client.

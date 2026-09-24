@@ -1,0 +1,43 @@
+{
+  "board_api": "VERIFIED",
+  "health": {
+    "health": {
+      "ok": true
+    },
+    "ready": {
+      "ok": true
+    }
+  },
+  "events": 12,
+  "all_pantry": true,
+  "all_draft": true,
+  "capacity6": true,
+  "schedule_preserved": true,
+  "location_preserved": true,
+  "signup_aggregate": {
+    "confirmed": 0,
+    "standby": 0,
+    "cancelled": 0
+  },
+  "real_use_review_complete": false,
+  "sms_sent": false,
+  "live_mutations": false,
+  "direct_database_access": false,
+  "google_canonical_refresh": "BLOCKED invalid_grant",
+  "google_profile_refresh": "BLOCKED invalid_grant",
+  "google_token_files_changed": false,
+  "oauth_launched": false,
+  "google_implementations": {
+    "docs": "VERIFIED existing google-workspace docs get/create/append",
+    "drive": "VERIFIED existing google-workspace drive operations",
+    "sheets": "VERIFIED existing project operations",
+    "calendar": "VERIFIED existing project operations"
+  },
+  "google_operational_reads": "BLOCKED by invalid_grant",
+  "delivery_history_api": "NOT_FOUND",
+  "standby": "VERIFIED production source deterministic capacity and ordered offers; no live mutation test",
+  "public_health": 200,
+  "public_ready": 200,
+  "installed_board_status": "Volunteer Board: Ready",
+  "installed_signup_summary": "Places: 6 \u00b7 Confirmed: 0 \u00b7 Standby: 0"
+}
