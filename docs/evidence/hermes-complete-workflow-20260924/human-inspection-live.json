@@ -1,0 +1,21 @@
+{
+  "url": "https://docs.google.com/spreadsheets/d/120pedNCupUq_46y4z0cU-IzztZ-euNOosTPorrrz9vA",
+  "counts": {
+    "Overview": 28,
+    "Events": 12,
+    "Staffing": 0,
+    "Needs": 9,
+    "Tasks": 0,
+    "Inventory": 7,
+    "Donations Summary": 0,
+    "Reports": 11,
+    "Activity": 43,
+    "Sync Status": 1
+  },
+  "permissions": "owner-only unchanged",
+  "draft_calendar_entries": 0,
+  "calendar_read": true,
+  "pending_outbox": 0,
+  "last_success": "2026-09-24T16:14:08+00:00",
+  "status": "current"
+}

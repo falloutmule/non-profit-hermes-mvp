@@ -1,0 +1,122 @@
+[
+  {
+    "id": 1,
+    "slug": "PANTRY20260926",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-09-26T21:45:00Z",
+    "endsAt": "2026-09-26T23:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 2,
+    "slug": "PANTRY20261003",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-10-03T21:45:00Z",
+    "endsAt": "2026-10-03T23:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 3,
+    "slug": "PANTRY20261010",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-10-10T21:45:00Z",
+    "endsAt": "2026-10-10T23:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 4,
+    "slug": "PANTRY20261017",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-10-17T21:45:00Z",
+    "endsAt": "2026-10-17T23:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 5,
+    "slug": "PANTRY20261024",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-10-24T21:45:00Z",
+    "endsAt": "2026-10-24T23:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 6,
+    "slug": "PANTRY20261031",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-10-31T21:45:00Z",
+    "endsAt": "2026-10-31T23:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 7,
+    "slug": "PANTRY20261107",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-11-07T22:45:00Z",
+    "endsAt": "2026-11-08T00:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 8,
+    "slug": "PANTRY20261114",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-11-14T22:45:00Z",
+    "endsAt": "2026-11-15T00:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 9,
+    "slug": "PANTRY20261121",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-11-21T22:45:00Z",
+    "endsAt": "2026-11-22T00:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 10,
+    "slug": "PANTRY20261128",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-11-28T22:45:00Z",
+    "endsAt": "2026-11-29T00:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 11,
+    "slug": "PANTRY20261205",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-12-05T22:45:00Z",
+    "endsAt": "2026-12-06T00:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  },
+  {
+    "id": 12,
+    "slug": "PANTRY20261212",
+    "name": "Saturday Pantry",
+    "startsAt": "2026-12-12T22:45:00Z",
+    "endsAt": "2026-12-13T00:00:00Z",
+    "status": "draft",
+    "capacity": 6,
+    "location": "302 South Ave, Grand Junction, CO"
+  }
+]

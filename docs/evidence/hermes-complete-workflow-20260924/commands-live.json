@@ -1,0 +1,15 @@
+{
+  "read_only_handlers": {
+    "daily": true,
+    "need": true,
+    "donation": true,
+    "report": true,
+    "task": true,
+    "inventory": true,
+    "event": true,
+    "board": true
+  },
+  "legacy_oauth_path": "canonical file verified",
+  "real_writes_for_verification": false,
+  "raw_bodies_retained": false
+}

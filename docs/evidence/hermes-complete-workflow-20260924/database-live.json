@@ -1,0 +1,32 @@
+{
+  "integrity": "ok",
+  "tables": [
+    "activity",
+    "consent_events",
+    "event_completions",
+    "events",
+    "operation_context",
+    "projection_outbox",
+    "schema_migrations",
+    "signups",
+    "sms_events",
+    "sqlite_sequence",
+    "standby_offers",
+    "standby_openings",
+    "volunteers"
+  ],
+  "counts": {
+    "consent_events": 5,
+    "event_completions": 0,
+    "events": 12,
+    "projection_outbox": 12,
+    "signups": 0,
+    "standby_offers": 0,
+    "volunteers": 1
+  },
+  "sqlite_user_version": 0,
+  "schema_version": 3,
+  "preexisting_volunteer_consent_sms_signup_offer_rows_preserved": true,
+  "verified_preupgrade_backup": "C:\\ProgramData\\HermesVolunteerBoard\\backups\\snapshot-2026-09-24T15-56-48-123Z.sqlite",
+  "latest_backup": "C:\\ProgramData\\HermesVolunteerBoard\\backups\\snapshot-2026-09-24T16-17-04-729Z.sqlite"
+}

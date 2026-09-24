@@ -1,0 +1,6 @@
+VERIFIED exact configured Google/Telegram/Twilio/admin secret values absent from intended source/evidence.
+VERIFIED evidence uses aggregate database counts, no private rows or SMS bodies.
+VERIFIED member workbook remains owner-only; no permission broadening.
+VERIFIED profile Google aliases resolve to canonical credential path.
+VERIFIED no direct SQLite mutation exposed to Hermes.
+VERIFIED no Twilio configuration, SMS, invitations, publication, reboot or hosting changes.

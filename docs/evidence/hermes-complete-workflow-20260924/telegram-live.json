@@ -1,0 +1,22 @@
+{
+  "bot": "@HnonProfitBOT",
+  "menu": [
+    "daily",
+    "need",
+    "donation",
+    "report",
+    "task",
+    "inventory",
+    "event",
+    "board",
+    "new",
+    "usage",
+    "status",
+    "model",
+    "stop"
+  ],
+  "verified_scopes": 10,
+  "after_gateway_restart": true,
+  "registry_live": true,
+  "bootstrap_menu_success": true
+}

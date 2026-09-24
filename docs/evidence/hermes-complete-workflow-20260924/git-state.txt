@@ -1,0 +1,3 @@
+Hermes branch feature/volunteer-board-operator, source commit155d34c2505d8be1cc28315b81483852eb3106d8.
+Board branch feature/twilio-live-canary-prep-001, source/deployed commit df7e07daad874a16cf69522c77b6fa5269b91051.
+Both tracked worktrees clean before evidence commit; unrelated untracked historical work preserved.

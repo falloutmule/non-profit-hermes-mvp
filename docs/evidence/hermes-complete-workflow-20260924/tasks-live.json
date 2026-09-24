@@ -1,0 +1,50 @@
+[
+  {
+    "name": "Hermes_Gateway_nonprofit_v1",
+    "state": "Running",
+    "identity": "fallo",
+    "logonType": "Interactive",
+    "lastRun": "2026-09-24T10:15:18.0000000-06:00",
+    "lastResult": 267009
+  },
+  {
+    "name": "HermesNonProfit-MemberProjection",
+    "state": "Ready",
+    "identity": "fallo",
+    "logonType": "S4U",
+    "lastRun": "2026-09-24T10:19:36.0000000-06:00",
+    "lastResult": 0
+  },
+  {
+    "name": "HermesVolunteerBoard-App",
+    "state": "Running",
+    "identity": "LOCAL SERVICE",
+    "logonType": "ServiceAccount",
+    "lastRun": "2026-09-24T10:19:00.0000000-06:00",
+    "lastResult": 2147946720
+  },
+  {
+    "name": "HermesVolunteerBoard-Backup",
+    "state": "Ready",
+    "identity": "LOCAL SERVICE",
+    "logonType": "ServiceAccount",
+    "lastRun": "2026-09-24T10:11:01.0000000-06:00",
+    "lastResult": 0
+  },
+  {
+    "name": "HermesVolunteerBoard-Health",
+    "state": "Ready",
+    "identity": "LOCAL SERVICE",
+    "logonType": "ServiceAccount",
+    "lastRun": "2026-09-24T10:16:01.0000000-06:00",
+    "lastResult": 0
+  },
+  {
+    "name": "HermesVolunteerBoard-PantryDrafts",
+    "state": "Ready",
+    "identity": "fallo",
+    "logonType": "S4U",
+    "lastRun": "2026-09-23T15:15:44.0000000-06:00",
+    "lastResult": 0
+  }
+]

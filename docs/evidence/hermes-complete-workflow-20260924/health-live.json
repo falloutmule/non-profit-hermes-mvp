@@ -1,0 +1,8 @@
+{
+  "http://127.0.0.1:8787/health": 200,
+  "http://127.0.0.1:8787/ready": 200,
+  "https://falloutshelter.tail2ec319.ts.net:10000/health": 200,
+  "https://falloutshelter.tail2ec319.ts.net:10000/ready": 200,
+  "events_still_draft": 12,
+  "outbox_pending": 0
+}
