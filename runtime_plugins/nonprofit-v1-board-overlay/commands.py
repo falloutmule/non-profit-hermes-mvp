@@ -1,81 +1,29 @@
-"""Canonical Non-Profit Hermes command metadata and thin handlers."""
-from __future__ import annotations
-
+"""Organization-facing commands; one dispatcher for Telegram and natural language."""
 from typing import NamedTuple
 import importlib.util
 from pathlib import Path
-
-
-
 class CommandSpec(NamedTuple):
     name: str
     description: str
     args_hint: str
-
-
-COMMANDS = (
-    CommandSpec("board", "Volunteer dates and event details", "[page] | show <id>"),
-    CommandSpec(
-        "daily",
-        "Non-Profit Hermes board-safe daily summary",
-        "",
-    ),
-    CommandSpec(
-        "need",
-        "Non-Profit Hermes: create a safe board-visible need request through the router/backend.",
-        "id=REQ-... description=... urgency=normal needed_by=unknown location=public-safe-test-area privacy_level=board-visible next_action=review",
-    ),
-    CommandSpec(
-        "donation",
-        "Non-Profit Hermes: create a safe donation draft through the router/backend.",
-        "id=DON-... item=... quantity=... pickup_or_dropoff=... location=... available_date=... receipt_needed=... consent_to_public_thanks=... next_action=review",
-    ),
-    CommandSpec(
-        "report",
-        "Non-Profit Hermes: submit a report.",
-        "type=... summary=...",
-    ),
-    CommandSpec(
-        "task",
-        "Non-Profit Hermes: create a task.",
-        "title=... assigned_to=... due_date=...",
-    ),
-    CommandSpec(
-        "inventory",
-        "Non-Profit Hermes: track inventory.",
-        "item=... quantity=... unit=...",
-    ),
-    CommandSpec(
-        "event",
-        "Non-Profit Hermes: draft-first /event — writes a Sheet-only EventDraft; exact locally authorized one-shot promotion is the only exception, with no permanent Calendar enablement.",
-        'event_title="Safe test event" start=2099-01-01T09:00:00-06:00 end=2099-01-01T10:00:00-06:00 type=meeting location="safe venue"',
-    ),
-)
-
-
-def make_handler(command_name: str):
-    """Return a redacting adapter for one package-owned command boundary."""
-
-    def handler(raw_args: str = "") -> str:
+COMMANDS = tuple(CommandSpec(name, description, "[request]") for name, description in (
+    ("daily", "Organization briefing"),
+    ("need", "Needs and priorities"),
+    ("donation", "Record and inspect donations"),
+    ("report", "Organizational reports"),
+    ("task", "Internal tasks and follow-ups"),
+    ("inventory", "Supplies and inventory"),
+    ("event", "Create and manage events"),
+    ("board", "Staffing, openings and standby"),
+))
+def make_handler(command_name):
+    def handler(raw_args=""):
         try:
-            args = (raw_args or "").strip()
-            if command_name == "board" or (command_name == "event" and (args == "board" or args.startswith("board "))):
-                source = Path(r"C:\Users\fallo\non-profit-hermes-mvp\scripts\volunteer_board_operator.py")
-                spec = importlib.util.spec_from_file_location("hermes_volunteer_board_operator", source)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                board_args = args if command_name == "board" else args[len("board"):].strip()
-                if not board_args:
-                    board_args = "list"
-                elif board_args.isdigit():
-                    board_args = "list " + board_args
-                return module.dispatch(board_args)
-            from non_profit_hermes import router
-            return router.run_plugin_command(command_name, raw_args or "")
+            source = Path(r"C:\Users\fallo\non-profit-hermes-mvp\scripts\nonprofit_workflow.py")
+            spec = importlib.util.spec_from_file_location("nonprofit_workflow", source)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module.dispatch(command_name, raw_args or "")
         except Exception:
-            return (
-                f"Non-Profit Hermes could not run /{command_name}. "
-                "Please try again or check gateway logs."
-            )
-
+            return "Non-Profit operation unavailable. Check service status; do not retry writes blindly."
     return handler

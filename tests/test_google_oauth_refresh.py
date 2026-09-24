@@ -488,3 +488,11 @@ def test_ops_and_sync_use_durable_refresh_boundary_without_live_calls(tmp_path: 
     calls.clear()
     assert sync.creds(persist_refresh=False).refresh_calls == 1
     assert calls == []
+
+
+def test_real_file_flush_preserves_bytes(tmp_path):
+    from scripts.google_oauth_refresh import _flush_file_and_parent
+    target = tmp_path / "flush-test.json"
+    target.write_bytes(b"nonsecret fixture")
+    _flush_file_and_parent(target)
+    assert target.read_bytes() == b"nonsecret fixture"

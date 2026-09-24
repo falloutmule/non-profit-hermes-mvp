@@ -21,9 +21,9 @@ class NoRedirect(HTTPRedirectHandler):
 
 def allowed_route(method, route):
     rules = {
-        'GET': r'/(?:health|ready|api/admin/events(?:/[1-9][0-9]*(?:/signups)?)?)',
-        'POST': r'/api/admin/(?:events|messages/send|signups/[1-9][0-9]*/drop)',
-        'PATCH': r'/api/admin/events/[1-9][0-9]*',
+        'GET': r'/(?:health|ready|api/admin/events(?:/[1-9][0-9]*(?:/signups|/staffing)?)?)',
+        'POST': r'/api/admin/(?:events|messages/send|signups/[1-9][0-9]*/drop|series/[a-zA-Z0-9_-]+/occurrences)',
+        'PATCH': r'/api/admin/(?:events/[1-9][0-9]*|series/[a-zA-Z0-9_-]+)',
     }
     return bool(re.fullmatch(rules.get(method, r'(?!)'), route))
 
@@ -67,7 +67,7 @@ def pantry_occurrences(now=None, weeks=12):
     for week in range(weeks):
         d=day+timedelta(days=7*week)
         utc=lambda t: datetime.combine(d,t,ZONE).astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00','Z')
-        result.append(dict(slug='PANTRY'+d.strftime('%Y%m%d'),name='Saturday Pantry',description='Every Saturday, 3:45â€“5:00 PM America/Denver. Six confirmed places; additional volunteers join standby. Each dated event has its own signup.',location='302 South Ave, Grand Junction, CO',startsAt=utc(time(15,45)),endsAt=utc(time(17)),capacity=6,status='draft'))
+        result.append(dict(slug='PANTRY'+d.strftime('%Y%m%d'),name='Saturday Pantry',description='Every Saturday, 3:45–5:00 PM America/Denver. Six confirmed places; additional volunteers join standby. Each dated event has its own signup.',location='302 South Ave, Grand Junction, CO',startsAt=utc(time(15,45)),endsAt=utc(time(17)),capacity=6,status='draft',staffingEnabled=True,standbyEnabled=True,completionReportRequired=False,timezone='America/Denver',seriesId='saturday-pantry',occurrenceDate=d.isoformat(),recurrenceRule=json.dumps({'frequency':'weekly','weekday':5,'startTime':'15:45','endTime':'17:00','timezone':'America/Denver','horizon':12})))
     return result
 
 
@@ -91,6 +91,38 @@ def prepare_pantry(client, now=None):
     return created
 
 
+def materialize_series(client, series_id='saturday-pantry', now=None):
+    existing = client.events()
+    series = [e for e in existing if e.get('seriesId') == series_id]
+    if not series and series_id == 'saturday-pantry':
+        # Initial adoption only: exact existing Pantry definitions are checked by Board.
+        generated = pantry_occurrences(now)
+    elif series:
+        template = sorted(series, key=lambda e:e['startsAt'])[-1]
+        rule = json.loads(template['recurrenceRule'])
+        if rule.get('frequency') != 'weekly': raise BoardError('Only weekly recurrence is currently supported.')
+        zone = ZoneInfo(rule['timezone']); instant = (now or datetime.now(zone)).astimezone(zone)
+        start_time = time.fromisoformat(rule['startTime']); end_time = time.fromisoformat(rule['endTime'])
+        weekday = int(rule['weekday']); horizon = int(rule.get('horizon',12))
+        if not 0<=weekday<=6 or not 1<=horizon<=52 or end_time<=start_time: raise BoardError('Invalid weekly recurrence.')
+        first = instant.date()+timedelta(days=(weekday-instant.weekday())%7)
+        if datetime.combine(first,start_time,zone)<=instant:first+=timedelta(days=7)
+        generated=[]
+        keys=('name','description','location','capacity','staffingEnabled','standbyEnabled','completionReportRequired','completionStatement','timezone','seriesId','recurrenceRule')
+        by_date={e.get('occurrenceDate'):e for e in series}
+        for i in range(horizon):
+            day=first+timedelta(weeks=i)
+            prior=by_date.get(day.isoformat())
+            if prior: continue # never overwrite edited/published/cancelled occurrences
+            item={k:template[k] for k in keys if k in template}
+            slug=('PANTRY' if series_id=='saturday-pantry' else series_id[:48]+'-')+day.strftime('%Y%m%d')
+            item.update(slug=slug,status='draft',occurrenceDate=day.isoformat(),startsAt=datetime.combine(day,start_time,zone).astimezone(timezone.utc).isoformat().replace('+00:00','Z'),endsAt=datetime.combine(day,end_time,zone).astimezone(timezone.utc).isoformat().replace('+00:00','Z'))
+            generated.append(item)
+    else: raise BoardError('Create the first recurring draft before materializing its series.')
+    if not generated:return {'events':[]}
+    return client.request('POST','/api/admin/series/'+series_id+'/occurrences',{'events':generated})
+
+
 def local_time(value):
     return datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(ZONE)
 
@@ -108,9 +140,10 @@ def event_details(event):
         start.strftime('%A, %B ') + str(start.day) + start.strftime(', %Y'),
         f"{clock(start)}–{clock(end)} · Denver time",
         event.get('location') or 'Location to be announced',
-        f"{event['capacity']} volunteer places · Standby when full",
+        ((f"{event['capacity']} volunteer places" + (" · Standby when full" if event.get("standbyEnabled", True) else "")) if event.get("staffingEnabled", True) else "Staffing off"),
+        ("Completion: text DONE after finishing" if event.get("completionReportRequired") else "No SMS completion report required"),
         '', status,
-        f"Signup keyword: {event['slug']}",
+        (f"Signup keyword: {event['slug']}" if event.get("staffingEnabled", True) else ""),
         'No signups are accepted until published.' if event['status'] == 'draft' else '',
     ]).rstrip()
 
@@ -174,21 +207,36 @@ def operate(action, payload=None, *, client=None, authorized=False):
         return {'eventId': event_id, 'capacity': event['capacity'],
                 'counts': {state: sum(row['status'] == state for row in rows) for state in ('confirmed','standby','cancelled')},
                 'signups': [{key: row.get(key) for key in ('id','volunteerId','status','standbyPosition','smsStatus')} for row in rows]}
-    if action not in ('create', 'update', 'send', 'drop'):
+    if action not in ('create', 'update', 'send', 'drop', 'series_prepare', 'series_update'):
         raise BoardError('Unsupported operation.')
     if authorized is not True:
         raise BoardError('Explicit operator authorization required; no change made.')
+    if action in ('series_prepare','series_update'):
+        series_id=payload.get('seriesId','')
+        if not re.fullmatch(r'[A-Za-z0-9_-]+',series_id):raise BoardError('Invalid series ID.')
+        if action=='series_prepare':return materialize_series(client,series_id)
+        changes=payload.get('occurrenceChanges')
+        if not isinstance(changes,list) or not changes:raise BoardError('Explicit per-occurrence changes required; specify one or future dates.')
+        for change in changes:
+            if set(change.get('patch',{})) & {'status','seriesId','slug','occurrenceDate'}:raise BoardError('Series schedule edits cannot publish or change identity.')
+        return client.request('PATCH','/api/admin/series/'+series_id,{'occurrenceChanges':changes})
     if action in ('send', 'drop') and client.config.get('real_use_review_complete') is not True:
         raise BoardError('Real-use review remains held; no SMS-capable action made.')
     if action in ('create', 'update'):
         fields = payload.get('event')
-        allowed = {'slug','name','description','location','startsAt','endsAt','capacity','status'}
+        allowed = {'slug','name','description','location','startsAt','endsAt','capacity','status','staffingEnabled','standbyEnabled','completionReportRequired','completionStatement','timezone','seriesId','recurrenceRule','occurrenceDate'}
         if not isinstance(fields, dict) or not fields or set(fields) - allowed:
             raise BoardError('Invalid event fields.')
         if action == 'create' and fields.get('status') != 'draft':
             raise BoardError('Create a draft first.')
         if fields.get('status') == 'published' and client.config.get('real_use_review_complete') is not True:
             raise BoardError('Publication review remains held.')
+        if action=='update':
+            current=client.request('GET','/api/admin/events/'+str(positive_id('eventId')))
+            if current.get('seriesId') and any(k in fields for k in ('startsAt','endsAt','capacity','recurrenceRule')) and payload.get('scope')!='one':
+                raise BoardError('Recurring edit requires scope=one or an explicit series_update for future occurrences.')
+            if fields.get('status')=='completed' and current['status']=='draft':
+                raise BoardError('A draft cannot be completed; cancel it instead.')
         route = '/api/admin/events'
         if action == 'update': route += '/' + str(positive_id('eventId'))
         return client.request('POST' if action == 'create' else 'PATCH', route, fields)
@@ -220,7 +268,8 @@ def dispatch(args, client=None):
         if len(words)==2 and words[0]=='list' and words[1].isdigit():
             return summary(client.events(), int(words[1]))
         if words==['pantry','prepare']:
-            created=prepare_pantry(client)
+            result=materialize_series(client)
+            created=result.get('events',[])
             return f'Prepared {len(created)} new Saturday Pantry drafts; upcoming 12 Saturdays reconciled without overwriting existing events. No SMS sent. Use /board.'
         if len(words)==2 and words[0] in ('show','publish') and words[1].isdigit() and int(words[1])>0:
             route='/api/admin/events/'+str(int(words[1]))

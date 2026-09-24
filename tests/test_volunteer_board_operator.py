@@ -60,7 +60,7 @@ class OperatorBoundaryTests(TestCase):
         from volunteer_board_operator import operate
         c=Fake();event=pantry_occurrences(datetime(2026,9,23,tzinfo=ZoneInfo('America/Denver')))[0]
         operate('create',{'event':event},client=c,authorized=True)
-        operate('update',{'eventId':1,'event':{'capacity':7}},client=c,authorized=True)
+        operate('update',{'eventId':1,'scope':'one','event':{'capacity':7}},client=c,authorized=True)
         self.assertEqual(c.rows[0]['capacity'],7)
         with self.assertRaises(BoardError):operate('update',{'eventId':1,'event':{'status':'published'}},client=c,authorized=True)
     def test_signup_privacy_and_counts(self):

@@ -103,7 +103,8 @@ def _credential_loader(info: dict[str, Any], scopes: list[str]) -> Any:
 def _flush_file_and_parent(path: Path) -> None:
     """Flush a file and, where the host supports it, its containing directory."""
     try:
-        with path.open("rb") as handle:
+        # Windows FlushFileBuffers requires a writable handle; no content is modified.
+        with path.open("r+b") as handle:
             os.fsync(handle.fileno())
     except OSError as exc:
         raise RefreshPersistenceError("FILE_FLUSH_FAILED") from exc
@@ -210,7 +211,7 @@ def prepare_refresh_candidate(
     flusher: Flusher = _flush_file_and_parent,
 ) -> PreparedRefreshCandidate:
     """Serialize a refreshed credential to a separate, ACL-safe candidate only."""
-    operational = Path(operational_token)
+    operational = Path(operational_token).resolve()
     candidate = Path(candidate_path) if candidate_path is not None else _default_candidate_path(operational)
     if candidate.exists():
         raise RefreshPersistenceError("CANDIDATE_ALREADY_EXISTS")
@@ -234,6 +235,9 @@ def prepare_refresh_candidate(
         parsed = json.loads(serialized)
         if type(parsed) is not dict:
             raise TypeError
+        # google.oauth2.credentials.Credentials.to_json omits this metadata.
+        if original_info.get("type") == "authorized_user":
+            parsed.setdefault("type", "authorized_user")
         candidate_bytes = (json.dumps(parsed, indent=2, sort_keys=True) + "\n").encode("utf-8")
     except Exception as exc:
         raise RefreshPersistenceError("SERIALIZATION_FAILED") from exc
@@ -407,7 +411,7 @@ def refresh_and_persist_credential(
     post_replace_validator: Callable[[Path], None] | None = None,
 ) -> Any:
     """Caller integration seam: snapshot, refresh in memory, validate, then promote."""
-    operational = Path(operational_token)
+    operational = Path(operational_token).resolve()
     try:
         original_hash = _sha256(operational.read_bytes())
     except OSError as exc:

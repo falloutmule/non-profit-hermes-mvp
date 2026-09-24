@@ -11,17 +11,27 @@ if check:sys.argv.remove('--check-registry')
 from gateway.run import main
 from hermes_cli.plugins import discover_plugins,get_plugin_command_handler
 discover_plugins(force=True)
+COMMANDS=('daily','need','donation','report','task','inventory','event','board')
 handler=get_plugin_command_handler('board')
-if not handler:
+if not all(get_plugin_command_handler(name) for name in COMMANDS):
     raise SystemExit('Non-Profit /board command registration failed; gateway not started.')
-print('NONPROFIT_BOARD_REGISTRY_READY',flush=True)
+print('NONPROFIT_COMMAND_REGISTRY_READY='+','.join(COMMANDS),flush=True)
 if check:
     print(handler(''))
 else:
     import threading
     def verify_live_registry():
         from hermes_constants import get_hermes_home
-        print('NONPROFIT_BOARD_REGISTRY_LIVE=' + str(bool(get_plugin_command_handler('board'))) + ' home=' + str(get_hermes_home()), flush=True)
+        print('NONPROFIT_COMMAND_REGISTRY_LIVE=' + str(all(get_plugin_command_handler(name) for name in COMMANDS)) + ' home=' + str(get_hermes_home()), flush=True)
+    def restore_menu():
+        try:
+            from nonprofit_telegram_menu import apply_menu
+            print('NONPROFIT_MENU_VERIFIED=' + ','.join(apply_menu()), flush=True)
+        except Exception:
+            print('NONPROFIT_MENU_FAILED: inspect connection; no messages sent', flush=True)
+    menu_timer = threading.Timer(15, restore_menu)
+    menu_timer.daemon = True
+    menu_timer.start()
     timer = threading.Timer(8, verify_live_registry)
     timer.daemon = True
     timer.start()
