@@ -1,0 +1,4 @@
+VERIFIED configured secret values and private volunteer phone numbers absent from intended source/evidence.
+No raw SMS bodies retained or exported.
+No new OAuth, permissions expansion, Twilio/A2P mutation, publication, invitations, real SMS, hosting change or reboot.
+Public signature check: valid intentionally incomplete request passes signature then400; tampered403; no domain mutation.

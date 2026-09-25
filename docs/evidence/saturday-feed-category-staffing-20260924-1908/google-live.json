@@ -1,0 +1,22 @@
+{
+  "workbook": "https://docs.google.com/spreadsheets/d/120pedNCupUq_46y4z0cU-IzztZ-euNOosTPorrrz9vA",
+  "events": 12,
+  "categoryRows": 36,
+  "categoryAuditVisible": true,
+  "sharing": "owner-only unchanged",
+  "calendarDraftPublications": 0,
+  "publicEvents": 0,
+  "commands": {
+    "event": true,
+    "board": true,
+    "daily": true
+  },
+  "health": {
+    "http://127.0.0.1:8787/health": 200,
+    "http://127.0.0.1:8787/ready": 200,
+    "https://falloutshelter.tail2ec319.ts.net:10000/health": 200,
+    "https://falloutshelter.tail2ec319.ts.net:10000/ready": 200
+  },
+  "pendingOutbox": 0,
+  "sync": "current"
+}

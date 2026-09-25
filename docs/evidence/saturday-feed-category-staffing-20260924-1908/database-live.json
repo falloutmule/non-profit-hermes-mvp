@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 4,
+  "integrity": "ok",
+  "privateOperationalRowsPreserved": true,
+  "historicalAuditPreserved": true,
+  "counts": {
+    "volunteers": 1,
+    "consent_events": 6,
+    "sms_events": 9,
+    "signups": 0,
+    "standby_offers": 0,
+    "standby_openings": 0
+  }
+}

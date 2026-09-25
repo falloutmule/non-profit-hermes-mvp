@@ -1,0 +1,5 @@
+VERIFIED Board full suite61/61PASS: includes16 category regressions and2 public category presentation tests.
+VERIFIED Hermes full suite277PASS plus64subtests; raw output hermes-tests.txt.
+VERIFIED actual compiled Board snapshot → Hermes card/Google rows using disposable memoryDB; no external fake records.
+VERIFIED live Google read-back, draft public list empty, /event /board /daily category rendering, real Telegram menu unchanged.
+VERIFIED correctly signed incomplete public webhook request400 after signature validation; invalid signature403; no mutation. Fresh real-phone delivery UNTESTED, no SMS sent.

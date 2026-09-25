@@ -1,0 +1,25 @@
+{
+  "menu": [
+    "daily",
+    "need",
+    "donation",
+    "report",
+    "task",
+    "inventory",
+    "event",
+    "board",
+    "new",
+    "usage",
+    "status",
+    "model",
+    "stop"
+  ],
+  "menuVerifiedScopes": [
+    "default",
+    "all_private_chats"
+  ],
+  "restartRequired": false,
+  "occurrencesAfterScheduledReconciliation": 12,
+  "allDraft": true,
+  "categoryRows": 36
+}

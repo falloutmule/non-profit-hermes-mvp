@@ -1,0 +1,2 @@
+VERIFIED npm audit --omit=dev: 0 vulnerabilities in source and production.
+npm ci also reported2 moderate development-only vulnerabilities; no force update or advisory suppression performed.
