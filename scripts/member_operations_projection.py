@@ -8,7 +8,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
 
 DEFAULT_CONFIG = Path.home() / 'AppData/Local/hermes/profiles/nonprofit-v1/private/configuration/member-operations.json'
-TABS = ['Overview','Events','Staffing','Needs','Tasks','Inventory','Donations Summary','Reports','Activity','Sync Status']
+TABS = ['Overview','Events','Staffing','Needs','Tasks','Inventory','Donations Summary','Reports','Activity','Sync Status','Staffing Categories']
 SAFE_PRIVACY = {'board-visible','public-safe','member-visible'}
 
 def now(): return datetime.now(timezone.utc).isoformat(timespec='seconds')
@@ -50,18 +50,40 @@ def records(values):
 def local(v):
     return datetime.fromisoformat(v.replace('Z','+00:00')).astimezone(ZoneInfo('America/Denver')).strftime('%Y-%m-%d %I:%M %p %Z') if v else ''
 
+def recurrence_label(event):
+    if not event.get('seriesId'):return 'One occurrence'
+    try:
+        rule=json.loads(event.get('recurrenceRule') or '{}')
+        weekday=rule.get('weekday')
+        if rule.get('frequency')=='weekly' and type(weekday) is int and 0<=weekday<=6:
+            return 'Every '+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][weekday]
+    except (TypeError,ValueError,AttributeError):pass
+    return 'Recurring series; inspect event definition'
+
+def signup_available(event, category=None):
+    # Unfilled capacity is not an invitation: drafts and closed events offer none.
+    if event.get('status') != 'published' or not event.get('staffingEnabled',True):
+        return 0
+    source=category if category is not None else event
+    if category is not None and not category.get('active',True):return 0
+    return source.get('signupAvailable',source.get('spotsAvailable',0))
+
 def member_rows(snapshot, sources, timestamp, approved_record_ids=None):
     """Allowlist-only projection: unknown columns never pass through."""
     approved_record_ids=approved_record_ids or {}
     events=snapshot.get('events',[]); names={e['id']:e['name'] for e in events}
     out={}
-    out['Events']=[['Board ID','Event','Start (Denver)','End (Denver)','Location','Status','Staffing','Capacity','Confirmed','Reserved offers','Openings','Standby','Completion required','Completed at','Completed by','Completion statement']]
+    out['Events']=[['Board ID','Event','Start (Denver)','End (Denver)','Location','Status','Staffing','Capacity','Confirmed','Reserved offers','Unfilled places','Standby','Completion required','Completed at','Completed by','Completion statement','Signup available','Timezone','Series ID','Recurrence','Occurrence date']]
     for e in events:
         c=e.get('completion') or {}
-        out['Events'].append([e['id'],e['name'],local(e.get('startsAt')),local(e.get('endsAt')),e.get('location',''),e['status'],e.get('staffingEnabled',True),e['capacity'],e.get('confirmedCount',0),e.get('reservedCount',0),e.get('spotsAvailable',0),e.get('standbyCount',0),e.get('completionReportRequired',False),c.get('completedAt',''),c.get('displayName') or ('Volunteer #'+str(c['volunteerId']) if c.get('volunteerId') else ''),c.get('statement','')])
-    out['Staffing']=[['Signup ID','Board event ID','Event','Volunteer','Status','Standby position','Updated']]
+        out['Events'].append([e['id'],e['name'],local(e.get('startsAt')),local(e.get('endsAt')),e.get('location',''),e['status'],e.get('staffingEnabled',True),e['capacity'],e.get('confirmedCount',0),e.get('reservedCount',0),e.get('unfilled',max(e['capacity']-e.get('confirmedCount',0)-e.get('reservedCount',0),0)),e.get('standbyCount',0),e.get('completionReportRequired',False),c.get('completedAt',''),c.get('displayName') or ('Volunteer #'+str(c['volunteerId']) if c.get('volunteerId') else ''),c.get('statement',''),signup_available(e),e.get('timezone','America/Denver'),e.get('seriesId',''),recurrence_label(e),e.get('occurrenceDate','')])
+    out['Staffing Categories']=[['Board event ID','Event','Occurrence category ID','Category key','Category','Capacity','Confirmed','Reserved offers','Unfilled places','Signup available','Standby','Active','Event status','Definition category ID','Occurrence date','Start (Denver)','End (Denver)','Last updated','Snapshot UTC']]
+    for e in events:
+        for category in sorted(e.get('categories',[]),key=lambda c:(c.get('sortOrder',0),c.get('name',''),c.get('id',0))):
+            out['Staffing Categories'].append([e['id'],e['name'],category['id'],category['key'],category['name'],category['capacity'],category.get('confirmedCount',0),category.get('reservedCount',0),category['unfilled'],signup_available(e,category),category.get('standbyCount',0),category.get('active',True),e['status'],category.get('categoryId',''),e.get('occurrenceDate',''),local(e.get('startsAt')),local(e.get('endsAt')),category.get('updatedAt',e.get('updatedAt','')),snapshot.get('generatedAt',timestamp)])
+    out['Staffing']=[['Signup ID','Board event ID','Event','Volunteer','Status','Standby position','Updated','Definition category ID','Category key','Category','Occurrence category ID']]
     for s in snapshot.get('staffing',[]):
-        out['Staffing'].append([s['id'],s['eventId'],names.get(s['eventId'],''),s.get('displayName') or 'Volunteer #'+str(s['volunteerId']),s['status'],s.get('standbyPosition',''),s.get('updatedAt','')])
+        out['Staffing'].append([s['id'],s['eventId'],names.get(s['eventId'],''),s.get('displayName') or 'Volunteer #'+str(s['volunteerId']),s['status'],s.get('standbyPosition',''),s.get('updatedAt',''),s.get('categoryId',''),s.get('categoryKey',''),s.get('categoryName',''),s.get('occurrenceCategoryId','')])
     specifications={
         'Needs':('Requests',['RequestID','NeedCategory','NeedDescription','Quantity','Status','Urgency','NeededBy'],approved),
         'Tasks':('Tasks',['TaskID','TaskTitle','Status','AssignedTo','DueDate','Priority'],lambda r:approved(r) or (not r.get('PrivacyLevel') and r.get('TaskID') in approved_record_ids.get('Tasks',[]))),
@@ -71,9 +93,9 @@ def member_rows(snapshot, sources, timestamp, approved_record_ids=None):
     }
     for target,(source,fields,gate) in specifications.items():
         out[target]=[fields]+[[r.get(k,'') for k in fields] for r in sources.get(source,[]) if gate(r)]
-    out['Activity']=[['Source ID','Timestamp','Source','Action','Target','Result']]
+    out['Activity']=[['Source ID','Timestamp','Source','Action','Target','Result','Definition category ID','Category key','Category','Occurrence category ID']]
     for a in snapshot.get('activity',[]):
-        out['Activity'].append(['board:'+str(a['id']),a['createdAt'],a['source'],a['action'],a['target'],a['result']])
+        out['Activity'].append(['board:'+str(a['id']),a['createdAt'],a['source'],a['action'],a['target'],a['result'],a.get('categoryId',''),a.get('categoryKey',''),a.get('categoryName',''),a.get('occurrenceCategoryId','')])
     # Audit free text/actors/targets may contain private contact data. Expose only
     # references whose underlying record is already included in a sanitized view.
     # Legacy AuditLog targets are source-tab/ID. Bare IDs are supported only
@@ -93,8 +115,8 @@ def member_rows(snapshot, sources, timestamp, approved_record_ids=None):
                 if id_counts[identity]==1:visible.add(identity)
     for a in sources.get('AuditLog',[]):
         if a.get('TargetItem') in visible and a.get('Action') in {'create','update','complete','resolve','delete','cancel'}:
-            out['Activity'].append(['google:'+a.get('AuditID',''),a.get('Timestamp',''),'Google operations',a['Action'],a['TargetItem'],'Recorded'])
-    out['Overview']=[['Hermes Non-Profit — Member Operations','Generated inspection view; edits never change operational sources.'],['Updated UTC',timestamp],['Board source','Volunteer Board authenticated API'],['Google source','Existing private operations workbook'],['Privacy','Only explicitly shareable source records are mirrored. Unclassified Tasks are withheld.'],['Amounts','Donation monetary value is unavailable in the current source schema.']]+[[tab,len(out[tab])-1] for tab in ['Events','Staffing','Needs','Tasks','Inventory','Donations Summary','Reports']]
+            out['Activity'].append(['google:'+a.get('AuditID',''),a.get('Timestamp',''),'Google operations',a['Action'],a['TargetItem'],'Recorded','','','',''])
+    out['Overview']=[['Hermes Non-Profit — Member Operations','Generated inspection view; edits never change operational sources.'],['Updated UTC',timestamp],['Board source','Volunteer Board authenticated API'],['Google source','Existing private operations workbook'],['Privacy','Only explicitly shareable source records are mirrored. Unclassified Tasks are withheld.'],['Amounts','Donation monetary value is unavailable in the current source schema.']]+[[tab,len(out[tab])-1] for tab in ['Events','Staffing','Staffing Categories','Needs','Tasks','Inventory','Donations Summary','Reports']]
     for source in ['Requests','Tasks','Inventory','Donations','Reports']:
         source_rows=sources.get(source,[])
         out['Overview'].append([source+' source records',len(source_rows)])

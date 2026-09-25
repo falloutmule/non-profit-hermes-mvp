@@ -24,6 +24,7 @@ def allowed_route(method, route):
         'GET': r'/(?:health|ready|api/admin/events(?:/[1-9][0-9]*(?:/signups|/staffing)?)?)',
         'POST': r'/api/admin/(?:events|messages/send|signups/[1-9][0-9]*/drop|series/[a-zA-Z0-9_-]+/occurrences)',
         'PATCH': r'/api/admin/(?:events/[1-9][0-9]*|series/[a-zA-Z0-9_-]+)',
+        'PUT': r'/api/admin/(?:events/[1-9][0-9]*|series/[a-zA-Z0-9_-]+)/categories',
     }
     return bool(re.fullmatch(rules.get(method, r'(?!)'), route))
 
@@ -131,21 +132,32 @@ def clock(value):
     return value.strftime('%I:%M %p').lstrip('0')
 
 
+def category_lines(event, counts=False):
+    result=[]
+    for c in sorted(event.get('categories',[]),key=lambda x:x.get('sortOrder',0)):
+        if not c.get('active',True):continue
+        if counts:
+            unfilled=c.get('unfilledCount',c.get('unfilled',max(0,c['capacity']-c.get('confirmedCount',0)-c.get('reservedCount',0))))
+            result.append(f"{c['name']}: {c.get('confirmedCount',0)}/{c['capacity']} confirmed · {unfilled} unfilled · {c.get('standbyCount',0)} standby · {c.get('reservedCount',0)} reserved")
+        else:result.append(f"• {c['name']} — {c['capacity']} · SMS {c['key']}")
+    return result
+
+
 def event_details(event):
-    start, end = local_time(event['startsAt']), local_time(event['endsAt'])
-    status = {'draft': 'Not published yet', 'published': 'Open for signups',
-              'cancelled': 'Cancelled', 'completed': 'Completed'}.get(event['status'], event['status'])
-    return '\n'.join([
-        event['name'],
-        start.strftime('%A, %B ') + str(start.day) + start.strftime(', %Y'),
-        f"{clock(start)}–{clock(end)} · Denver time",
-        event.get('location') or 'Location to be announced',
-        ((f"{event['capacity']} volunteer places" + (" · Standby when full" if event.get("standbyEnabled", True) else "")) if event.get("staffingEnabled", True) else "Staffing off"),
-        ("Completion: text DONE after finishing" if event.get("completionReportRequired") else "No SMS completion report required"),
-        '', status,
-        (f"Signup keyword: {event['slug']}" if event.get("staffingEnabled", True) else ""),
-        'No signups are accepted until published.' if event['status'] == 'draft' else '',
-    ]).rstrip()
+    zone=ZoneInfo(event.get('timezone') or 'America/Denver')
+    start=datetime.fromisoformat(event['startsAt'].replace('Z','+00:00')).astimezone(zone)
+    end=datetime.fromisoformat(event['endsAt'].replace('Z','+00:00')).astimezone(zone)
+    status={'draft':'Not published yet','published':'Open for signups','cancelled':'Cancelled','completed':'Completed'}.get(event['status'],event['status'])
+    if event.get('categories') and event['status']=='published' and not any(c.get('signupEligible',False) for c in event['categories']):status='Signup closed'
+    lines=[event['name'],start.strftime('%A, %B ')+str(start.day)+start.strftime(', %Y'),f"{clock(start)}–{clock(end)} · {event.get('timezone','America/Denver')}",event.get('location') or 'Location to be announced']
+    if not event.get('staffingEnabled',True):lines.append('Staffing off')
+    elif event.get('categories'):
+        lines+=category_lines(event)+[f"Total places: {event['capacity']} · Standby by category"]
+    else:lines.append(f"{event['capacity']} volunteer places"+(' · Standby when full' if event.get('standbyEnabled',True) else ''))
+    lines+=['Completion: text DONE after finishing' if event.get('completionReportRequired') else 'No SMS completion report required','',status]
+    if event.get('staffingEnabled',True) and not event.get('categories'):lines.append('Signup keyword: '+event['slug'])
+    if event['status']=='draft':lines.append('No signups are accepted until published.')
+    return '\n'.join(lines)
 
 
 def summary(events, page=1):
@@ -159,14 +171,14 @@ def summary(events, page=1):
     def group_key(e):
         start, end = local_time(e['startsAt']), local_time(e['endsAt'])
         return (e['name'], e.get('location'), e['capacity'], e['status'],
-                start.weekday(), clock(start), clock(end))
+                start.weekday(), clock(start), clock(end), tuple((c['key'],c['name'],c['capacity'],c.get('active',True)) for c in e.get('categories',[])))
     first = events[0]
     if all(group_key(e) == group_key(first) for e in events):
         start, end = local_time(first['startsAt']), local_time(first['endsAt'])
         lines = [first['name'],
                  f"{start:%A}s · {clock(start)}–{clock(end)} (Denver)",
                  first.get('location') or 'Location to be announced',
-                 f"{first['capacity']} volunteer places per date · Standby when full", '',
+                 ('\n'.join(category_lines(first))+f"\nTotal places: {first['capacity']} · Standby by category" if first.get('categories') else f"{first['capacity']} volunteer places per date · Standby when full"), '',
                  'Not published yet' if first['status'] == 'draft' else first['status'].capitalize(),
                  f"Dates ({len(events)} prepared)"]
         for event in visible:
@@ -206,11 +218,33 @@ def operate(action, payload=None, *, client=None, authorized=False):
         rows = client.request('GET', '/api/admin/events/' + str(event_id) + '/signups')['signups']
         return {'eventId': event_id, 'capacity': event['capacity'],
                 'counts': {state: sum(row['status'] == state for row in rows) for state in ('confirmed','standby','cancelled')},
-                'signups': [{key: row.get(key) for key in ('id','volunteerId','status','standbyPosition','smsStatus')} for row in rows]}
-    if action not in ('create', 'update', 'send', 'drop', 'series_prepare', 'series_update'):
+                'categories':event.get('categories',[]),
+                'signups': [{key: row.get(key) for key in ('id','volunteerId','status','standbyPosition','smsStatus','categoryId','occurrenceCategoryId','categoryKey','categoryName')} for row in rows]}
+    if action not in ('create', 'update', 'send', 'drop', 'series_prepare', 'series_update', 'categories'):
         raise BoardError('Unsupported operation.')
     if authorized is not True:
         raise BoardError('Explicit operator authorization required; no change made.')
+    if action == 'categories':
+        categories=payload.get('categories')
+        if not isinstance(categories,list) or not categories:raise BoardError('Explicit category definitions required.')
+        allowed_fields={'key','name','capacity','standbyEnabled','active','sortOrder'}
+        for item in categories:
+            if not isinstance(item,dict) or set(item)-allowed_fields:raise BoardError('Invalid category fields.')
+        scope=payload.get('scope')
+        body={'categories':categories}
+        if scope=='one':
+            route='/api/admin/events/'+str(positive_id('eventId'))+'/categories'
+        elif scope=='future':
+            series_id=payload.get('seriesId','')
+            if not re.fullmatch(r'[A-Za-z0-9_-]+',series_id):raise BoardError('Invalid series ID.')
+            effective=payload.get('effectiveFrom','')
+            try:date.fromisoformat(effective)
+            except (ValueError,TypeError):raise BoardError('An explicit effective date is required.') from None
+            body['effectiveFrom']=effective
+            if payload.get('eventName'):body['eventName']=payload['eventName']
+            route='/api/admin/series/'+series_id+'/categories'
+        else:raise BoardError('Choose this occurrence or this and future occurrences.')
+        return client.request('PUT',route,body)
     if action in ('series_prepare','series_update'):
         series_id=payload.get('seriesId','')
         if not re.fullmatch(r'[A-Za-z0-9_-]+',series_id):raise BoardError('Invalid series ID.')
@@ -270,7 +304,7 @@ def dispatch(args, client=None):
         if words==['pantry','prepare']:
             result=materialize_series(client)
             created=result.get('events',[])
-            return f'Prepared {len(created)} new Saturday Pantry drafts; upcoming 12 Saturdays reconciled without overwriting existing events. No SMS sent. Use /board.'
+            return f'Prepared {len(created)} new Saturday Feed drafts; upcoming 12 Saturdays reconciled without overwriting existing events. No SMS sent. Use /board.'
         if len(words)==2 and words[0] in ('show','publish') and words[1].isdigit() and int(words[1])>0:
             route='/api/admin/events/'+str(int(words[1]))
             if words[0]=='show':return event_details(client.request('GET',route))

@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from volunteer_board_operator import BoardClient, BoardError, operate, event_details, summary
+from volunteer_board_operator import BoardClient, BoardError, operate, event_details, summary, category_lines
 
 HELP = {
     'need': 'Needs\nTell me what is needed, how much, and its priority.\nExample: Create a need for 10 pairs of winter gloves.',
@@ -59,6 +59,12 @@ def inspection_link():
 def staffing_text(event_id, client):
     state = client.request('GET', f'/api/admin/events/{event_id}/staffing')
     event = client.request('GET', f'/api/admin/events/{event_id}')
+    if event.get('categories'):
+        lines=[event['name']]+category_lines(event,counts=True)+[f"Total: {sum(c.get('confirmedCount',0) for c in event['categories'])}/{event['capacity']} confirmed",'Not open for signup (draft)' if event['status']=='draft' else 'Status: '+event['status']]
+        for row in state.get('signups',[]):
+            name=row.get('displayName') or 'Volunteer #'+str(row['volunteerId'])
+            lines.append(f"• {name} · {row.get('categoryName') or 'Historical uncategorized'} · {row['status']}")
+        return '\n'.join(lines)
     counts = state.get('counts', {})
     confirmed = state.get('confirmedCount', counts.get('confirmed', 0))
     standby = state.get('standbyCount', counts.get('standby', 0))
@@ -99,7 +105,10 @@ def board(args='', client=None):
     for event in shown:
         dt=local_time(event['startsAt'])
         lines.append(f"{event['name']} · {dt:%b} {dt.day} · {clock(dt)}")
-        lines.extend(staffing_text(event['id'],client).splitlines()[1:4])
+        if event.get('categories'):
+            lines.extend(category_lines(event,counts=True))
+            lines.append('Not open for signup (draft)' if event['status']=='draft' else 'Status: '+event['status'])
+        else:lines.extend(staffing_text(event['id'],client).splitlines()[1:4])
         lines.append(f"Details: /board show {event['id']}\n")
     if page<pages:lines.append(f'More: /board {page+1}')
     return '\n'.join(lines)
@@ -108,7 +117,7 @@ def event(args='', client=None):
     client=client or BoardClient()
     words=args.strip().split(maxsplit=2)
     if not words or words==['list']:
-        return summary(client.events()).replace('/board','/event') + '\n\nChange it in chat: “Move this Saturday to 4 PM” or “Make future Saturdays 8 places.”'
+        return summary(client.events()).replace('/board','/event') + '\n\nChange it in chat: “Move this Saturday to 4 PM” or “Make Pantry 6 places for future Saturdays.”'
     if words[0]=='board': return board(args.strip()[5:].strip(),client)
     if words[0].isdigit():return summary(client.events(),int(words[0])).replace('/board','/event')
     if len(words)==2 and words[0]=='show' and words[1].isdigit():
@@ -122,7 +131,7 @@ def event(args='', client=None):
         return event_details(operate('create',{'event':fields},client=client,authorized=True))
     if len(words)==3 and words[0]=='update' and words[1].isdigit():
         return event_details(operate('update',{'eventId':int(words[1]),'scope':'one','event':json.loads(words[2])},client=client,authorized=True))
-    return 'Events\n/event — Upcoming dates\n/event show 1 — Details\n\nTell me in chat:\n• Move this Saturday to 4 PM\n• Make future Saturdays 8 places\n• Require DONE for the sock pickup\n\nI will clarify which date if needed. New events stay drafts.'
+    return 'Events\n/event — Upcoming dates\n/event show 1 — Details\n\nTell me in chat:\n• Move this Saturday to 4 PM\n• Make Pantry 6 places for future Saturdays\n• Make Meal 2 places next Saturday\n\nI will clarify which date if needed. New events stay drafts.'
 
 def daily(client=None):
     lines=['Today at Hermes']

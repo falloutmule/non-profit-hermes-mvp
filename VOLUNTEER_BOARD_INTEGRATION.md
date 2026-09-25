@@ -43,7 +43,7 @@ No phone numbers, consent/STOP state, Twilio IDs, private notes or SMS bodies ar
 
 ## Pantry and release gate
 
-Preserve all 12 existing Pantry dates. Capacity 6, staffing/standby on, completion reporting off, America/Denver Saturdays 15:45–17:00, 302 South Ave, Grand Junction. Adopt recurrence through the authenticated series API, preserving IDs/status. Existing `HermesVolunteerBoard-PantryDrafts` materializes future drafts from the stored rule, not an independent event calendar.
+Preserve all 12 existing occurrence IDs and rename their display name Saturday Feed. Categories: Pantry/PANTRY5; Harm Reduction / First Aid / Hygiene/SUPPLIES4; Meal/MEAL1. Total10 derived; independent standby. Completion reporting off, America/Denver Saturdays15:45–17:00, 302 South Ave, Grand Junction. Adopt recurrence through the authenticated series API, preserving IDs/status. Existing `HermesVolunteerBoard-PantryDrafts` materializes future drafts from the stored rule, not an independent event calendar.
 
 `SYSTEM_INTEGRATION_PASS` is separate from the real-use wording/campaign review. `real_use_review_complete` remains false until the approved campaign and live consent/public wording are compared. No automated Twilio modification. Saturday Pantry stays draft; publication/invitations require explicit user authorization even after the wording gate passes.
 
@@ -54,3 +54,15 @@ Use isolated adapter/Board fixtures for writes and SMS. Live checks are reads, l
 Before a Board schema upgrade take a verified online backup with the old runtime. Rollback across schema versions restores the matching pre-upgrade database with the old tested application; never run old code against an upgraded database. After accepting new writes, preserve the latest authoritative state before any rollback.
 
 Historical evidence records earlier connector/menu/OAuth states; this guide supersedes those operating procedures.
+
+## Saturday Feed categories (current model)
+
+The preserved series ID is `saturday-pantry`; its display name is Saturday Feed. Preserve occurrence IDs and dated slugs. Pantry uses PANTRY, five places; Harm Reduction / First Aid / Hygiene uses SUPPLIES, four places; Meal uses MEAL, one place. All have separate standby queues. Total capacity is derived, never edited directly. DONE is disabled for this series.
+
+Use `action="categories"` through the existing `--request` stdin adapter. Supply the complete category definition list with key,name,capacity,standbyEnabled,active,sortOrder. `scope="one"` requires eventId; `scope="future"` requires seriesId and effectiveFrom date. Read current categories first and preserve fields the user did not request changing. Do not rename stable keys to change display names. The Board validates commitments and protects overrides. For an ambiguous change ask this occurrence versus this and future occurrences. A future change preserves prior per-date overrides.
+
+Examples: “Make Pantry six places next Saturday”; “Make Meal two places for future Saturdays”; “Move this Saturday to 4 PM”. Never require the user to type JSON or look up IDs. Confirm the changed category/date and old → new value. Event times still use the event update/series schedule paths. `/board` and `/daily` show separate category needs and reservations; drafts are not open for signup.
+
+Volunteers who already opted in text PANTRY, SUPPLIES or MEAL, choose an offered Saturday by number and reply YES. Full categories require explicit YES for standby. Category keywords do not grant consent. Date choices expire after30minutes; NEXT pages choices. Signup closes at event start. One active assignment per occurrence: explain DROP and rejoin rather than switching categories automatically. Old dated slugs lead to category choice. No cross-category standby, no attendance, and no general SMS reporting.
+
+Publication/invitations remain held. The category implementation changes neither the real-use review gate nor Twilio settings. A configured webhook is not proof of fresh real-phone delivery.

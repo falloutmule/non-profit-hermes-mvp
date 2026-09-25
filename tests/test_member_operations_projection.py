@@ -8,6 +8,34 @@ def snapshot():
  return {'events':[{'id':1,'name':'Pantry','status':'draft','capacity':6,'startsAt':'2026-09-26T21:45:00Z','endsAt':'2026-09-26T23:00:00Z','location':'Venue','description':'PRIVATE TEXT','confirmedCount':1,'standbyCount':1,'reservedCount':1,'spotsAvailable':4}], 'staffing':[{'id':4,'eventId':1,'volunteerId':7,'status':'confirmed','phone':'PRIVATE PHONE'}], 'activity':[{'id':1,'createdAt':'now','source':'sms','action':'signup.created','target':'signup:4','result':'success','body':'PRIVATE SMS'}],'generatedAt':'now'}
 
 class Tests(unittest.TestCase):
+ def category_snapshot(self):
+  s=snapshot();e=s['events'][0];e.update(name='Saturday Feed',capacity=10,confirmedCount=0,standbyCount=0,reservedCount=0,unfilled=10,spotsAvailable=0,signupAvailable=0,timezone='America/Denver',seriesId='saturday-pantry',recurrenceRule=json.dumps({'frequency':'weekly','weekday':5}),occurrenceDate='2026-09-26')
+  e['categories']=[{'id':21,'categoryId':1,'key':'PANTRY','name':'Pantry','capacity':5,'active':True,'sortOrder':0,'confirmedCount':0,'standbyCount':0,'reservedCount':0,'unfilled':5,'spotsAvailable':0,'signupAvailable':0},{'id':22,'categoryId':2,'key':'SUPPLIES','name':'Harm Reduction / First Aid / Hygiene','capacity':4,'active':True,'sortOrder':1,'confirmedCount':0,'standbyCount':0,'reservedCount':0,'unfilled':4,'spotsAvailable':0,'signupAvailable':0},{'id':23,'categoryId':3,'key':'MEAL','name':'Meal','capacity':1,'active':True,'sortOrder':2,'confirmedCount':0,'standbyCount':0,'reservedCount':0,'unfilled':1,'spotsAvailable':0,'signupAvailable':0}]
+  s['staffing']=[];return s
+ def test_zero_signup_category_summary_and_draft_unfilled(self):
+  rows=m.member_rows(self.category_snapshot(),{},'now')
+  cats=[dict(zip(rows['Staffing Categories'][0],r)) for r in rows['Staffing Categories'][1:]]
+  self.assertEqual([r['Category key'] for r in cats],['PANTRY','SUPPLIES','MEAL'])
+  self.assertEqual(cats[0]['Occurrence category ID'],'21');self.assertEqual(cats[0]['Definition category ID'],'1');self.assertEqual(cats[0]['Occurrence date'],'2026-09-26');self.assertIn('03:45 PM MDT',cats[0]['Start (Denver)']);self.assertIn('05:00 PM MDT',cats[0]['End (Denver)']);self.assertEqual(cats[0]['Snapshot UTC'],'now')
+  self.assertEqual([r['Unfilled places'] for r in cats],['5','4','1']);self.assertEqual([r['Signup available'] for r in cats],['0','0','0'])
+  e=dict(zip(rows['Events'][0],rows['Events'][1]));self.assertEqual(e['Capacity'],'10');self.assertEqual(e['Status'],'draft');self.assertEqual(e['Series ID'],'saturday-pantry');self.assertEqual(e['Recurrence'],'Every Saturday');self.assertEqual(e['Occurrence date'],'2026-09-26');self.assertIn('03:45 PM MDT',e['Start (Denver)']);self.assertEqual(len(rows['Staffing']),1)
+ def test_category_staffing_and_audit_no_historical_guess(self):
+  s=self.category_snapshot();s['staffing']=[{'id':4,'eventId':1,'volunteerId':7,'status':'confirmed','categoryId':1,'occurrenceCategoryId':21,'categoryKey':'PANTRY','categoryName':'Pantry','phone':'SECRET'}]
+  s['activity'].append({'id':2,'createdAt':'now','source':'sms','action':'signup.created','target':'signup:4','result':'success','categoryId':1,'occurrenceCategoryId':21,'categoryKey':'PANTRY','categoryName':'Pantry','rawBody':'SECRET'})
+  rows=m.member_rows(s,{},'now');self.assertEqual(rows['Staffing'][1][-4:],['1','PANTRY','Pantry','21']);self.assertEqual(rows['Activity'][1][-4:],['','','','']);self.assertEqual(rows['Activity'][2][-4:],['1','PANTRY','Pantry','21']);self.assertNotIn('SECRET',json.dumps(rows))
+ def test_category_signup_availability_comes_from_board(self):
+  s=self.category_snapshot();e=s['events'][0];e['status']='published';e['categories'][0].update(confirmedCount=2,reservedCount=1,unfilled=2,signupAvailable=2,spotsAvailable=2)
+  rows=m.member_rows(s,{},'now');r=dict(zip(rows['Staffing Categories'][0],rows['Staffing Categories'][1]));self.assertEqual(r['Reserved offers'],'1');self.assertEqual(r['Unfilled places'],'2');self.assertEqual(r['Signup available'],'2')
+  e['categories'][0]['signupAvailable']=0
+  rows=m.member_rows(s,{},'now');self.assertEqual(rows['Staffing Categories'][1][9],'0')
+ def test_one_calendar_operation_per_occurrence_not_category(self):
+  with tempfile.TemporaryDirectory() as d:
+   b=Mock();b.call.side_effect=lambda route,payload=None:{'pending':[{'id':3}]} if route=='pending' else self.category_snapshot()
+   g=Mock();g.sources.return_value={}
+   m.run_once(b,g,{'workbook_id':'test'},Path(d)/'state.json')
+   self.assertEqual(g.calendar_upsert.call_count,1)
+  g=object.__new__(m.Google);g.calendar=Mock();g.calendar_target='test'
+  g.calendar_upsert(self.category_snapshot()['events'][0],{});g.calendar.events.assert_not_called()
  def test_projection_allowlist(self):
   rows=m.member_rows(snapshot(),{},'now'); text=json.dumps(rows)
   self.assertNotIn('PRIVATE',text);self.assertIn('Volunteer #7',text);self.assertIn('MDT',text)

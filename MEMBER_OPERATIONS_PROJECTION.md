@@ -31,3 +31,16 @@ Events/Staffing/Activity come from the narrow Board projection API. Private desc
 Existing CalendarLog mappings with EventDraftID `board:<id>` are honored. Otherwise deterministic Google Calendar IDs encode the stable Board ID; no duplicate CalendarLog ledger is created. Drafts never create Calendar events. Cancellation updates only an existing mapped event; completion retains history. No guests are added and sendUpdates is none.
 
 The generated workbook is an inspection view. Sheet protection prevents accidental edits and is not a privacy boundary. User sharing is deliberate and separate. Never add private contacts, raw audit Before/After, notes, phone numbers, tokens, or SMS bodies. Never synchronize workbook edits back to Board.
+
+
+## Category-aware staffing inspection
+
+`Staffing Categories` is a generated, protected summary tab with one row per Board occurrence/category, including categories with zero signups. It identifies both the occurrence category ID and stable definition category ID, with the Board SMS category key and display name shown separately. Each summary includes occurrence date, Denver start/end, available last-updated timestamp, and snapshot timestamp so Saturdays are independently identifiable. Categories follow Board sortOrder. Capacity, confirmed, reserved offers, unfilled places, standby, and signup availability come from Board counters. Draft or closed-event vacancies are unfilled places, not open invitations; signup availability remains zero. Individual `Staffing` rows carry stable definition category ID, occurrence category ID, category key, and display name. Event rows remain one per occurrence and expose the derived total capacity, timezone, recurrence-series identity, and status.
+
+`Activity` appends definition category ID, occurrence category ID, key, and name only when the machine audit explicitly supplies those fields. Historical category-less activity remains blank; the projection never infers past categories from current signup state. No old audit action is relabeled.
+
+Saturday Feed's approved source shape is PANTRY / Pantry (5), SUPPLIES / Harm Reduction / First Aid / Hygiene (4), MEAL / Meal (1), total 10. This is a test fixture expectation, not a hardcoded production rewrite: the worker mirrors the Board's current records. It never renames Pantry, changes dates, or changes category capacity itself.
+
+Calendar remains one mapped event per published occurrence, never one event per category. Draft occurrences perform no Calendar requests. The outbox, acknowledgement ordering, locking, retry, and five-minute reconciliation behavior are unchanged.
+
+Before deploying this source version, stop the projection task and rerun `--initialize` against its existing private configuration to add/protect the new tab without creating a second workbook or changing sharing. Resume only after Board category APIs and workbook schema are compatible. This implementation phase runs fixtures only; schema initialization and live Google writes are a separate deployment action.
